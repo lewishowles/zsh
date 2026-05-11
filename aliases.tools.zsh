@@ -1,5 +1,5 @@
-# Sync items to a GitHub gist.
-alias sync:gist="~/Dev/Repositories/CLI/gist-sync/gist-sync.sh"
+# Sync settings to their configuration repos.
+alias sync:settings="~/Dev/Repositories/CLI/settings-sync/settings-sync.sh"
 
 # Optimise any .svg file that exists in the Downloads folder using SVGO,
 # and return to the previous folder.

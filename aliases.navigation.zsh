@@ -14,6 +14,8 @@ alias goto:testing="cd ~/Dev/Repositories/Packages/testing"
 alias goto:sketch="cd ~/Dev/Repositories/Plugins/Sketch"
 # Visual Studio Code plugins / tools root
 alias goto:vscode="cd ~/Dev/Repositories/Plugins/\"Visual Studio Code\""
+# settings-sync
+alias goto:settings-sync="cd ~/Dev/Repositories/CLI/settings-sync"
 
 # Quick project manipulation
 alias dev="bun dev";
