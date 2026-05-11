@@ -36,30 +36,3 @@ function setup:claude() {
 
 	echo ""
 }
-
-# /caveman:compress the original CLAUDE.md file to use fewer tokens.
-function caveman() {
-	pushd ~/Dev/Configuration/Claude > /dev/null
-
-	if [[ -f CLAUDE.original.md ]]; then
-		# Copy original content into CLAUDE.md in-place (preserves
-		# inode/symlinks), then remove the backup so compress is willing to run.
-		cp CLAUDE.original.md CLAUDE.md
-		rm CLAUDE.original.md
-	fi
-
-	echo ""
-	echo "Once Claude starts, run: ${PURPLE}/caveman:compress CLAUDE.md${RESET_COLOUR}"
-	echo "Then type ${PURPLE}exit${RESET_COLOUR} to return here."
-	echo ""
-
-	claude
-
-	# Claude has exited — symlinks already point to CLAUDE.md whose inode
-	# never changed, so nothing further is needed.
-	echo ""
-	echo "${GREEN}✓${RESET_COLOUR} Done. Symlinks are intact."
-	echo ""
-
-	popd > /dev/null
-}

@@ -14,14 +14,6 @@ alias goto:testing="cd ~/Dev/Repositories/Packages/testing"
 alias goto:sketch="cd ~/Dev/Repositories/Plugins/Sketch"
 # Visual Studio Code plugins / tools root
 alias goto:vscode="cd ~/Dev/Repositories/Plugins/\"Visual Studio Code\""
-# Snippet generator
-alias goto:snippet="cd ~/Dev/Repositories/Tools/vscode-snippet-generator"
-# Form builder
-alias goto:fb="cd ~/Dev/Repositories/Tools/form-builder"
-# Cinewatch
-alias goto:cinewatch="cd ~/Dev/Repositories/Tools/Cinewatch/cinewatch-app"
-# gist-sync
-alias goto:gist-sync="cd ~/Dev/Repositories/CLI/gist-sync"
 
 # Quick project manipulation
 alias dev="bun dev";

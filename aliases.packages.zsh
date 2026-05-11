@@ -1,5 +1,5 @@
 alias packages:refresh="rm -rf node_modules; rm bun.lock; bun i";
-alias packages:updated="ncu -u; bun i";
+alias packages:update="ncu -u; bun i";
 
 # Symlink a locally-built @lewishowles package into this project.
 # Removes any current registry version first so the link is the only copy.
