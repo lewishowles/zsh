@@ -46,5 +46,12 @@ function setup:claude() {
 		echo "${PURPLE}settings.json${RESET_COLOUR} already exists. No changes made."
 	fi
 
+	if [ ! -f ".claudeignore" ]; then
+		cp "$repo/templates/.claudeignore" .claudeignore
+		echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}.claudeignore${RESET_COLOUR} — edit to customise which directories to skip"
+	else
+		echo "${PURPLE}.claudeignore${RESET_COLOUR} already exists. No changes made."
+	fi
+
 	echo ""
 }
