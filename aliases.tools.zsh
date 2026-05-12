@@ -20,18 +20,30 @@ function github() {
 
 # Symlink the global CLAUDE.md instruction set
 function setup:claude() {
+	local repo="/Users/lewis/Dev/Configuration/Claude"
+
 	echo ""
+	mkdir -p .claude
 
 	if [ ! -f ".claude/CLAUDE.md" ]; then
-		ln -s ~/Dev/Configuration/Claude/CLAUDE.md .claude/CLAUDE.md
+		ln -s "$repo/CLAUDE.md" .claude/CLAUDE.md
 		echo "${GREEN}✓${RESET_COLOUR} Symlinked ${PURPLE}CLAUDE.md${RESET_COLOUR}"
 	else
 		echo "${PURPLE}CLAUDE.md${RESET_COLOUR} already exists. No link was made."
 	fi
 
 	if [ ! -f ".claude/AGENTS.md" ]; then
-		echo ""
-		echo "${YELLOW}Important:${RESET_COLOUR} Make sure to set up project-specific instructions in ${PURPLE}AGENTS.md${RESET_COLOUR}. See AGENTS.md.template for an example."
+		cp "$repo/templates/AGENTS.md.template" .claude/AGENTS.md
+		echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}AGENTS.md${RESET_COLOUR} — edit it to document this project"
+	else
+		echo "${PURPLE}AGENTS.md${RESET_COLOUR} already exists. No changes made."
+	fi
+
+	if [ ! -f ".claude/settings.json" ]; then
+		cp "$repo/templates/settings.json" .claude/settings.json
+		echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}settings.json${RESET_COLOUR} — enable stack-specific skills as needed"
+	else
+		echo "${PURPLE}settings.json${RESET_COLOUR} already exists. No changes made."
 	fi
 
 	echo ""
