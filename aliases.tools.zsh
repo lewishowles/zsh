@@ -25,6 +25,7 @@ function setup:claude() {
 	echo ""
 	mkdir -p .claude
 
+	# Symlink the global config (not a template, lives in repo root)
 	if [ ! -f ".claude/CLAUDE.md" ]; then
 		ln -s "$repo/CLAUDE.md" .claude/CLAUDE.md
 		echo "${GREEN}✓${RESET_COLOUR} Symlinked ${PURPLE}CLAUDE.md${RESET_COLOUR}"
@@ -32,26 +33,35 @@ function setup:claude() {
 		echo "${PURPLE}CLAUDE.md${RESET_COLOUR} already exists. No link was made."
 	fi
 
-	if [ ! -f ".claude/AGENTS.md" ]; then
-		cp "$repo/templates/AGENTS.md.template" .claude/AGENTS.md
-		echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}AGENTS.md${RESET_COLOUR} — edit it to document this project"
-	else
-		echo "${PURPLE}AGENTS.md${RESET_COLOUR} already exists. No changes made."
-	fi
+	# Copy config files from templates. Format: .claude/<file> → templates/<file>
+	local -a targets=(
+		".claude/AGENTS.md"
+		".claude/settings.json"
+		".claude/.claudeignore"
+	)
 
-	if [ ! -f ".claude/settings.json" ]; then
-		cp "$repo/templates/settings.json" .claude/settings.json
-		echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}settings.json${RESET_COLOUR} — enable stack-specific skills as needed"
-	else
-		echo "${PURPLE}settings.json${RESET_COLOUR} already exists. No changes made."
-	fi
+	local -A copy_messages=(
+		[AGENTS.md]="edit it to document this project"
+		[settings.json]="enable stack-specific skills as needed"
+		[.claudeignore]="edit to customise which directories to skip"
+	)
 
-	if [ ! -f ".claudeignore" ]; then
-		cp "$repo/templates/.claudeignore" .claudeignore
-		echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}.claudeignore${RESET_COLOUR} — edit to customise which directories to skip"
-	else
-		echo "${PURPLE}.claudeignore${RESET_COLOUR} already exists. No changes made."
-	fi
+	for target in "${targets[@]}"; do
+		local filename=$(basename "$target")
+		local source="$repo/templates/$filename"
+
+		if [ ! -f "$target" ]; then
+			cp "$source" "$target"
+			local msg="${copy_messages[$filename]}"
+			if [ -n "$msg" ]; then
+				echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}$filename${RESET_COLOUR} — $msg"
+			else
+				echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}$filename${RESET_COLOUR}"
+			fi
+		else
+			echo "${PURPLE}$filename${RESET_COLOUR} already exists. No changes made."
+		fi
+	done
 
 	echo ""
 }
