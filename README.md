@@ -25,7 +25,7 @@ That's it — the loader sources everything else.
 | `aliases.navigation.zsh` | `goto:*` project shortcuts + project commands (`dev`, `build`, `lint`, `unit`, `cypress:*`). |
 | `aliases.scaffold.zsh` | `scaffold:*` and `convert:*` aliases, with relative `./support/...` paths so they resolve against the current project. |
 | `aliases.packages.zsh` | `packages:refresh`, `packages:updated`, plus the `link` / `unlink` / `relink` / `reinstall` functions for local `@lewishowles/*` development. |
-| `aliases.tools.zsh` | Misc tools `sync:gist`, `svg`, `github`, `setup:claude`, `caveman`. |
+| `aliases.tools.zsh` | Misc tools `sync:gist`, `svg`, `github`, `setup:agents/setup:claude/setup:codex`, `caveman`. |
 | `oh-my-zsh-settings.zsh` | Oh My Zsh init + powerlevel10k theme. |
 | `nvm-settings.zsh` | nvm init. |
 | `bun-settings.zsh` | bun PATH, env, and completions. |

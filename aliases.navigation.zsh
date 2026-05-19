@@ -4,6 +4,8 @@ alias goto:howles="cd ~/Dev/Repositories/Howles/howles.dev"
 alias goto:blog="cd ~/Dev/Repositories/Howles/blog"
 # Boilersuit app
 alias goto:boilersuit="cd ~/Dev/Repositories/macOS/Boilersuit"
+# Agent configuration
+alias goto:agents="cd ~/Dev/Configuration/Agents"
 # Vue component library
 alias goto:components="cd ~/Dev/Repositories/Packages/components"
 # Javascript helper library

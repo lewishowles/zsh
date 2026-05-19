@@ -18,50 +18,15 @@ function github() {
 	open "https://github.com/lewishowles/$repo/actions"
 }
 
-# Symlink the global CLAUDE.md instruction set
+# Set up project-local agent files.
+function setup:agents() {
+	/Users/lewis/Dev/Configuration/Agents/scripts/setup-project.sh --both
+}
+
 function setup:claude() {
-	local repo="/Users/lewis/Dev/Configuration/Claude"
+	/Users/lewis/Dev/Configuration/Agents/scripts/setup-project.sh --claude
+}
 
-	echo ""
-	mkdir -p .claude
-
-	# Symlink the global config (not a template, lives in repo root)
-	if [ ! -f ".claude/CLAUDE.md" ]; then
-		ln -s "$repo/CLAUDE.md" .claude/CLAUDE.md
-		echo "${GREEN}✓${RESET_COLOUR} Symlinked ${PURPLE}CLAUDE.md${RESET_COLOUR}"
-	else
-		echo "${PURPLE}CLAUDE.md${RESET_COLOUR} already exists. No link was made."
-	fi
-
-	# Copy config files from templates. Format: .claude/<file> → templates/<file>
-	local -a targets=(
-		".claude/AGENTS.md"
-		".claude/settings.json"
-		".claude/.claudeignore"
-	)
-
-	local -A copy_messages=(
-		[AGENTS.md]="edit it to document this project"
-		[settings.json]="enable stack-specific skills as needed"
-		[.claudeignore]="edit to customise which directories to skip"
-	)
-
-	for target in "${targets[@]}"; do
-		local filename=$(basename "$target")
-		local source="$repo/templates/$filename"
-
-		if [ ! -f "$target" ]; then
-			cp "$source" "$target"
-			local msg="${copy_messages[$filename]}"
-			if [ -n "$msg" ]; then
-				echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}$filename${RESET_COLOUR} — $msg"
-			else
-				echo "${GREEN}✓${RESET_COLOUR} Copied ${PURPLE}$filename${RESET_COLOUR}"
-			fi
-		else
-			echo "${PURPLE}$filename${RESET_COLOUR} already exists. No changes made."
-		fi
-	done
-
-	echo ""
+function setup:codex() {
+	/Users/lewis/Dev/Configuration/Agents/scripts/setup-project.sh --codex
 }
