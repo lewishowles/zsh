@@ -1,6 +1,7 @@
 # Aliases & helpers (config first — defines colour vars used by others)
 source ~/Dev/Configuration/zsh/aliases.config.zsh
 source ~/Dev/Configuration/zsh/aliases.navigation.zsh
+source ~/Dev/Configuration/zsh/aliases.external.zsh
 source ~/Dev/Configuration/zsh/aliases.scaffold.zsh
 source ~/Dev/Configuration/zsh/aliases.packages.zsh
 source ~/Dev/Configuration/zsh/aliases.tools.zsh
