@@ -14,3 +14,6 @@ source ~/Dev/Configuration/zsh/nvm-settings.zsh
 source ~/Dev/Configuration/zsh/bun-settings.zsh
 
 export PATH="$HOME/.local/bin:$PATH"
+
+# Added by codebase-memory-mcp install
+export PATH="/Users/lewis/.local/bin:$PATH"
