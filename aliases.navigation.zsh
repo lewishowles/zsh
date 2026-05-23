@@ -13,9 +13,9 @@ alias goto:helpers="cd ~/Dev/Repositories/Packages/helpers"
 # Testing helper library
 alias goto:testing="cd ~/Dev/Repositories/Packages/testing"
 # Sketch plugins root
-alias goto:sketch="cd ~/Dev/Repositories/Plugins/Sketch"
+alias goto:sketch="cd ~/Dev/Repositories/Extensions/Sketch"
 # Visual Studio Code plugins / tools root
-alias goto:vscode="cd ~/Dev/Repositories/Plugins/\"Visual Studio Code\""
+alias goto:vscode="cd ~/Dev/Repositories/Extensions/\"Visual Studio Code\""
 # settings-sync
 alias goto:settings-sync="cd ~/Dev/Repositories/CLI/settings-sync"
 
