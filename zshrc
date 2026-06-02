@@ -8,12 +8,13 @@ source ~/Dev/Configuration/zsh/aliases.tools.zsh
 
 # Settings for ZSH and Oh My ZSH
 source ~/Dev/Configuration/zsh/oh-my-zsh-settings.zsh
-# Settings for nvm
-source ~/Dev/Configuration/zsh/nvm-settings.zsh
-# Settings for bun (incl. completions)
+# Settings for bun (including completions)
 source ~/Dev/Configuration/zsh/bun-settings.zsh
 
 export PATH="$HOME/.local/bin:$PATH"
 
 # Added by codebase-memory-mcp install
 export PATH="/Users/lewis/.local/bin:$PATH"
+
+# Vite+ bin (https://viteplus.dev)
+. "$HOME/.vite-plus/env"

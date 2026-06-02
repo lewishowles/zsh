@@ -27,7 +27,6 @@ That's it — the loader sources everything else.
 | `aliases.packages.zsh` | `packages:refresh`, `packages:updated`, plus the `link` / `unlink` / `relink` / `reinstall` functions for local `@lewishowles/*` development. |
 | `aliases.tools.zsh` | Misc tools `sync:settings`, `index:repository`, `svg`, `github`, `setup:agents/setup:claude/setup:codex`. |
 | `oh-my-zsh-settings.zsh` | Oh My Zsh init + powerlevel10k theme. |
-| `nvm-settings.zsh` | nvm init. |
 | `bun-settings.zsh` | bun PATH, env, and completions. |
 
 ## Adding a new alias or function
