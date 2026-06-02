@@ -8,7 +8,14 @@ alias packages:update="ncu -u; bun i";
 #     Library name without scope (e.g. "helpers" for @lewishowles/helpers).
 function link() {
 	local library=$1
+	local library_path="$HOME/Dev/Repositories/Packages/$library"
 
+	# Register the library globally
+	cd "$library_path"
+	bun link
+	cd - > /dev/null
+
+	# Link it in the current project
 	bun uninstall @lewishowles/$library
 	bun link @lewishowles/$library
 }
