@@ -11,5 +11,3 @@ RESET_COLOUR=$'\033[0m'
 
 # Quickly edit config / global files
 alias zshrc="pushd ~ > /dev/null && code .zshrc && popd > /dev/null"
-# Edit the generated global Claude instruction file.
-alias claudemd="pushd ~ > /dev/null && code ~/Dev/Configuration/Agents/targets/claude/CLAUDE.md && popd > /dev/null"
