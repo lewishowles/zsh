@@ -27,4 +27,11 @@ alias unit="bun test:unit";
 alias unitui="bun test:unit:ui";
 alias cypress:open="bun cypress open --port 8080";
 alias cypress:run="bun cypress run";
-alias cypress:component="bun cypress run --component";
+
+cypress:component() {
+	if [[ -n "$1" ]]; then
+		bun cypress run --component --spec "**/*$1*.cy.js"
+	else
+		bun cypress run --component
+	fi
+}
