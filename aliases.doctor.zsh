@@ -4,7 +4,7 @@ function _doctor_fail() { printf '  %s✗%s  %s\n' "$RED" "$RESET_COLOUR" "$1"; 
 function _doctor_info() { printf '  %s·%s  %s\n' "$YELLOW" "$RESET_COLOUR" "$1" }
 function _doctor_section() { printf '\n%s\n' "$1" }
 
-# @desc  Check zsh config health: files, tools, goto paths, syntax, PATH
+# @desc  Check zsh config health: files, tools, goto paths, syntax, PATH, docs
 # @cat   config
 function zsh:doctor() {
 	local _pass=0 _fail=0
@@ -125,6 +125,14 @@ function zsh:doctor() {
 		_seen[$p]=1
 	done
 	(( _has_dupes )) || _doctor_pass "no duplicate PATH entries"
+
+	# --- Docs ---
+	_doctor_section 'docs'
+	if _docs_check; then
+		_doctor_pass "README command table is up to date"
+	else
+		_doctor_fail "README command table is stale — run docs:generate"
+	fi
 
 	# --- Summary ---
 	printf '\n'
