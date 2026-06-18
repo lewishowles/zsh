@@ -1,15 +1,22 @@
-# Scaffold a new view
+# @desc  Scaffold a new view
+# @cat   scaffold
 alias scaffold:view='./support/scaffold-view.sh'
-# Scaffold a new component
+# @desc  Scaffold a new component
+# @cat   scaffold
 alias scaffold:component='./support/scaffold-component.sh'
-# Scaffold a new documentation page
+# @desc  Scaffold a new documentation page
+# @cat   scaffold
 alias scaffold:documentation='./support/scaffold-documentation.sh'
-# Scaffold a new icon
+# @desc  Scaffold a new icon
+# @cat   scaffold
 alias scaffold:icon='./support/scaffold-icon.sh'
-# Scaffold a new composable
+# @desc  Scaffold a new composable
+# @cat   scaffold
 alias scaffold:composable='./support/scaffold-composable.sh'
-# Scaffold a new helper
+# @desc  Scaffold a new helper function
+# @cat   scaffold
 alias scaffold:helper='./support/scaffold-helper.sh'
 
-# Convert SVG icons into components
+# @desc  Convert SVG icons into Vue components
+# @cat   scaffold
 alias convert:icons='./support/convert-icons.sh'

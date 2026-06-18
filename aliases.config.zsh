@@ -9,5 +9,6 @@ CYAN=$'\033[0;36m'
 WHITE=$'\033[0;37m'
 RESET_COLOUR=$'\033[0m'
 
-# Quickly edit config / global files
+# @desc  Open .zshrc in VS Code
+# @cat   config
 alias zshrc="pushd ~ > /dev/null && code .zshrc && popd > /dev/null"

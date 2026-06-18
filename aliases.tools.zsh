@@ -1,7 +1,10 @@
-# Sync settings to their configuration repos.
+# @desc  Sync dotfiles and settings to their configuration repos
+# @cat   tools
 alias settings:sync="~/Dev/Repositories/CLI/settings-sync/settings-sync.sh"
 
-# Index the current repository in codebase-memory-mcp and store its architecture summary as an ADR.
+# @desc  Index the current repository in codebase-memory-mcp and store an ADR
+# @cat   repo
+# @needs codebase-memory-mcp jq
 function repo:index() {
 	if ! command -v codebase-memory-mcp &>/dev/null; then
 		printf 'codebase-memory-mcp is not installed or not on PATH\n' >&2
@@ -39,8 +42,9 @@ function repo:index() {
 	codebase-memory-mcp cli manage_adr "$(jq -cn --arg project "$project" --arg content "$architecture" '{project:$project,mode:"update",content:$content}')"
 }
 
-# Optimise any .svg file that exists in the Downloads folder using SVGO,
-# and return to the previous folder.
+# @desc  Optimise SVG files in ~/Downloads using SVGO
+# @cat   tools
+# @needs svgo
 function svg() {
 	if ! command -v svgo &>/dev/null; then
 		printf 'svgo is not installed or not on PATH\n' >&2
@@ -58,10 +62,9 @@ function svg() {
 	pushd ~/Downloads > /dev/null && svgo "${files[@]}" && popd > /dev/null
 }
 
-# Open the main GitHub page for a repo.
-#
-# @param  {string}  repo  (optional)
-#     Repo name. Defaults to the `name` field in package.json.
+# @desc  Open the main GitHub page for a repo
+# @cat   repo
+# @needs jq
 function repo:open() {
 	local repo=$1
 
@@ -82,10 +85,9 @@ function repo:open() {
 	open "https://github.com/lewishowles/$repo"
 }
 
-# Open the main page, releases, and actions for a repo — three tabs.
-#
-# @param  {string}  repo  (optional)
-#     Repo name. Defaults to the `name` field in package.json.
+# @desc  Open main page, releases, and actions for a repo (3 tabs)
+# @cat   repo
+# @needs jq
 function repo:open:all() {
 	local repo=$1
 
@@ -108,13 +110,30 @@ function repo:open:all() {
 	open "https://github.com/lewishowles/$repo/actions"
 }
 
-# Set up agent files.
+# @desc  Set up agent files (Claude + Codex) globally
+# @cat   agents
 alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
+# @desc  Set up Claude agent files globally
+# @cat   agents
 alias agents:setup:claude:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --claude"
+# @desc  Set up Codex agent files globally
+# @cat   agents
 alias agents:setup:codex:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --codex"
+# @desc  Set up agent files (Claude + Codex) for the current project
+# @cat   agents
 alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
+# @desc  Set up Claude agent files for the current project
+# @cat   agents
 alias agents:setup:claude="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --claude"
+# @desc  Set up Codex agent files for the current project
+# @cat   agents
 alias agents:setup:codex="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --codex"
+# @desc  Initialise AGENT_CAPABILITIES.md for the current project
+# @cat   agents
 alias agents:capabilities="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --init-capabilities"
+# @desc  Write AGENT_CAPABILITIES.md for the current project
+# @cat   agents
 alias agents:capabilities:write="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-capabilities"
+# @desc  Force-regenerate AGENT_CAPABILITIES.md for the current project
+# @cat   agents
 alias agents:capabilities:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-capabilities"

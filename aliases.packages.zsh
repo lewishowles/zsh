@@ -1,4 +1,9 @@
+# @desc  Wipe node_modules and lockfile, then reinstall all dependencies
+# @cat   deps
 alias deps:refresh="rm -rf node_modules; rm -f bun.lock bun.lockb; bun i";
+# @desc  Upgrade all dependencies to latest versions, then install
+# @cat   deps
+# @needs ncu
 alias deps:update="ncu -u; bun i";
 
 # Symlink a locally-built @lewishowles package into this project.
@@ -6,6 +11,9 @@ alias deps:update="ncu -u; bun i";
 #
 # @param  {string}  library
 #     Library name without scope (e.g. "helpers" for @lewishowles/helpers).
+# @desc  Symlink a local @lewishowles package into this project
+# @cat   package
+# @needs bun
 function package:link() {
 	local library=$1
 	local library_path="$HOME/Dev/Repositories/Packages/$library"
@@ -39,6 +47,9 @@ function package:link() {
 #
 # @param  {string}  library
 #     Library name without scope.
+# @desc  Restore a linked @lewishowles package to its registry version
+# @cat   package
+# @needs bun
 function package:unlink() {
 	local library=$1
 
@@ -61,6 +72,9 @@ function package:unlink() {
 #
 # @param  {string}  library
 #     Library name without scope.
+# @desc  Unlink then re-link a local @lewishowles package
+# @cat   package
+# @needs bun
 function package:relink() {
 	local library=$1
 
@@ -78,6 +92,9 @@ function package:relink() {
 #
 # @param  {string}  library
 #     Library name without scope.
+# @desc  Wipe and reinstall a @lewishowles package from the registry
+# @cat   package
+# @needs bun
 function package:reinstall() {
 	local library=$1
 
