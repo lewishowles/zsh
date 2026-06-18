@@ -25,9 +25,6 @@ alias goto:sketch="cd ~/Dev/Repositories/Extensions/Sketch"
 # @desc  Open the VS Code extensions root
 # @cat   nav
 alias goto:vscode="cd ~/Dev/Repositories/Extensions/\"Visual Studio Code\""
-# @desc  Open the settings-sync project
-# @cat   nav
-alias goto:settings-sync="cd ~/Dev/Repositories/CLI/settings-sync"
 
 # @desc  Run the dev server
 # @cat   dev
