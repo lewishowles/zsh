@@ -23,15 +23,18 @@ alias goto:settings-sync="cd ~/Dev/Repositories/CLI/settings-sync"
 alias dev="bun dev";
 alias build="bun run build";
 alias lint="bun lint";
-alias unit="bun test:unit";
-alias unitui="bun test:unit:ui";
-alias cypress:open="bun cypress open --port 8080";
-alias cypress:run="bun cypress run";
+alias test:unit="bun test:unit";
+alias test:unit:ui="bun test:unit:ui";
 
-cypress:component() {
+# Run all e2e tests headlessly
+alias test:e2e="bun playwright test"
+# Run e2e tests in interactive UI mode
+alias test:e2e:ui="bun playwright test --ui"
+# Run e2e tests matching an optional file path filter
+function test:e2e:spec() {
 	if [[ -n "$1" ]]; then
-		bun cypress run --component --spec "**/*$1*.cy.js"
+		bun playwright test "*$1*"
 	else
-		bun cypress run --component
+		bun playwright test
 	fi
 }

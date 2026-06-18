@@ -1,17 +1,17 @@
-alias packages:refresh="rm -rf node_modules; rm -f bun.lock bun.lockb; bun i";
-alias packages:update="ncu -u; bun i";
+alias deps:refresh="rm -rf node_modules; rm -f bun.lock bun.lockb; bun i";
+alias deps:update="ncu -u; bun i";
 
 # Symlink a locally-built @lewishowles package into this project.
 # Removes any current registry version first so the link is the only copy.
 #
 # @param  {string}  library
 #     Library name without scope (e.g. "helpers" for @lewishowles/helpers).
-function link() {
+function package:link() {
 	local library=$1
 	local library_path="$HOME/Dev/Repositories/Packages/$library"
 
 	if [[ -z "$library" ]]; then
-		printf 'Usage: link <library-name>\n' >&2
+		printf 'Usage: package:link <library-name>\n' >&2
 		return 1
 	fi
 
@@ -33,17 +33,17 @@ function link() {
 	bun link "@lewishowles/$library"
 }
 
-# Undo a previous `link` and restore the registry version.
+# Undo a previous `package:link` and restore the registry version.
 # Removes the symlink via `bun unlink`, clears bun's cache to avoid stale
 # tarballs, then installs the registry release.
 #
 # @param  {string}  library
 #     Library name without scope.
-function unlink() {
+function package:unlink() {
 	local library=$1
 
 	if [[ -z "$library" ]]; then
-		printf 'Usage: unlink <library-name>\n' >&2
+		printf 'Usage: package:unlink <library-name>\n' >&2
 		return 1
 	fi
 
@@ -61,16 +61,16 @@ function unlink() {
 #
 # @param  {string}  library
 #     Library name without scope.
-function relink() {
+function package:relink() {
 	local library=$1
 
 	if [[ -z "$library" ]]; then
-		printf 'Usage: relink <library-name>\n' >&2
+		printf 'Usage: package:relink <library-name>\n' >&2
 		return 1
 	fi
 
-	unlink "$library"
-	link "$library"
+	package:unlink "$library"
+	package:link "$library"
 }
 
 # Wipe a registry-installed package and reinstall it from scratch.
@@ -78,11 +78,11 @@ function relink() {
 #
 # @param  {string}  library
 #     Library name without scope.
-function reinstall() {
+function package:reinstall() {
 	local library=$1
 
 	if [[ -z "$library" ]]; then
-		printf 'Usage: reinstall <library-name>\n' >&2
+		printf 'Usage: package:reinstall <library-name>\n' >&2
 		return 1
 	fi
 

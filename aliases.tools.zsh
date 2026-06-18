@@ -1,8 +1,8 @@
 # Sync settings to their configuration repos.
-alias sync:settings="~/Dev/Repositories/CLI/settings-sync/settings-sync.sh"
+alias settings:sync="~/Dev/Repositories/CLI/settings-sync/settings-sync.sh"
 
 # Index the current repository in codebase-memory-mcp and store its architecture summary as an ADR.
-function index:repository() {
+function repo:index() {
 	if ! command -v codebase-memory-mcp &>/dev/null; then
 		printf 'codebase-memory-mcp is not installed or not on PATH\n' >&2
 		return 1
@@ -58,8 +58,11 @@ function svg() {
 	pushd ~/Downloads > /dev/null && svgo "${files[@]}" && popd > /dev/null
 }
 
-# Quickly navigate to relevant GitHub locations
-function github() {
+# Open the main GitHub page for a repo.
+#
+# @param  {string}  repo  (optional)
+#     Repo name. Defaults to the `name` field in package.json.
+function repo:open() {
 	local repo=$1
 
 	if [[ -z "$repo" ]]; then
@@ -72,7 +75,31 @@ function github() {
 	fi
 
 	if [[ -z "$repo" ]]; then
-		printf 'Usage: github <repo-name>\n' >&2
+		printf 'Usage: repo:open <repo-name>\n' >&2
+		return 1
+	fi
+
+	open "https://github.com/lewishowles/$repo"
+}
+
+# Open the main page, releases, and actions for a repo — three tabs.
+#
+# @param  {string}  repo  (optional)
+#     Repo name. Defaults to the `name` field in package.json.
+function repo:open:all() {
+	local repo=$1
+
+	if [[ -z "$repo" ]]; then
+		if ! command -v jq &>/dev/null; then
+			printf 'jq is required to read package.json\n' >&2
+			return 1
+		fi
+
+		repo=$(jq -r .name package.json 2>/dev/null | awk -F/ '{print $NF}')
+	fi
+
+	if [[ -z "$repo" ]]; then
+		printf 'Usage: repo:open:all <repo-name>\n' >&2
 		return 1
 	fi
 
@@ -82,12 +109,12 @@ function github() {
 }
 
 # Set up agent files.
-alias setup:agents:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
-alias setup:claude:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --claude"
-alias setup:codex:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --codex"
-alias setup:agents="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
-alias setup:claude="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --claude"
-alias setup:codex="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --codex"
+alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
+alias agents:setup:claude:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --claude"
+alias agents:setup:codex:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --codex"
+alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
+alias agents:setup:claude="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --claude"
+alias agents:setup:codex="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --codex"
 alias agents:capabilities="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --init-capabilities"
 alias agents:capabilities:write="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-capabilities"
 alias agents:capabilities:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-capabilities"
