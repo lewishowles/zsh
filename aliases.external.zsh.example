@@ -1,0 +1,5 @@
+# Private aliases — copy this file to aliases.external.zsh (gitignored).
+# Sourced automatically by the glob loader in zshrc; no edits to zshrc needed.
+
+# Example: a goto shortcut for a private client project.
+# alias goto:clientname="cd ~/Dev/Client/projectname"

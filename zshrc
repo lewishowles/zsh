@@ -1,20 +1,18 @@
-# Aliases & helpers (config first — defines colour vars used by others)
-source ~/Dev/Configuration/zsh/aliases.config.zsh
-source ~/Dev/Configuration/zsh/aliases.navigation.zsh
-source ~/Dev/Configuration/zsh/aliases.external.zsh
-source ~/Dev/Configuration/zsh/aliases.scaffold.zsh
-source ~/Dev/Configuration/zsh/aliases.packages.zsh
-source ~/Dev/Configuration/zsh/aliases.tools.zsh
+ZSH_CONFIG_ROOT="${ZSH_CONFIG_ROOT:-$HOME/Dev/Configuration/zsh}"
+
+# Aliases & helpers — sources every aliases.*.zsh in sorted order.
+# Drop a new file in and it's picked up automatically; private/optional files
+# (e.g. aliases.external.zsh) simply don't error when absent.
+for f in "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N); do
+    source "$f"
+done
 
 # Settings for ZSH and Oh My ZSH
-source ~/Dev/Configuration/zsh/oh-my-zsh-settings.zsh
+source "$ZSH_CONFIG_ROOT/oh-my-zsh-settings.zsh"
 # Settings for bun (including completions)
-source ~/Dev/Configuration/zsh/bun-settings.zsh
+source "$ZSH_CONFIG_ROOT/bun-settings.zsh"
 
 export PATH="$HOME/.local/bin:$PATH"
 
-# Added by codebase-memory-mcp install
-export PATH="/Users/lewis/.local/bin:$PATH"
-
 # Vite+ bin (https://viteplus.dev)
-. "$HOME/.vite-plus/env"
+[[ -r "$HOME/.vite-plus/env" ]] && . "$HOME/.vite-plus/env"

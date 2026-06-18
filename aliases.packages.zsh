@@ -1,4 +1,4 @@
-alias packages:refresh="rm -rf node_modules; rm bun.lock; bun i";
+alias packages:refresh="rm -rf node_modules; rm -f bun.lock bun.lockb; bun i";
 alias packages:update="ncu -u; bun i";
 
 # Symlink a locally-built @lewishowles package into this project.
@@ -10,14 +10,27 @@ function link() {
 	local library=$1
 	local library_path="$HOME/Dev/Repositories/Packages/$library"
 
+	if [[ -z "$library" ]]; then
+		printf 'Usage: link <library-name>\n' >&2
+		return 1
+	fi
+
+	if ! command -v bun &>/dev/null; then
+		printf 'bun is not installed or not on PATH\n' >&2
+		return 1
+	fi
+
+	if [[ ! -d "$library_path" ]]; then
+		printf 'Library path not found: %s\n' "$library_path" >&2
+		return 1
+	fi
+
 	# Register the library globally
-	cd "$library_path"
-	bun link
-	cd - > /dev/null
+	(cd "$library_path" && bun link) || return
 
 	# Link it in the current project
-	bun uninstall @lewishowles/$library
-	bun link @lewishowles/$library
+	bun uninstall "@lewishowles/$library"
+	bun link "@lewishowles/$library"
 }
 
 # Undo a previous `link` and restore the registry version.
@@ -29,9 +42,19 @@ function link() {
 function unlink() {
 	local library=$1
 
-	bun unlink @lewishowles/$library
+	if [[ -z "$library" ]]; then
+		printf 'Usage: unlink <library-name>\n' >&2
+		return 1
+	fi
+
+	if ! command -v bun &>/dev/null; then
+		printf 'bun is not installed or not on PATH\n' >&2
+		return 1
+	fi
+
+	bun unlink "@lewishowles/$library"
 	bun pm cache rm
-	bun i @lewishowles/$library
+	bun i "@lewishowles/$library"
 }
 
 # Reset a linked package: unlink then re-link, clearing cache between.
@@ -41,8 +64,13 @@ function unlink() {
 function relink() {
 	local library=$1
 
-	unlink $library
-	link $library
+	if [[ -z "$library" ]]; then
+		printf 'Usage: relink <library-name>\n' >&2
+		return 1
+	fi
+
+	unlink "$library"
+	link "$library"
 }
 
 # Wipe a registry-installed package and reinstall it from scratch.
@@ -53,7 +81,17 @@ function relink() {
 function reinstall() {
 	local library=$1
 
-	bun remove @lewishowles/$library
+	if [[ -z "$library" ]]; then
+		printf 'Usage: reinstall <library-name>\n' >&2
+		return 1
+	fi
+
+	if ! command -v bun &>/dev/null; then
+		printf 'bun is not installed or not on PATH\n' >&2
+		return 1
+	fi
+
+	bun remove "@lewishowles/$library"
 	bun pm cache rm
-	bun add @lewishowles/$library
+	bun add "@lewishowles/$library"
 }

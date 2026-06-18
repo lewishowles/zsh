@@ -41,14 +41,39 @@ function index:repository() {
 
 # Optimise any .svg file that exists in the Downloads folder using SVGO,
 # and return to the previous folder.
-alias svg="pushd ~/Downloads > /dev/null && svgo **/*.svg && popd > /dev/null"
+function svg() {
+	if ! command -v svgo &>/dev/null; then
+		printf 'svgo is not installed or not on PATH\n' >&2
+		return 1
+	fi
+
+	local -a files
+	files=(~/Downloads/**/*.svg(N))
+
+	if [[ ${#files} -eq 0 ]]; then
+		printf 'No .svg files found in ~/Downloads\n'
+		return 0
+	fi
+
+	pushd ~/Downloads > /dev/null && svgo "${files[@]}" && popd > /dev/null
+}
 
 # Quickly navigate to relevant GitHub locations
 function github() {
 	local repo=$1
 
-	if [ -z "$repo" ]; then
-		repo=$(jq -r .name package.json | awk -F/ '{print $NF}')
+	if [[ -z "$repo" ]]; then
+		if ! command -v jq &>/dev/null; then
+			printf 'jq is required to read package.json\n' >&2
+			return 1
+		fi
+
+		repo=$(jq -r .name package.json 2>/dev/null | awk -F/ '{print $NF}')
+	fi
+
+	if [[ -z "$repo" ]]; then
+		printf 'Usage: github <repo-name>\n' >&2
+		return 1
 	fi
 
 	open "https://github.com/lewishowles/$repo"
