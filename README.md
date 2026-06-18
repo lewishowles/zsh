@@ -15,7 +15,7 @@ Open a new terminal — the loader sources every `aliases.*.zsh` file automatica
 
 ## Private aliases
 
-`aliases.external.zsh` is gitignored. Copy `aliases.external.zsh.example` to create it locally — handy for `goto:` paths and other shortcuts that belong off version control.
+`aliases.private.zsh` is gitignored. Copy `aliases.private.zsh.example` to create it locally — the right place for `goto:` navigation shortcuts and anything else that's personal or machine-specific.
 
 ## Health check
 
@@ -33,7 +33,7 @@ Reports tool availability, required files, `goto:*` path validity, syntax errors
 | `aliases.config.zsh`     | Colour variables and the `zshrc` edit alias. Loaded first so colour vars are available everywhere. |
 | `aliases.discovery.zsh`  | `alias:list`, `alias:find`, and `docs:generate` — browse commands and keep the README up to date.  |
 | `aliases.doctor.zsh`     | `zsh:doctor` health check.                                                                         |
-| `aliases.navigation.zsh` | `goto:*` project shortcuts and `dev`/`build`/`lint`/`test:*` project commands.                     |
+| `aliases.project.zsh`    | `dev`/`build`/`lint`/`test:*` project commands.                                                    |
 | `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.      |
 | `aliases.tools.zsh`      | `repo:*`, `settings:sync`, `svg`, and `agents:*` setup helpers.                                    |
 | `oh-my-zsh-settings.zsh` | Oh My Zsh init + Powerlevel10k theme.                                                              |
@@ -100,20 +100,6 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `docs:generate` | Regenerate the command table in README.md from annotations |
-
-### nav
-
-| Command | Description |
-| --- | --- |
-| `goto:agents` | Open the agent configuration directory |
-| `goto:blog` | Open the blog project |
-| `goto:boilersuit` | Open the Boilersuit macOS app project |
-| `goto:components` | Open the Vue component library project |
-| `goto:helpers` | Open the JavaScript helper library project |
-| `goto:howles` | Open the primary website project |
-| `goto:sketch` | Open the Sketch plugins root |
-| `goto:testing` | Open the testing helper library project |
-| `goto:vscode` | Open the VS Code extensions root |
 
 ### package
 

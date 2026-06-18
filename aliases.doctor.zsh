@@ -18,8 +18,8 @@ function zsh:doctor() {
 		oh-my-zsh-settings.zsh
 		bun-settings.zsh
 		aliases.config.zsh
-		aliases.navigation.zsh
 		aliases.packages.zsh
+		aliases.project.zsh
 		aliases.tools.zsh
 		aliases.discovery.zsh
 		aliases.doctor.zsh
@@ -33,10 +33,10 @@ function zsh:doctor() {
 		fi
 	done
 	# Private file — absent is safe
-	if [[ -f "$ZSH_CONFIG_ROOT/aliases.external.zsh" ]]; then
-		_doctor_info "aliases.external.zsh  (private — present)"
+	if [[ -f "$ZSH_CONFIG_ROOT/aliases.private.zsh" ]]; then
+		_doctor_info "aliases.private.zsh  (private — present)"
 	else
-		_doctor_info "aliases.external.zsh  (private — absent, safe)"
+		_doctor_info "aliases.private.zsh  (private — absent, safe)"
 	fi
 
 	# --- Tools ---
@@ -73,22 +73,26 @@ function zsh:doctor() {
 
 	# --- goto: paths ---
 	_doctor_section 'goto paths'
-	local goto_line path_raw path_expanded
-	while IFS= read -r goto_line; do
-		# Extract the path from: alias goto:name="cd <path>"
-		# eval handles ~ expansion and quoted paths (e.g. "Visual Studio Code")
-		path_raw=$(
-			sed 's/^alias goto:[^=]*="cd //' <<< "$goto_line" \
-			| sed 's/"[[:space:]]*$//' \
-			| sed 's/\\"/"/g'
-		)
-		eval "path_expanded=$path_raw" 2>/dev/null
-		if [[ -d "$path_expanded" ]]; then
-			_doctor_pass "$path_expanded"
-		else
-			_doctor_fail "$path_expanded  (missing)"
-		fi
-	done < <(grep '^alias goto:' "$ZSH_CONFIG_ROOT/aliases.navigation.zsh" 2>/dev/null)
+	if [[ ! -f "$ZSH_CONFIG_ROOT/aliases.private.zsh" ]]; then
+		_doctor_info "aliases.private.zsh absent — no goto paths to check"
+	else
+		local goto_line path_raw path_expanded
+		while IFS= read -r goto_line; do
+			# Extract the path from: alias goto:name="cd <path>"
+			# eval handles ~ expansion and quoted paths (e.g. "Visual Studio Code")
+			path_raw=$(
+				sed 's/^alias goto:[^=]*="cd //' <<< "$goto_line" \
+				| sed 's/"[[:space:]]*$//' \
+				| sed 's/\\"/"/g'
+			)
+			eval "path_expanded=$path_raw" 2>/dev/null
+			if [[ -d "$path_expanded" ]]; then
+				_doctor_pass "$path_expanded"
+			else
+				_doctor_fail "$path_expanded  (missing)"
+			fi
+		done < <(grep '^alias goto:' "$ZSH_CONFIG_ROOT/aliases.private.zsh" 2>/dev/null)
+	fi
 
 	# --- Syntax ---
 	_doctor_section 'syntax'

@@ -1,0 +1,9 @@
+# Private aliases — copy this file to aliases.private.zsh (gitignored).
+# Sourced automatically by the glob loader in zshrc; no edits to zshrc needed.
+#
+# Navigation shortcuts: add a goto: alias for each project you work in.
+# Annotate them so they appear in alias:list and alias:find.
+#
+# @desc  Open the my-project project
+# @cat   nav
+# alias goto:my-project="cd ~/Dev/Path/to/my-project"
