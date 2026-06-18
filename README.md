@@ -18,20 +18,19 @@ That's it — the loader sources everything else.
 
 ## What's in here
 
-| File | What it holds |
-|------|---------------|
-| `zshrc` | Loader. Sources each file below in order. Symlinked from `~/.zshrc`. |
-| `aliases.config.zsh` | Colour variables + `zshrc` / `claudemd` edit aliases. Loaded first so colour vars are available to functions in the other files. |
-| `aliases.navigation.zsh` | `goto:*` project shortcuts + project commands (`dev`, `build`, `lint`, `unit`, `cypress:*`). |
-| `aliases.scaffold.zsh` | `scaffold:*` and `convert:*` aliases, with relative `./support/...` paths so they resolve against the current project. |
-| `aliases.packages.zsh` | `packages:refresh`, `packages:updated`, plus the `link` / `unlink` / `relink` / `reinstall` functions for local `@lewishowles/*` development. |
-| `aliases.tools.zsh` | Misc tools `sync:settings`, `index:repository`, `svg`, `github`, `setup:agents/setup:claude/setup:codex`. |
-| `oh-my-zsh-settings.zsh` | Oh My Zsh init + powerlevel10k theme. |
-| `bun-settings.zsh` | bun PATH, env, and completions. |
+| File                     | What it holds                                                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `zshrc`                  | Loader. Sources each file below in order. Symlinked from `~/.zshrc`.                                                                          |
+| `aliases.config.zsh`     | Colour variables + `zshrc` / `claudemd` edit aliases. Loaded first so colour vars are available to functions in the other files.              |
+| `aliases.navigation.zsh` | `goto:*` project shortcuts + project commands (`dev`, `build`, `lint`, `unit`, `cypress:*`).                                                  |
+| `aliases.packages.zsh`   | `packages:refresh`, `packages:updated`, plus the `link` / `unlink` / `relink` / `reinstall` functions for local `@lewishowles/*` development. |
+| `aliases.tools.zsh`      | Misc tools `sync:settings`, `index:repository`, `svg`, `github`, `setup:agents/setup:claude/setup:codex`.                                     |
+| `oh-my-zsh-settings.zsh` | Oh My Zsh init + powerlevel10k theme.                                                                                                         |
+| `bun-settings.zsh`       | bun PATH, env, and completions.                                                                                                               |
 
 ## Adding a new alias or function
 
-Pick the file that matches what the thing *does*, not what type it is. For example, a function and an alias for the same workflow belong in the same file. If nothing fits, add a new `aliases.<topic>.zsh` and source it from `zshrc`.
+Pick the file that matches what the thing _does_, not what type it is. For example, a function and an alias for the same workflow belong in the same file. If nothing fits, add a new `aliases.<topic>.zsh` and source it from `zshrc`.
 
 ## The `link` family
 
