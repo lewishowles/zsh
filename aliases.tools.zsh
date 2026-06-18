@@ -57,9 +57,12 @@ function github() {
 }
 
 # Set up agent files.
-alias setup:agents:global="/Users/lewis/Dev/Configuration/Agents/scripts/setup-global.sh --both"
-alias setup:claude:global="/Users/lewis/Dev/Configuration/Agents/scripts/setup-global.sh --claude"
-alias setup:codex:global="/Users/lewis/Dev/Configuration/Agents/scripts/setup-global.sh --codex"
-alias setup:agents="/Users/lewis/Dev/Configuration/Agents/scripts/setup-project.sh --both"
-alias setup:claude="/Users/lewis/Dev/Configuration/Agents/scripts/setup-project.sh --claude"
-alias setup:codex="/Users/lewis/Dev/Configuration/Agents/scripts/setup-project.sh --codex"
+alias setup:agents:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
+alias setup:claude:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --claude"
+alias setup:codex:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --codex"
+alias setup:agents="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
+alias setup:claude="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --claude"
+alias setup:codex="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --codex"
+alias agents:capabilities="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --init-capabilities"
+alias agents:capabilities:write="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-capabilities"
+alias agents:capabilities:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-capabilities"
