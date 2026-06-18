@@ -110,6 +110,19 @@ function repo:open:all() {
 	open "https://github.com/lewishowles/$repo/actions"
 }
 
+# @desc  Link the current folder to the Chat GPT local setup
+# @cat   repo
+# @needs jq
+function repo:link() {
+	local target="$HOME/Dev/ChatGPT Repo"
+
+	[[ -d "$target" && ! -L "$target" ]] && rm -rf "$target"
+
+	ln -sfn "$PWD" "$target"
+
+	echo "\nChatGPT Repo → $PWD"
+}
+
 # @desc  Set up agent files (Claude + Codex) globally
 # @cat   agents
 alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"

@@ -115,6 +115,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `repo:index` | Index the current repository in codebase-memory-mcp and store an ADR |
+| `repo:link` | Link the current folder to the Chat GPT local setup |
 | `repo:open` | Open the main GitHub page for a repo |
 | `repo:open:all` | Open main page, releases, and actions for a repo (3 tabs) |
 
