@@ -35,7 +35,7 @@ Reports tool availability, required files, `goto:*` path validity, syntax errors
 | `aliases.doctor.zsh`     | `zsh:doctor` health check.                                                                         |
 | `aliases.project.zsh`    | `dev`/`build`/`lint`/`test:*` project commands.                                                    |
 | `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.      |
-| `aliases.tools.zsh`      | `repo:*`, `settings:sync`, `svg`, and `agents:*` setup helpers.                                    |
+| `aliases.tools.zsh`      | `repo:*`, `svg`, and `agents:*` setup helpers.                                                     |
 | `oh-my-zsh-settings.zsh` | Oh My Zsh init + Powerlevel10k theme.                                                              |
 | `bun-settings.zsh`       | bun PATH, env, and completions.                                                                    |
 
@@ -101,6 +101,21 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | --- | --- |
 | `docs:generate` | Regenerate the command table in README.md from annotations |
 
+### nav
+
+| Command | Description |
+| --- | --- |
+| `goto:agents` | Open the agent configuration directory |
+| `goto:anpr` | Open the Gatekeeper Admin root |
+| `goto:blog` | Open the blog project |
+| `goto:boilersuit` | Open the Boilersuit macOS app project |
+| `goto:components` | Open the Vue component library project |
+| `goto:helpers` | Open the JavaScript helper library project |
+| `goto:howles` | Open the primary website project |
+| `goto:sketch` | Open the Sketch plugins root |
+| `goto:testing` | Open the testing helper library project |
+| `goto:vscode` | Open the VS Code extensions root |
+
 ### package
 
 | Command | Description |
@@ -133,7 +148,6 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
-| `settings:sync` | Sync dotfiles and settings to their configuration repos |
 | `svg` | Optimise SVG files in ~/Downloads using SVGO |
 
 <!-- commands:end -->

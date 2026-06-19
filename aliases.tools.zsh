@@ -1,7 +1,3 @@
-# @desc  Sync dotfiles and settings to their configuration repos
-# @cat   tools
-alias settings:sync="~/Dev/Repositories/CLI/settings-sync/settings-sync.sh"
-
 # @desc  Index the current repository in codebase-memory-mcp and store an ADR
 # @cat   repo
 # @needs codebase-memory-mcp jq
