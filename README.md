@@ -94,6 +94,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `build` | Build the project for production |
 | `dev` | Run the dev server |
 | `lint` | Run the linter |
+| `xcode:build` | Build the current app in Xcode |
 
 ### docs
 
@@ -143,6 +144,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `test:e2e:ui` | Run e2e tests in interactive UI mode |
 | `test:unit` | Run unit tests headlessly |
 | `test:unit:ui` | Run unit tests in browser UI mode |
+| `xcode:test` | Run Xcode tests, which may include UI tests |
 
 ### tools
 

@@ -30,3 +30,10 @@ function test:e2e:spec() {
 		bun playwright test
 	fi
 }
+
+# @desc  Run Xcode tests, which may include UI tests
+# @cat   test
+alias xcode:test="xcodebuild test -scheme Boilersuit -destination 'platform=macOS' -quiet"
+# @desc  Build the current app in Xcode
+# @cat   dev
+alias xcode:build="xcodebuild build -scheme Boilersuit -destination 'platform=macOS' -quiet"
