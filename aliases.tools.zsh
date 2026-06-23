@@ -121,28 +121,13 @@ function repo:link() {
 
 # @desc  Set up agent files (Claude + Codex) globally
 # @cat   agents
-alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
-# @desc  Set up Claude agent files globally
-# @cat   agents
-alias agents:setup:claude:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --claude"
-# @desc  Set up Codex agent files globally
-# @cat   agents
-alias agents:setup:codex:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --codex"
+alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both --no-backup"
 # @desc  Set up agent files (Claude + Codex) for the current project
 # @cat   agents
 alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
-# @desc  Set up Claude agent files for the current project
-# @cat   agents
-alias agents:setup:claude="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --claude"
-# @desc  Set up Codex agent files for the current project
-# @cat   agents
-alias agents:setup:codex="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --codex"
 # @desc  Initialise AGENT_CAPABILITIES.md for the current project
 # @cat   agents
-alias agents:capabilities="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --init-capabilities"
-# @desc  Write AGENT_CAPABILITIES.md for the current project
-# @cat   agents
-alias agents:capabilities:write="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-capabilities"
+alias agents:capabilities="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-capabilities"
 # @desc  Force-regenerate AGENT_CAPABILITIES.md for the current project
 # @cat   agents
 alias agents:capabilities:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-capabilities"

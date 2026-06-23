@@ -63,12 +63,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | --- | --- |
 | `agents:capabilities` | Initialise AGENT_CAPABILITIES.md for the current project |
 | `agents:capabilities:force` | Force-regenerate AGENT_CAPABILITIES.md for the current project |
-| `agents:capabilities:write` | Write AGENT_CAPABILITIES.md for the current project |
 | `agents:setup` | Set up agent files (Claude + Codex) for the current project |
-| `agents:setup:claude` | Set up Claude agent files for the current project |
-| `agents:setup:claude:global` | Set up Claude agent files globally |
-| `agents:setup:codex` | Set up Codex agent files for the current project |
-| `agents:setup:codex:global` | Set up Codex agent files globally |
 | `agents:setup:global` | Set up agent files (Claude + Codex) globally |
 
 ### config
