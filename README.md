@@ -61,10 +61,10 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
-| `agents:capabilities` | Initialise AGENT_CAPABILITIES.md for the current project |
-| `agents:capabilities:force` | Force-regenerate AGENT_CAPABILITIES.md for the current project |
 | `agents:setup` | Set up agent files (Claude + Codex) for the current project |
 | `agents:setup:global` | Set up agent files (Claude + Codex) globally |
+| `agents:workspace` | Initialise WORKSPACE.md for the current project |
+| `agents:workspace:force` | Force-regenerate WORKSPACE.md for the current project |
 
 ### config
 
@@ -105,6 +105,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `goto:anpr` | Open the Gatekeeper Admin root |
 | `goto:blog` | Open the blog project |
 | `goto:boilersuit` | Open the Boilersuit macOS app project |
+| `goto:cli` | Open the CLI style library project |
 | `goto:components` | Open the Vue component library project |
 | `goto:helpers` | Open the JavaScript helper library project |
 | `goto:howles` | Open the primary website project |

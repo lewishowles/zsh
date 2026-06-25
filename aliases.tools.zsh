@@ -125,9 +125,9 @@ alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.s
 # @desc  Set up agent files (Claude + Codex) for the current project
 # @cat   agents
 alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
-# @desc  Initialise AGENT_CAPABILITIES.md for the current project
+# @desc  Initialise WORKSPACE.md for the current project
 # @cat   agents
-alias agents:capabilities="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-capabilities"
-# @desc  Force-regenerate AGENT_CAPABILITIES.md for the current project
+alias agents:workspace="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-workspace"
+# @desc  Force-regenerate WORKSPACE.md for the current project
 # @cat   agents
-alias agents:capabilities:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-capabilities"
+alias agents:workspace:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-workspace"
