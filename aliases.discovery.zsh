@@ -1,3 +1,14 @@
+local _zsh_config_dir="${0:A:h}"
+
+# Find directories with an active PROGRESS.md file
+progress:check() {
+	fd --hidden --no-ignore-vcs --type f '^PROGRESS\.md$' "$HOME/Dev" \
+		--ignore-file "$ZSH_CONFIG_ROOT/ignores.fd" \
+		--exec dirname {} |
+		sed "s#^$HOME/Dev/##" |
+		sort
+}
+
 # Shared annotation parser — outputs cat TAB name TAB desc TAB needs.
 # Used by both alias:list and alias:find.
 function _alias_parse() {

@@ -1,0 +1,154 @@
+# Dependencies
+node_modules/
+bower_components/
+jspm_packages/
+vendor/
+
+# Git
+.git/
+
+# Package manager stores / metadata
+.pnpm-store/
+.yarn/cache/
+.yarn/unplugged/
+.yarn/build-state.yml
+.yarn/install-state.gz
+.npm/
+.npmrc.local
+
+# JavaScript / TypeScript build output
+dist/
+build/
+out/
+output/
+public/build/
+storybook-static/
+coverage/
+.nyc_output/
+lib-cov/
+
+# Framework / bundler caches
+.vite/
+.vitepress/cache/
+.nuxt/
+.nitro/
+.output/
+.next/
+.svelte-kit/
+.astro/
+.turbo/
+.parcel-cache/
+.rpt2_cache/
+.rollup.cache/
+.webpack/
+.cache/
+
+# Vite+ / task caches
+.vp/
+.vite-plus/
+vite-plus-cache/
+.vite-task/
+.vite-task-cache/
+
+# Test runners
+playwright-report/
+test-results/
+cypress/screenshots/
+cypress/videos/
+vitest-results/
+junit.xml
+
+# TypeScript
+*.tsbuildinfo
+
+# Cue
+.cue/
+cue.mod/pkg/
+cue.mod/gen/
+cue.mod/cache/
+
+# Swift / Xcode
+.build/
+DerivedData/
+.swiftpm/
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+*.xcuserdata/
+*.ipa
+*.dSYM/
+*.app.dSYM/
+*.xcarchive/
+
+# Sketch / design extension packaging
+*.sketchplugin/Contents/Sketch/.webpack/
+*.sketchplugin/Contents/Sketch/build/
+*.sketchplugin/Contents/Sketch/dist/
+*.sketchplugin/Contents/Sketch/node_modules/
+*.sketchplugin.zip
+*.sketchplugin.tar.gz
+
+# Recast / extension packaging
+.recast/
+recast-build/
+recast-dist/
+recast-cache/
+*.recast.zip
+
+# Environment / secrets
+.env.local
+.env.*.local
+.envrc.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# Runtime files
+*.pid
+*.seed
+*.pid.lock
+
+# OS noise
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editor / tooling noise
+.idea/
+.vscode/.ropeproject/
+.history/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+*.tmp
+*.temp
+
+# Archives / packaged output
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Misc generated folders
+list/
