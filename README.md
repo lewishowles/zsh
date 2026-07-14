@@ -111,6 +111,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `goto:howles` | Open the primary website project |
 | `goto:sketch` | Open the Sketch plugins root |
 | `goto:testing` | Open the testing helper library project |
+| `goto:tools` | Open the dev tools project |
 | `goto:vscode` | Open the VS Code extensions root |
 
 ### package
