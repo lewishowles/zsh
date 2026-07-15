@@ -13,14 +13,13 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 # @param  {string}  tool
 #     The agent tool to launch, such as claude or codex.
 # @param  {string}  tag
-#     The stable hcom role tag.
+#     The role portion of the repository-scoped hcom tag.
 # @param  {string}  model
 #     The model passed to hcom.
 # @param  {string}  role_file
 #     The role prompt filename under HCOM_ROLE_DIR.
 # @param  {string}  auto_mode
-#     Non-empty for low-friction approvals: claude's `--permission-mode auto`,
-#     or codex's `--ask-for-approval on-request --sandbox workspace-write`.
+#     Non-empty for Codex `--ask-for-approval never --sandbox workspace-write`.
 # @param  {string}  working_directory
 #     The project directory, defaulting to the current directory.
 # @param  {string}  initial_prompt
@@ -35,6 +34,8 @@ _hcom_launch_role() {
 	local initial_prompt="${7:-}"
 	local role_path="$HCOM_ROLE_DIR/$role_file"
 	local role_prompt
+	local repository_tag
+	local scoped_tag
 	local -a hcom_arguments
 
 	if [[ ! -d "$working_directory" ]]; then
@@ -47,20 +48,21 @@ _hcom_launch_role() {
 		return 1
 	fi
 
+	repository_tag="$(_hcom_scoped_tag "$working_directory")" || return 1
+	scoped_tag="${repository_tag}-${tag}"
 	role_prompt="$(<"$role_path")"
 	hcom_arguments=(
 		"$tool"
-		--tag "$tag"
+		--tag "$scoped_tag"
 		--model "$model"
 		--dir "$working_directory"
 	)
 
 	if [[ "$tool" = "codex" ]]; then
 		[[ "$tag" = "implementer" ]] && hcom_arguments+=(--config 'model_reasoning_effort="xhigh"')
-		[[ -n "$auto_mode" ]] && hcom_arguments+=(--ask-for-approval on-request --sandbox workspace-write)
+		[[ -n "$auto_mode" ]] && hcom_arguments+=(--ask-for-approval never --sandbox workspace-write)
 	else
 		hcom_arguments+=(--append-system-prompt "$role_prompt")
-		[[ -n "$auto_mode" ]] && hcom_arguments+=(--permission-mode auto)
 	fi
 
 	if [[ -n "$initial_prompt" ]]; then
@@ -70,8 +72,27 @@ _hcom_launch_role() {
 	if [[ "$tool" = "codex" ]]; then
 		HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
 	else
-		HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
+		HCOM_CLAUDE_ARGS='--permission-mode auto' HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
 	fi
+}
+
+# Returns the repository portion of an hcom tag.
+#
+# @param  {string}  working_directory
+#     The directory selected for the agent launch.
+_hcom_scoped_tag() {
+	local directory_name="${1:t}"
+	local repository_tag
+
+	repository_tag="$(print -r -- "$directory_name" | tr -cs '[:alnum:]' '-')"
+	repository_tag="${repository_tag%-}"
+
+	if [[ -z "$repository_tag" ]]; then
+		printf 'hcom: cannot derive a tag from directory: %s\n' "$1" >&2
+		return 1
+	fi
+
+	print -r -- "$repository_tag"
 }
 
 # @desc  Start the Claude Orchestrator hcom role (auto permission mode)

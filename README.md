@@ -147,7 +147,6 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
-| `gateway:reboot` | Reboot the local repo gateway server |
 | `svg` | Optimise SVG files in ~/Downloads using SVGO |
 
 <!-- commands:end -->
