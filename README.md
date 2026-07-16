@@ -8,14 +8,15 @@ macOS, zsh + Oh My Zsh + Powerlevel10k.
 
 ```sh
 ln -sf ~/Dev/Configuration/zsh/zshrc ~/.zshrc
+ln -sf ~/Dev/Configuration/zsh/zprofile ~/.zprofile
 git config core.hooksPath hooks
 ```
 
-Open a new terminal — the loader sources every `aliases.*.zsh` file automatically. Adding a new file doesn't require editing `zshrc`. The `core.hooksPath` step activates the pre-commit hook that keeps the README command table up to date.
+Open a new terminal, sourcing every `aliases.*.zsh` file automatically. Adding a new file doesn't require editing `zshrc`. The `core.hooksPath` step activates the pre-commit hook that keeps the README command table up to date.
 
 ## Private aliases
 
-`aliases.private.zsh` is gitignored. Copy `aliases.private.zsh.example` to create it locally — the right place for `goto:` navigation shortcuts and anything else that's personal or machine-specific.
+`aliases.private.zsh` is gitignored. Copy `aliases.private.zsh.example` to create it locally. It's a good place for `goto:` navigation shortcuts and anything else that's personal or machine-specific.
 
 ## Health check
 
@@ -29,15 +30,17 @@ Reports tool availability, required files, `goto:*` path validity, syntax errors
 
 | File                     | What it holds                                                                                      |
 | ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `zshrc`                  | Loader. Sources all `aliases.*.zsh` files in sorted order. Symlinked from `~/.zshrc`.              |
+| `zprofile`               | Login-shell loader. Sources the shared environment. Symlinked from `~/.zprofile`.                   |
+| `zshrc`                  | Interactive-shell loader. Sources the shared environment and all `aliases.*.zsh` files in order.    |
+| `environment.zsh`        | Shared PATH and command environment for interactive and non-interactive login shells.               |
 | `aliases.config.zsh`     | Colour variables and the `zshrc` edit alias. Loaded first so colour vars are available everywhere. |
-| `aliases.discovery.zsh`  | `alias:list`, `alias:find`, and `docs:generate` — browse commands and keep the README up to date.  |
+| `aliases.discovery.zsh`  | `alias:list`, `alias:find`, and `docs:generate`: browse commands and keep the README up to date.   |
 | `aliases.doctor.zsh`     | `zsh:doctor` health check.                                                                         |
 | `aliases.project.zsh`    | `dev`/`build`/`lint`/`test:*` project commands.                                                    |
 | `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.      |
 | `aliases.tools.zsh`      | `repo:*`, `svg`, and `agents:*` setup helpers.                                                     |
 | `oh-my-zsh-settings.zsh` | Oh My Zsh init + Powerlevel10k theme.                                                              |
-| `bun-settings.zsh`       | bun PATH, env, and completions.                                                                    |
+| `bun-settings.zsh`       | Bun completions.                                                                                    |
 
 ## Adding a new alias or function
 
