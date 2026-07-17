@@ -5,7 +5,6 @@ progress:check() {
 	fd --hidden --no-ignore-vcs --type f '^PROGRESS\.md$' "$HOME/Dev" \
 		--ignore-file "$ZSH_CONFIG_ROOT/ignores.fd" \
 		--exec dirname {} |
-		sed "s#^$HOME/Dev/##" |
 		sort
 }
 
