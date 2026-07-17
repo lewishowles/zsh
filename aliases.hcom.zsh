@@ -59,7 +59,6 @@ _hcom_launch_role() {
 	)
 
 	if [[ "$tool" = "codex" ]]; then
-		[[ "$tag" = "implementer" ]] && hcom_arguments+=(--config 'model_reasoning_effort="xhigh"')
 		[[ -n "$auto_mode" ]] && hcom_arguments+=(--ask-for-approval never --sandbox workspace-write)
 	else
 		hcom_arguments+=(--append-system-prompt "$role_prompt")
@@ -104,7 +103,7 @@ hcom-orchestrator() {
 # @desc  Start the Codex Implementer hcom role
 # @cat   hcom
 hcom-implementer() {
-	_hcom_launch_role codex implementer gpt-5.6-luna implementer.md "" "$@"
+	_hcom_launch_role codex implementer gpt-5.6-sol implementer.md "" "$@"
 }
 
 # @desc  Start the Claude Reviewer hcom role (auto permission mode)
