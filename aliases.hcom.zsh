@@ -10,47 +10,57 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 # Deliver the role prompt through each tool's native mechanism instead: claude's
 # `--append-system-prompt`, codex's `HCOM_CODEX_SYSTEM_PROMPT` env var.
 #
-# @param  {string}  tool
-#     The agent tool to launch, such as claude or codex.
-# @param  {string}  tag
-#     The role portion of the repository-scoped hcom tag.
-# @param  {string}  model
-#     The model passed to hcom.
-# @param  {string}  role_file
-#     The role prompt filename under HCOM_ROLE_DIR.
-# @param  {string}  auto_mode
-#     Non-empty for Codex `--ask-for-approval never --sandbox workspace-write`.
-# @param  {string}  working_directory
-#     The project directory, defaulting to the current directory.
-# @param  {string}  initial_prompt
-#     An optional initial user prompt for the new agent.
+# Usage:
+#   _hcom_launch_role \
+#     --tool claude \
+#     --tag orchestrator \
+#     --model sonnet \
+#     --role-file orchestrator.md \
+#     [--auto-mode] \
+#     [--working-dir /path] \
+#     [--initial-prompt "..."] \
+#     [--thinking medium]
 _hcom_launch_role() {
-	local tool="$1"
-	local tag="$2"
-	local model="$3"
-	local role_file="$4"
-	local auto_mode="$5"
-	local working_directory="${6:-$PWD}"
-	local initial_prompt="${7:-}"
-	local role_path="$HCOM_ROLE_DIR/$role_file"
-	local role_prompt
-	local repository_tag
-	local scoped_tag
-	local -a hcom_arguments
+	local tool="" tag="" model="" role_file="" auto_mode=0
+	local working_directory="$PWD" initial_prompt="" thinking_effort=""
+
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--tool) tool="$2"; shift 2 ;;
+			--tag) tag="$2"; shift 2 ;;
+			--model) model="$2"; shift 2 ;;
+			--role-file) role_file="$2"; shift 2 ;;
+			--auto-mode) auto_mode=1; shift ;;
+			--working-dir) working_directory="$2"; shift 2 ;;
+			--initial-prompt) initial_prompt="$2"; shift 2 ;;
+			--thinking) thinking_effort="$2"; shift 2 ;;
+			*) printf 'hcom: unknown option: %s\n' "$1" >&2; return 1 ;;
+		esac
+	done
+
+	# Validate required parameters
+	if [[ -z "$tool" ]] || [[ -z "$tag" ]] || [[ -z "$model" ]] || [[ -z "$role_file" ]]; then
+		printf 'hcom: missing required parameters\n' >&2
+		return 1
+	fi
 
 	if [[ ! -d "$working_directory" ]]; then
 		printf 'hcom: working directory not found: %s\n' "$working_directory" >&2
 		return 1
 	fi
 
+	local role_path="$HCOM_ROLE_DIR/$role_file"
 	if [[ ! -f "$role_path" ]]; then
 		printf 'hcom: role prompt not found: %s\n' "$role_path" >&2
 		return 1
 	fi
 
+	local role_prompt="$(<"$role_path")"
+	local repository_tag scoped_tag
 	repository_tag="$(_hcom_scoped_tag "$working_directory")" || return 1
 	scoped_tag="${repository_tag}-${tag}"
-	role_prompt="$(<"$role_path")"
+
+	local -a hcom_arguments
 	hcom_arguments=(
 		"$tool"
 		--tag "$scoped_tag"
@@ -59,13 +69,19 @@ _hcom_launch_role() {
 	)
 
 	if [[ "$tool" = "codex" ]]; then
-		[[ -n "$auto_mode" ]] && hcom_arguments+=(--ask-for-approval never --sandbox workspace-write)
+		[[ $auto_mode -eq 1 ]] && hcom_arguments+=(--ask-for-approval never --sandbox workspace-write)
 	else
 		hcom_arguments+=(--append-system-prompt "$role_prompt")
 	fi
 
-	if [[ -n "$initial_prompt" ]]; then
-		hcom_arguments+=(--hcom-prompt "$initial_prompt")
+	[[ -n "$initial_prompt" ]] && hcom_arguments+=(--hcom-prompt "$initial_prompt")
+
+	if [[ -n "$thinking_effort" ]]; then
+		if [[ "$tool" = "codex" ]]; then
+			hcom_arguments+=(--config "model_reasoning_effort=\"$thinking_effort\"")
+		else
+			hcom_arguments+=(--effort "$thinking_effort")
+		fi
 	fi
 
 	if [[ "$tool" = "codex" ]]; then
@@ -97,23 +113,52 @@ _hcom_scoped_tag() {
 # @desc  Start the Claude Orchestrator hcom role (auto permission mode)
 # @cat   hcom
 hcom-orchestrator() {
-	_hcom_launch_role claude orchestrator sonnet orchestrator.md 1 "$@"
+	_hcom_launch_role \
+		--tool claude \
+		--tag orchestrator \
+		--model sonnet \
+		--role-file orchestrator.md \
+		--auto-mode \
+		--working-dir "${1:-$PWD}" \
+		--initial-prompt "${2:-}"
 }
 
 # @desc  Start the Codex Implementer hcom role
 # @cat   hcom
 hcom-implementer() {
-	_hcom_launch_role codex implementer gpt-5.6-sol implementer.md "" "$@"
+	_hcom_launch_role \
+		--tool codex \
+		--tag implementer \
+		--model gpt-5.6-luna \
+		--role-file implementer.md \
+		--thinking xhigh \
+		--working-dir "${1:-$PWD}" \
+		--initial-prompt "${2:-}"
 }
 
 # @desc  Start the Claude Reviewer hcom role (auto permission mode)
 # @cat   hcom
 hcom-reviewer() {
-	_hcom_launch_role claude reviewer sonnet reviewer.md 1 "$@"
+	_hcom_launch_role \
+		--tool claude \
+		--tag reviewer \
+		--model sonnet \
+		--role-file reviewer.md \
+		--auto-mode \
+		--working-dir "${1:-$PWD}" \
+		--initial-prompt "${2:-}"
 }
 
-# @desc  Start the Codex Scout hcom role (auto approval mode)
+# @desc  Start the Claude Scout hcom role (auto permission mode, medium thinking)
 # @cat   hcom
 hcom-scout() {
-	_hcom_launch_role codex scout gpt-5.4-mini scout.md 1 "$@"
+	_hcom_launch_role \
+		--tool claude \
+		--tag scout \
+		--model haiku-4.5 \
+		--role-file scout.md \
+		--auto-mode \
+		--thinking medium \
+		--working-dir "${1:-$PWD}" \
+		--initial-prompt "${2:-}"
 }
