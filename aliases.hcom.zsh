@@ -155,7 +155,7 @@ hcom-scout() {
 	_hcom_launch_role \
 		--tool claude \
 		--tag scout \
-		--model haiku-4.5 \
+		--model haiku \
 		--role-file scout.md \
 		--auto-mode \
 		--thinking medium \
