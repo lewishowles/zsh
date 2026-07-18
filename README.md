@@ -28,19 +28,19 @@ Reports tool availability, required files, `goto:*` path validity, syntax errors
 
 ## What's in here
 
-| File                     | What it holds                                                                                      |
-| ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `zprofile`               | Login-shell loader. Sources the shared environment. Symlinked from `~/.zprofile`.                   |
-| `zshrc`                  | Interactive-shell loader. Sources the shared environment and all `aliases.*.zsh` files in order.    |
-| `environment.zsh`        | Shared PATH and command environment for interactive and non-interactive login shells.               |
-| `aliases.config.zsh`     | Colour variables and the `zshrc` edit alias. Loaded first so colour vars are available everywhere. |
-| `aliases.discovery.zsh`  | `alias:list`, `alias:find`, and `docs:generate`: browse commands and keep the README up to date.   |
-| `aliases.doctor.zsh`     | `zsh:doctor` health check.                                                                         |
-| `aliases.project.zsh`    | `dev`/`build`/`lint`/`test:*` project commands.                                                    |
-| `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.      |
-| `aliases.tools.zsh`      | `repo:*`, `svg`, and `agents:*` setup helpers.                                                     |
-| `oh-my-zsh-settings.zsh` | Oh My Zsh init + Powerlevel10k theme.                                                              |
-| `bun-settings.zsh`       | Bun completions.                                                                                    |
+| File                     | What it holds                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `zprofile`               | Login-shell loader. Sources the shared environment. Symlinked from `~/.zprofile`.                                           |
+| `zshrc`                  | Interactive-shell loader. Sources the shared environment and all `aliases.*.zsh` files in order.                            |
+| `environment.zsh`        | Shared PATH and command environment for interactive and non-interactive login shells, including the cli-style Bash adapter. |
+| `aliases.config.zsh`     | Colour variables and the `zshrc` edit alias. Loaded first so colour vars are available everywhere.                          |
+| `aliases.discovery.zsh`  | `alias:list`, `alias:find`, and `docs:generate`: browse commands and keep the README up to date.                            |
+| `aliases.doctor.zsh`     | `zsh:doctor` health check.                                                                                                  |
+| `aliases.project.zsh`    | `dev`/`build`/`lint`/`test:*` project commands.                                                                             |
+| `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                               |
+| `aliases.tools.zsh`      | `repo:*`, `svg`, and `agents:*` setup helpers.                                                                              |
+| `oh-my-zsh-settings.zsh` | Oh My Zsh init + Powerlevel10k theme.                                                                                       |
+| `bun-settings.zsh`       | Bun completions.                                                                                                            |
 
 ## Adding a new alias or function
 

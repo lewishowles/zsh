@@ -8,3 +8,7 @@ fi
 export PATH="$HOME/.local/bin:$PATH"
 
 [[ -r "$HOME/.vite-plus/env" ]] && source "$HOME/.vite-plus/env"
+
+# cli-style Bash adapter — cli_style_status, cli_style_row, etc. for zsh functions.
+[[ -r "$HOME/Dev/Repositories/Packages/cli-style/adapters/bash/cli-style.sh" ]] && \
+	source "$HOME/Dev/Repositories/Packages/cli-style/adapters/bash/cli-style.sh"
