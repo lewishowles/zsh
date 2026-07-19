@@ -30,6 +30,7 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 _hcom_launch_role() {
 	local tool="" tag="" model="" role_file="" auto_mode=0
 	local working_directory="$PWD" initial_prompt="" thinking_effort=""
+	local caveman_prompt="Enable caveman skill in full mode for all user-facing prose."
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -60,6 +61,12 @@ _hcom_launch_role() {
 	if [[ ! -f "$role_path" ]]; then
 		printf 'hcom: role prompt not found: %s\n' "$role_path" >&2
 		return 1
+	fi
+
+	if [[ -n "$initial_prompt" ]]; then
+		initial_prompt="$caveman_prompt $initial_prompt"
+	else
+		initial_prompt="$caveman_prompt"
 	fi
 
 	local role_prompt="$(<"$role_path")"
