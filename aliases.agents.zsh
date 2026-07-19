@@ -1,5 +1,12 @@
 # hcom role launchers for manually managed Hyper tabs.
 
+# @desc  Run codex with auto-mode
+# @cat   agent
+alias codex="codex --ask-for-approval never --sandbox workspace-write";
+# @desc  Run claude with auto-mode
+# @cat   agent
+alias claude="claude --permission-mode auto";
+
 AGENTS_CONFIG_ROOT="${AGENTS_CONFIG_ROOT:-${ZSH_CONFIG_ROOT:h}/Agents}"
 HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 
@@ -153,12 +160,11 @@ hcom-reviewer() {
 # @cat   hcom
 hcom-scout() {
 	_hcom_launch_role \
-		--tool claude \
+		--tool codex \
 		--tag scout \
-		--model haiku \
+		--model gpt-5.6-luna \
 		--role-file scout.md \
 		--auto-mode \
-		--thinking medium \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }

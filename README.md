@@ -60,6 +60,13 @@ The pre-commit hook regenerates the command table automatically on each commit.
 ## Commands
 <!-- commands:start -->
 
+### agent
+
+| Command | Description |
+| --- | --- |
+| `claude` | Run claude with auto-mode |
+| `codex` | Run codex with auto-mode |
+
 ### agents
 
 | Command | Description |
