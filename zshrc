@@ -9,11 +9,33 @@ for f in "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N); do
     source "$f"
 done
 
-# Settings for ZSH and Oh My ZSH
+# Settings for Zsh and Oh My Zsh.
 source "$ZSH_CONFIG_ROOT/oh-my-zsh-settings.zsh"
-# Bun completions
+
+# Bun completions.
 source "$ZSH_CONFIG_ROOT/bun-settings.zsh"
 
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Load NVM.
+[[ -s "$NVM_DIR/nvm.sh" ]] && source "$NVM_DIR/nvm.sh"
+
+# Load NVM shell completions.
+[[ -s "$NVM_DIR/bash_completion" ]] && source "$NVM_DIR/bash_completion"
+
+# Smarter directory navigation.
+eval "$(zoxide init zsh)"
+
+# Fuzzy file, directory and history search.
+eval "$(fzf --zsh)"
+
+# Searchable, contextual shell history.
+eval "$(atuin init zsh --disable-up-arrow --disable-ai)"
+
+# Shell hooks.
+for f in "$ZSH_CONFIG_ROOT"/hooks/*.zsh(N); do
+    source "$f"
+done
+
+# Prompt.
+eval "$(starship init zsh)"

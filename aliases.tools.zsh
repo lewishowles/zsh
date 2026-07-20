@@ -1,42 +1,11 @@
-# @desc  Index the current repository in codebase-memory-mcp and store an ADR
-# @cat   repo
-# @needs codebase-memory-mcp jq
-function repo:index() {
-	if ! command -v codebase-memory-mcp &>/dev/null; then
-		printf 'codebase-memory-mcp is not installed or not on PATH\n' >&2
-		return 1
-	fi
+# File and directory listings.
+alias ls='eza'
+alias ll='eza --long --header --git --icons'
+alias la='eza --long --header --git --icons --all'
+alias lt='eza --tree --level=2 --icons'
 
-	if ! command -v jq &>/dev/null; then
-		printf 'jq is required to build JSON payloads safely\n' >&2
-		return 1
-	fi
-
-	local repo_path index_output project architecture
-
-	repo_path="${PWD:A}"
-	index_output="$(codebase-memory-mcp cli index_repository "$(jq -cn --arg repo_path "$repo_path" '{repo_path:$repo_path}')")" || return
-	project="$(printf '%s' "$index_output" | jq -r '.project // empty' 2>/dev/null)"
-
-	if [[ -z "$project" ]]; then
-		project="$(codebase-memory-mcp cli list_projects '{}' | jq -r --arg repo_path "$repo_path" 'first(.projects[] | select(.root_path == $repo_path) | .name) // empty')"
-	fi
-
-	if [[ -z "$project" ]]; then
-		printf 'Could not find an indexed project for %s\n' "$repo_path" >&2
-		printf '%s\n' "$index_output" >&2
-		return 1
-	fi
-
-	if [[ -n "$index_output" ]]; then
-		printf '%s\n' "$index_output"
-	fi
-
-	architecture="$(codebase-memory-mcp cli get_architecture "$(jq -cn --arg project "$project" '{project:$project,aspects:["all"]}')" 2>/dev/null || codebase-memory-mcp cli get_architecture "$(jq -cn --arg project "$project" '{project:$project}')")" || return
-	printf '%s\n' "$architecture"
-
-	codebase-memory-mcp cli manage_adr "$(jq -cn --arg project "$project" --arg content "$architecture" '{project:$project,mode:"update",content:$content}')"
-}
+# Read files with syntax highlighting and paging.
+alias b='bat --paging=never'
 
 # @desc  Optimise SVG files in ~/Downloads using SVGO
 # @cat   tools
@@ -106,19 +75,6 @@ function repo:open:all() {
 	open "https://github.com/lewishowles/$repo/actions"
 }
 
-# @desc  Link the current folder to the Chat GPT local setup
-# @cat   repo
-# @needs jq
-function repo:link() {
-	local target="$HOME/Dev/ChatGPT Repo"
-
-	[[ -d "$target" && ! -L "$target" ]] && rm -rf "$target"
-
-	ln -sfn "$PWD" "$target"
-
-	echo "\nChatGPT Repo → $PWD"
-}
-
 # @desc  Set up agent files (Claude + Codex) globally
 # @cat   agents
 alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both --no-backup"
@@ -131,3 +87,43 @@ alias agents:workspace="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh 
 # @desc  Force-regenerate WORKSPACE.md for the current project
 # @cat   agents
 alias agents:workspace:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-workspace"
+
+# @desc  Index the current repository in codebase-memory-mcp and store an ADR
+# @cat   repo
+# @needs codebase-memory-mcp jq
+function repo:index() {
+	if ! command -v codebase-memory-mcp &>/dev/null; then
+		printf 'codebase-memory-mcp is not installed or not on PATH\n' >&2
+		return 1
+	fi
+
+	if ! command -v jq &>/dev/null; then
+		printf 'jq is required to build JSON payloads safely\n' >&2
+		return 1
+	fi
+
+	local repo_path index_output project architecture
+
+	repo_path="${PWD:A}"
+	index_output="$(codebase-memory-mcp cli index_repository "$(jq -cn --arg repo_path "$repo_path" '{repo_path:$repo_path}')")" || return
+	project="$(printf '%s' "$index_output" | jq -r '.project // empty' 2>/dev/null)"
+
+	if [[ -z "$project" ]]; then
+		project="$(codebase-memory-mcp cli list_projects '{}' | jq -r --arg repo_path "$repo_path" 'first(.projects[] | select(.root_path == $repo_path) | .name) // empty')"
+	fi
+
+	if [[ -z "$project" ]]; then
+		printf 'Could not find an indexed project for %s\n' "$repo_path" >&2
+		printf '%s\n' "$index_output" >&2
+		return 1
+	fi
+
+	if [[ -n "$index_output" ]]; then
+		printf '%s\n' "$index_output"
+	fi
+
+	architecture="$(codebase-memory-mcp cli get_architecture "$(jq -cn --arg project "$project" '{project:$project,aspects:["all"]}')" 2>/dev/null || codebase-memory-mcp cli get_architecture "$(jq -cn --arg project "$project" '{project:$project}')")" || return
+	printf '%s\n' "$architecture"
+
+	codebase-memory-mcp cli manage_adr "$(jq -cn --arg project "$project" --arg content "$architecture" '{project:$project,mode:"update",content:$content}')"
+}

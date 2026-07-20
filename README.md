@@ -1,22 +1,170 @@
 # zsh
 
-My shell configuration, split into small files and loaded by a single `zshrc`. Lives here so it's version-controlled and edited from one place rather than buried in `~/.zshrc`.
+My macOS terminal and shell configuration, split into small, focused files and loaded from one version-controlled repository.
 
-macOS, zsh + Oh My Zsh + Powerlevel10k.
+The configuration lives here so it can be version-controlled, reviewed and edited from one place rather than being buried in `~/.zshrc`.
+
+Built around:
+
+- Zsh and Oh My Zsh
+- Starship
+- Ghostty
+- zoxide
+- eza
+- fzf
+- Atuin
+- bat
 
 ## Setup on a fresh machine
 
+### 1. Install the terminal and font
+
+Install [Homebrew](https://brew.sh/) first, then:
+
 ```sh
+brew install --cask ghostty font-jetbrains-mono-nerd-font
+```
+
+The Nerd Font provides the symbols used by the Starship prompt.
+
+### 2. Install the shell tools
+
+```sh
+brew install \
+    atuin \
+    bat \
+    eza \
+    fzf \
+    starship \
+    zoxide
+```
+
+These provide:
+
+| Tool       | Purpose                                               |
+| ---------- | ----------------------------------------------------- |
+| `starship` | Configurable shell prompt                             |
+| `zoxide`   | Frecency-based directory navigation with `z` and `zi` |
+| `eza`      | Clearer file listings and directory trees             |
+| `fzf`      | Fuzzy file, directory and command selection           |
+| `atuin`    | Searchable, contextual shell history                  |
+| `bat`      | Syntax-highlighted file viewing                       |
+
+### 3. Install Oh My Zsh
+
+```sh
+sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+```
+
+Do this before linking the repository configuration because the installer may create or replace `~/.zshrc`.
+
+### 4. Link the configuration
+
+Assuming this repository is checked out at `~/Dev/Configuration/zsh`:
+
+```sh
+mkdir -p ~/.config
+mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"
+
 ln -sf ~/Dev/Configuration/zsh/zshrc ~/.zshrc
 ln -sf ~/Dev/Configuration/zsh/zprofile ~/.zprofile
+ln -sf ~/Dev/Configuration/zsh/starship.toml ~/.config/starship.toml
+ln -sf ~/Dev/Configuration/zsh/ghostty.config \
+    "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+
+touch ~/.hushlogin
+
+cd ~/Dev/Configuration/zsh
 git config core.hooksPath hooks
 ```
 
-Open a new terminal, sourcing every `aliases.*.zsh` file automatically. Adding a new file doesn't require editing `zshrc`. The `core.hooksPath` step activates the pre-commit hook that keeps the README command table up to date.
+`~/.hushlogin` suppresses macOS’s `Last login` message.
+
+The Ghostty symlink keeps terminal appearance, padding, key behaviour and shell integration version-controlled alongside the Zsh configuration.
+
+The `core.hooksPath` setting activates the repository’s Git hooks, including the pre-commit hook that keeps the README command table up to date.
+
+Open a new terminal after linking the files. The shell automatically loads every `aliases.*.zsh` file in sorted order, so adding a new alias file does not require editing `zshrc`.
+
+### 5. Import existing shell history
+
+On a machine with existing Zsh history:
+
+```sh
+atuin import auto
+```
+
+Atuin remains local unless synchronisation is configured separately.
+
+## Shell features
+
+### Navigation
+
+`zoxide` learns commonly visited directories:
+
+```sh
+z helpers
+zi
+```
+
+`zi` opens an interactive directory picker powered by `fzf`.
+
+### Fuzzy search
+
+The fzf shell integration provides:
+
+| Shortcut   | Action                                             |
+| ---------- | -------------------------------------------------- |
+| `Ctrl-R`   | Search command history through Atuin               |
+| `Ctrl-T`   | Find a file and insert it into the current command |
+| `Option-C` | Find a directory and change into it                |
+
+Ghostty must treat Option as Alt for `Option-C` to work:
+
+```ini
+macos-option-as-alt = left
+```
+
+### File listings
+
+The eza aliases provide progressively more detail:
+
+| Command | Output                                               |
+| ------- | ---------------------------------------------------- |
+| `ls`    | Basic file listing                                   |
+| `ll`    | Detailed listing with headings, icons and Git status |
+| `la`    | Detailed listing including hidden files              |
+| `lt`    | Two-level directory tree                             |
+
+### Shell history
+
+Atuin records commands with contextual information such as their directory, duration and exit status.
+
+The normal up-arrow behaviour is preserved, while `Ctrl-R` opens Atuin’s searchable history.
+
+### File viewing
+
+Use `bat` for syntax-highlighted file output:
+
+```sh
+bat README.md
+bat package.json
+bat --diff src/example.ts
+```
+
+The standard `cat` command is left unchanged.
 
 ## Private aliases
 
-`aliases.private.zsh` is gitignored. Copy `aliases.private.zsh.example` to create it locally. It's a good place for `goto:` navigation shortcuts and anything else that's personal or machine-specific.
+`aliases.private.zsh` is gitignored.
+
+Copy the example file to create it locally:
+
+```sh
+cp aliases.private.zsh.example aliases.private.zsh
+```
+
+It is intended for `goto:*` navigation shortcuts and other personal or machine-specific configuration.
 
 ## Health check
 
@@ -24,23 +172,48 @@ Open a new terminal, sourcing every `aliases.*.zsh` file automatically. Adding a
 zsh:doctor
 ```
 
-Reports tool availability, required files, `goto:*` path validity, syntax errors, PATH duplicates, and whether the README command table is up to date.
+Reports:
 
-## What's in here
+- required file and tool availability;
+- `goto:*` path validity;
+- Zsh syntax errors;
+- duplicate `PATH` entries;
+- whether the generated README command table is current.
 
-| File                     | What it holds                                                                                                               |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `zprofile`               | Login-shell loader. Sources the shared environment. Symlinked from `~/.zprofile`.                                           |
-| `zshrc`                  | Interactive-shell loader. Sources the shared environment and all `aliases.*.zsh` files in order.                            |
-| `environment.zsh`        | Shared PATH and command environment for interactive and non-interactive login shells, including the cli-style Bash adapter. |
-| `aliases.config.zsh`     | Colour variables and the `zshrc` edit alias. Loaded first so colour vars are available everywhere.                          |
-| `aliases.discovery.zsh`  | `alias:list`, `alias:find`, and `docs:generate`: browse commands and keep the README up to date.                            |
-| `aliases.doctor.zsh`     | `zsh:doctor` health check.                                                                                                  |
-| `aliases.project.zsh`    | `dev`/`build`/`lint`/`test:*` project commands.                                                                             |
-| `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                               |
-| `aliases.tools.zsh`      | `repo:*`, `svg`, and `agents:*` setup helpers.                                                                              |
-| `oh-my-zsh-settings.zsh` | Oh My Zsh init + Powerlevel10k theme.                                                                                       |
-| `bun-settings.zsh`       | Bun completions.                                                                                                            |
+## Repository structure
+
+| File                     | What it holds                                                                                                                 |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `zprofile`               | Login-shell loader. Sources the shared environment and is symlinked from `~/.zprofile`.                                       |
+| `zshrc`                  | Interactive-shell loader. Sources the environment, aliases, hooks and interactive tool integrations.                          |
+| `environment.zsh`        | Shared `PATH` and command environment for interactive and non-interactive login shells, including the cli-style Bash adapter. |
+| `starship.toml`          | Starship prompt layout, Git status, package version, command duration and background-job configuration.                       |
+| `aliases.config.zsh`     | Colour variables and configuration-editing aliases. Loaded first so shared values are available elsewhere.                    |
+| `aliases.discovery.zsh`  | `alias:list`, `alias:find` and `docs:generate` for browsing commands and maintaining this README.                             |
+| `aliases.doctor.zsh`     | The `zsh:doctor` health check.                                                                                                |
+| `aliases.project.zsh`    | `dev`, `build`, `lint` and `test:*` project commands.                                                                         |
+| `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                                 |
+| `aliases.tools.zsh`      | Tool aliases, file listings, repository helpers, SVG optimisation and agent setup commands.                                   |
+| `bun-settings.zsh`       | Bun shell completions.                                                                                                        |
+| `oh-my-zsh-settings.zsh` | Oh My Zsh configuration and plugin initialisation.                                                                            |
+| `ghostty.config`         | Ghostty typography, padding, cursor, shell integration, tab behaviour and macOS-specific settings.                            |
+| `ignores.fd`             | Shared ignore patterns for file discovery.                                                                                    |
+| `hooks/`                 | Zsh hooks, including repository-aware Ghostty tab titles.                                                                     |
+
+## Adding an alias or function
+
+Choose the file that matches the command’s purpose. Add a new `aliases.<topic>.zsh` file when no existing category is appropriate; it will be sourced automatically.
+
+Annotate public commands so they appear in `alias:list`, `alias:find` and this README:
+
+```zsh
+# @desc  Short description shown in the command table
+# @cat   category-name
+# @needs optional-tool-dependency
+alias my:command="..."
+```
+
+The pre-commit hook regenerates the command table automatically before each commit.
 
 ## Adding a new alias or function
 
@@ -139,7 +312,6 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `repo:index` | Index the current repository in codebase-memory-mcp and store an ADR |
-| `repo:link` | Link the current folder to the Chat GPT local setup |
 | `repo:open` | Open the main GitHub page for a repo |
 | `repo:open:all` | Open main page, releases, and actions for a repo (3 tabs) |
 
