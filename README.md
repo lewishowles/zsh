@@ -65,7 +65,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `claude` | Run claude with auto-mode |
-| `codex` | Run codex with auto-mode |
+| `codex` | Run Codex with shared configuration defaults |
 
 ### agents
 
@@ -123,6 +123,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `goto:testing` | Open the testing helper library project |
 | `goto:tools` | Open the dev tools project |
 | `goto:vscode` | Open the VS Code extensions root |
+| `goto:zsh` | Open the ZSH config repo |
 
 ### package
 

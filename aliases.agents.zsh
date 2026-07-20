@@ -1,8 +1,8 @@
 # hcom role launchers for manually managed Hyper tabs.
 
-# @desc  Run codex with auto-mode
+# @desc  Run Codex with shared configuration defaults
 # @cat   agent
-alias codex="codex --ask-for-approval never --sandbox workspace-write";
+alias codex="codex";
 # @desc  Run claude with auto-mode
 # @cat   agent
 alias claude="claude --permission-mode auto";
@@ -23,12 +23,11 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 #     --tag orchestrator \
 #     --model sonnet \
 #     --role-file orchestrator.md \
-#     [--auto-mode] \
 #     [--working-dir /path] \
 #     [--initial-prompt "..."] \
 #     [--thinking medium]
 _hcom_launch_role() {
-	local tool="" tag="" model="" role_file="" auto_mode=0
+	local tool="" tag="" model="" role_file=""
 	local working_directory="$PWD" initial_prompt="" thinking_effort=""
 	local caveman_prompt="Enable caveman skill in full mode for all user-facing prose."
 
@@ -38,7 +37,6 @@ _hcom_launch_role() {
 			--tag) tag="$2"; shift 2 ;;
 			--model) model="$2"; shift 2 ;;
 			--role-file) role_file="$2"; shift 2 ;;
-			--auto-mode) auto_mode=1; shift ;;
 			--working-dir) working_directory="$2"; shift 2 ;;
 			--initial-prompt) initial_prompt="$2"; shift 2 ;;
 			--thinking) thinking_effort="$2"; shift 2 ;;
@@ -82,9 +80,7 @@ _hcom_launch_role() {
 		--dir "$working_directory"
 	)
 
-	if [[ "$tool" = "codex" ]]; then
-		[[ $auto_mode -eq 1 ]] && hcom_arguments+=(--ask-for-approval never --sandbox workspace-write)
-	else
+	if [[ "$tool" != "codex" ]]; then
 		hcom_arguments+=(--append-system-prompt "$role_prompt")
 	fi
 
@@ -132,7 +128,6 @@ hcom-orchestrator() {
 		--tag orchestrator \
 		--model sonnet \
 		--role-file orchestrator.md \
-		--auto-mode \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
@@ -158,7 +153,6 @@ hcom-reviewer() {
 		--tag reviewer \
 		--model sonnet \
 		--role-file reviewer.md \
-		--auto-mode \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
@@ -171,7 +165,6 @@ hcom-scout() {
 		--tag scout \
 		--model gpt-5.6-luna \
 		--role-file scout.md \
-		--auto-mode \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
