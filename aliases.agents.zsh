@@ -29,7 +29,6 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 _hcom_launch_role() {
 	local tool="" tag="" model="" role_file=""
 	local working_directory="$PWD" initial_prompt="" thinking_effort=""
-	local caveman_prompt="Enable caveman skill in full mode for all user-facing prose."
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -61,12 +60,6 @@ _hcom_launch_role() {
 		return 1
 	fi
 
-	if [[ -n "$initial_prompt" ]]; then
-		initial_prompt="$caveman_prompt $initial_prompt"
-	else
-		initial_prompt="$caveman_prompt"
-	fi
-
 	local role_prompt="$(<"$role_path")"
 	local repository_tag scoped_tag
 	repository_tag="$(_hcom_scoped_tag "$working_directory")" || return 1
@@ -95,6 +88,11 @@ _hcom_launch_role() {
 	fi
 
 	if [[ "$tool" = "codex" ]]; then
+		hcom_arguments+=(
+			--config 'model_verbosity="low"'
+			--config 'model_reasoning_summary="none"'
+			--config 'hide_agent_reasoning=true'
+		)
 		HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
 	else
 		HCOM_CLAUDE_ARGS='--permission-mode auto' HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
