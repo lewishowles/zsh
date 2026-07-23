@@ -118,7 +118,7 @@ _hcom_scoped_tag() {
 	print -r -- "$repository_tag"
 }
 
-# @desc  Start the Claude Orchestrator hcom role (auto permission mode)
+# @desc  Start the Orchestrator hcom role
 # @cat   hcom
 hcom-orchestrator() {
 	_hcom_launch_role \
@@ -130,7 +130,7 @@ hcom-orchestrator() {
 		--initial-prompt "${2:-}"
 }
 
-# @desc  Start the Codex Implementer hcom role
+# @desc  Start the Implementer hcom role
 # @cat   hcom
 hcom-implementer() {
 	_hcom_launch_role \
@@ -143,7 +143,7 @@ hcom-implementer() {
 		--initial-prompt "${2:-}"
 }
 
-# @desc  Start the Claude Reviewer hcom role (auto permission mode)
+# @desc  Start the Reviewer hcom role
 # @cat   hcom
 hcom-reviewer() {
 	_hcom_launch_role \
@@ -155,7 +155,7 @@ hcom-reviewer() {
 		--initial-prompt "${2:-}"
 }
 
-# @desc  Start the Claude Scout hcom role (auto permission mode, medium thinking)
+# @desc  Start the Scout hcom role
 # @cat   hcom
 hcom-scout() {
 	_hcom_launch_role \
@@ -163,6 +163,7 @@ hcom-scout() {
 		--tag scout \
 		--model gpt-5.6-luna \
 		--role-file scout.md \
+		--thinking medium \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
