@@ -28,6 +28,23 @@ _progress_frontmatter_value() {
 	' "$file"
 }
 
+# Return a task status as a human-readable label.
+#
+# @param  {string}  task_status
+#     Task front matter status.
+_progress_status_label() {
+	local task_status="$1"
+
+	case "$task_status" in
+		ready) printf 'Ready\n' ;;
+		in-progress) printf 'In progress\n' ;;
+		blocked) printf 'Blocked\n' ;;
+		needs-decision) printf 'Needs decision\n' ;;
+		done) printf 'Done\n' ;;
+		*) printf 'Unknown\n' ;;
+	esac
+}
+
 # Count completed and total checklist items in a task's Tasks section.
 #
 # @param  {string}  file
@@ -66,13 +83,40 @@ _progress_active_task_path() {
 	' "$file"
 }
 
-# Return the current and next roadmap release titles.
+# Return the first queued task path after the active task.
+#
+# @param  {string}  file
+#     PROGRESS.md file containing the upcoming queue.
+# @param  {string}  active_task_path
+#     Active task path to exclude when tolerated legacy queues repeat it.
+_progress_next_task_path() {
+	local file="$1"
+	local active_task_path="$2"
+
+	awk -v active_task_path="$active_task_path" '
+		/^### Upcoming queue[[:space:]]*$/ { queue = 1; next }
+		queue && /^### / { exit }
+		queue && /^## / { exit }
+		queue && /\]\(\.agent\/tasks\/[^)]+\)/ {
+			path = $0
+			sub(/^.*\]\(/, "", path)
+			sub(/\).*$/, "", path)
+
+			if (path != active_task_path) {
+				print path
+				exit
+			}
+		}
+	' "$file"
+}
+
+# Return the current roadmap release title.
 #
 # @param  {string}  file
 #     PROGRESS.md file containing the roadmap.
 # @param  {string}  release_id
 #     Preferred release ID from the active task, or an empty string.
-_progress_roadmap_releases() {
+_progress_roadmap_release() {
 	local file="$1"
 	local release_id="$2"
 
@@ -116,29 +160,24 @@ _progress_roadmap_releases() {
 
 			if (current == 0) exit
 
-			for (row_index = current + 1; row_index <= count; row_index++) {
-				if (statuses[row_index] != "done") {
-					next_title = titles[row_index]
-					break
-				}
-			}
-
-			printf "%s\t%s\n", titles[current], next_title
+			print titles[current]
 		}
 	' "$file"
 }
 
 # Summarise projects with an active PROGRESS.md file.
 progress:check() {
-	local -a dirs task_files
-	local dir task_file active_task_path current_task current_title current_release task_status
+	local -a dirs task_files task_parts
+	local dir task_file active_task_path fallback_task current_task current_title current_release current_status
+	local next_task_path next_task next_title next_status next_summary
+	local task_status status_label status_colour
 	local ready in_progress blocked needs_decision done unknown
 	local step_counts completed_steps total_steps progress_colour
 	local task_summary task_colour
-	local release_summary release_title next_release
+	local release_title
 
 	dirs=("${(@f)$(fd --hidden --no-ignore-vcs --type f '^PROGRESS\.md$' "$HOME/Dev" \
-		--ignore-file "$ZSH_CONFIG_ROOT/ignores.fd" \
+		--ignore-file "$_zsh_config_dir/ignores.fd" \
 		--exec dirname {} |
 		sort)}")
 
@@ -152,9 +191,11 @@ progress:check() {
 		task_files=("$dir"/.agent/tasks/*.md(N))
 
 		active_task_path=$(_progress_active_task_path "$dir/PROGRESS.md")
+		fallback_task=""
 		current_task=""
 		current_title=""
 		current_release=""
+		current_status=""
 		ready=0
 		in_progress=0
 		blocked=0
@@ -169,11 +210,7 @@ progress:check() {
 				ready) ((ready++)) ;;
 				in-progress)
 					((in_progress++))
-					if [[ -z "$current_task" || "$task_file" == "$dir/$active_task_path" ]]; then
-						current_task="$task_file"
-						current_title=$(_progress_frontmatter_value "$task_file" title)
-						current_release=$(_progress_frontmatter_value "$task_file" release)
-					fi
+					[[ -z "$fallback_task" ]] && fallback_task="$task_file"
 					;;
 				blocked) ((blocked++)) ;;
 				needs-decision) ((needs_decision++)) ;;
@@ -182,9 +219,30 @@ progress:check() {
 			esac
 		done
 
+		if [[ -n "$active_task_path" && -f "$dir/$active_task_path" ]]; then
+			current_task="$dir/$active_task_path"
+		else
+			current_task="$fallback_task"
+		fi
+
 		if [[ -n "$current_task" ]]; then
+			current_title=$(_progress_frontmatter_value "$current_task" title)
+			current_release=$(_progress_frontmatter_value "$current_task" release)
+			current_status=$(_progress_frontmatter_value "$current_task" status)
 			[[ -z "$current_title" ]] && current_title="${current_task:t:r}"
-			cli_style_row "Current" "$current_title" --label-width 12 --value-colour info
+			cli_style_row "Current task" "$current_title" --label-width 14 --value-colour info
+
+			status_label=$(_progress_status_label "$current_status")
+			status_colour="info"
+
+			case "$current_status" in
+				ready) status_colour="muted" ;;
+				done) status_colour="success" ;;
+				blocked) status_colour="danger" ;;
+				needs-decision) status_colour="warning" ;;
+			esac
+
+			cli_style_row "Status" "$status_label" --label-width 14 --value-colour "$status_colour"
 
 			progress_colour="info"
 			step_counts=$(_progress_task_steps "$current_task")
@@ -195,34 +253,52 @@ progress:check() {
 				progress_colour="success"
 			fi
 
-			cli_style_row "Progress" "$completed_steps/$total_steps steps" --label-width 12 --value-colour "$progress_colour"
+			if ((total_steps > 0)); then
+				cli_style_row "Steps" "$completed_steps/$total_steps complete" --label-width 14 --value-colour "$progress_colour"
+			fi
 		fi
 
-		task_summary="${#task_files[@]} total"
-		((in_progress > 0)) && task_summary+=" · $in_progress in progress"
-		((ready > 0)) && task_summary+=" · $ready ready"
-		((blocked > 0)) && task_summary+=" · $blocked blocked"
-		((needs_decision > 0)) && task_summary+=" · $needs_decision need decision"
-		((done > 0)) && task_summary+=" · $done done"
-		((unknown > 0)) && task_summary+=" · $unknown unknown"
+		task_parts=()
+		((in_progress > 0)) && task_parts+=("$in_progress in progress")
+		((ready > 0)) && task_parts+=("$ready ready")
+		((blocked > 0)) && task_parts+=("$blocked blocked")
+		((needs_decision > 0)) && task_parts+=("$needs_decision need decision")
+		((done > 0)) && task_parts+=("$done done")
+		((unknown > 0)) && task_parts+=("$unknown unknown")
+		((${#task_parts[@]} == 0)) && task_parts=("None")
+		task_summary="${(j: · :)task_parts}"
 
 		task_colour="info"
 		((needs_decision > 0)) && task_colour="warning"
 		((blocked > 0)) && task_colour="danger"
 		((${#task_files[@]} == 0)) && task_colour="muted"
-		cli_style_row "Tasks" "$task_summary" --label-width 12 --value-colour "$task_colour"
+		cli_style_row "Tasks" "$task_summary" --label-width 14 --value-colour "$task_colour"
 
-		release_summary=$(_progress_roadmap_releases "$dir/PROGRESS.md" "$current_release")
-		release_title="${release_summary%%$'\t'*}"
-		next_release="${release_summary#*$'\t'}"
+		release_title=$(_progress_roadmap_release "$dir/PROGRESS.md" "$current_release")
+		[[ -n "$release_title" ]] && cli_style_row "Release" "$release_title" --label-width 14 --value-colour success
 
-		[[ -n "$release_title" ]] && cli_style_row "Release" "$release_title" --label-width 12 --value-colour success
-		[[ -n "$next_release" ]] && cli_style_row "Next release" "$next_release" --label-width 12 --value-colour muted
+		next_task_path=$(_progress_next_task_path "$dir/PROGRESS.md" "$active_task_path")
+		next_task=""
+
+		if [[ -n "$next_task_path" && -f "$dir/$next_task_path" ]]; then
+			next_task="$dir/$next_task_path"
+			next_title=$(_progress_frontmatter_value "$next_task" title)
+			next_status=$(_progress_frontmatter_value "$next_task" status)
+			[[ -z "$next_title" ]] && next_title="${next_task:t:r}"
+			next_summary="$next_title"
+
+			if [[ "$next_status" != "ready" ]]; then
+				status_label=$(_progress_status_label "$next_status")
+				next_summary+=" · ${(L)status_label}"
+			fi
+
+			cli_style_row "Next task" "$next_summary" --label-width 14 --value-colour muted
+		fi
 
 		printf '\n'
 	done
 
-	cli_style_status success "${#dirs[@]} active PROGRESS.md file(s) found"
+	cli_style_status success "${#dirs[@]} project plans checked"
 
 	printf '\n'
 }
