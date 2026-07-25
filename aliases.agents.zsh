@@ -136,9 +136,9 @@ hcom-implementer() {
 	_hcom_launch_role \
 		--tool codex \
 		--tag implementer \
-		--model gpt-5.6-luna \
+		--model gpt-5.6-terra \
 		--role-file implementer.md \
-		--thinking xhigh \
+		--thinking high \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
@@ -151,6 +151,7 @@ hcom-reviewer() {
 		--tag reviewer \
 		--model sonnet \
 		--role-file reviewer.md \
+		--thinking high \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
