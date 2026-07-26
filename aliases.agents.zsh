@@ -168,3 +168,39 @@ hcom-scout() {
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
+
+# @desc  Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt)
+# @cat   hcom
+hcom-resume() {
+	local raw_name="$1"
+	shift
+
+	if [[ -z "$raw_name" ]]; then
+		printf 'hcom-resume: usage: hcom-resume <name> [tool-args...]\n' >&2
+		return 1
+	fi
+
+	# Accepts a bare hcom name ("naru") or a role-prefixed shorthand ("orchestrator-naru");
+	# hcom itself only ever resumes by the bare 4-letter name.
+	local name="${raw_name##*-}"
+
+	# `hcom list -v` only searches alive agents. A name worth resuming is stopped by
+	# definition, so fall back to `hcom list --stopped` to find its tag.
+	local details
+	details="$(command hcom list -v "$name" 2>&1)"
+	if [[ $? -ne 0 ]]; then
+		details="$(command hcom list --stopped "$name" 2>&1)"
+	fi
+
+	local tag role
+	tag="$(print -r -- "$details" | awk -F': *' '/^  Tag:/{print $2}')"
+
+	if [[ -z "$tag" ]]; then
+		printf 'hcom-resume: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
+		return 1
+	fi
+
+	role="${tag##*-}"
+	printf 'Resuming %s (role: %s, tag: %s)\n' "$name" "$role" "$tag"
+	command hcom r "$name" "$@"
+}
