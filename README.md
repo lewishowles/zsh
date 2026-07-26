@@ -331,5 +331,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `svg` | Optimise SVG files in ~/Downloads using SVGO |
+| `updates:check` | List available global updaters without starting them |
+| `updates:run` | Update global tools while preserving each updater's interaction |
 
 <!-- commands:end -->

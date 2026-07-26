@@ -470,3 +470,99 @@ function alias:find() {
 		eval "$name"
 	fi
 }
+
+# Return whether a command is available in the current shell.
+#
+# @param  {string}  command_name
+#     Command to look up.
+_updates_command_available() {
+	local command_name="$1"
+
+	(( $+commands[$command_name] ))
+}
+
+# Report whether a configured updater can run without starting it.
+#
+# @param  {string}  label
+#     Human-readable updater name.
+# @param  {string}  command_name
+#     Command required by the updater.
+_updates_check_command() {
+	local label="$1"
+	local command_name="$2"
+
+	if _updates_command_available "$command_name"; then
+		cli_style_status success "$label" "Ready"
+		return 0
+	fi
+
+	cli_style_status info "$label" "Skipped, $command_name is not installed"
+}
+
+# Run an available updater without intercepting its terminal streams.
+#
+# @param  {string}  label
+#     Human-readable updater name.
+# @param  {string}  command_name
+#     Command required by the updater.
+# @param  {string}  ...
+#     Command and arguments to run.
+_updates_run_command() {
+	local label="$1"
+	shift
+
+	local command_name="$1"
+
+	if ! _updates_command_available "$command_name"; then
+		cli_style_status info "$label" "Skipped, $command_name is not installed"
+		return 0
+	fi
+
+	cli_style_status info "$label" "Running interactively"
+
+	if "$@"; then
+		cli_style_status success "$label" "Complete"
+		return 0
+	fi
+
+	cli_style_status danger "$label" "Failed"
+	return 1
+}
+
+# @desc  List available global updaters without starting them
+# @cat   tools
+# List the global update commands available in the current shell.
+function updates:check() {
+	cli_style_status info "Global updates" "Checking available updaters"
+
+	_updates_check_command "Homebrew" brew
+	_updates_check_command "Bun" bun
+	_updates_check_command "uv tools" uv
+	_updates_check_command "Codebase Memory MCP" codebase-memory-mcp
+	_updates_check_command "npm global packages" npm
+	_updates_check_command "GitHub CLI extensions" gh
+}
+
+# @desc  Update global tools while preserving each updater's interaction
+# @cat   tools
+# Update global tools while preserving each updater's interaction.
+function updates:run() {
+	local failures=0
+
+	cli_style_status info "Global updates" "Running available updaters"
+
+	_updates_run_command "Homebrew metadata" brew update || ((failures += 1))
+	_updates_run_command "Homebrew packages" brew upgrade || ((failures += 1))
+	_updates_run_command "Bun runtime" bun upgrade || ((failures += 1))
+	_updates_run_command "uv tools" uv tool upgrade --all || ((failures += 1))
+	_updates_run_command "Codebase Memory MCP" codebase-memory-mcp update || ((failures += 1))
+	_updates_run_command "npm global packages" npm update --global || ((failures += 1))
+	_updates_run_command "GitHub CLI extensions" gh extension upgrade --all || ((failures += 1))
+
+	if ((failures > 0)); then
+		cli_style_status danger "Global updates" "$failures updater commands failed"
+		return 1
+	fi
+
+	cli_style_status success "Global updates" "All available updaters completed"
+}
