@@ -118,6 +118,23 @@ _hcom_scoped_tag() {
 	print -r -- "$repository_tag"
 }
 
+# Prints the tag for an active or recently stopped hcom agent.
+#
+# @param  {string}  name
+#     The bare hcom agent name.
+_hcom_resolve_agent_tag() {
+	local name="$1"
+	local details tag
+
+	details="$(command hcom list -v "$name" 2>&1)"
+	if [[ $? -ne 0 ]]; then
+		details="$(command hcom list --stopped "$name" 2>&1)"
+	fi
+
+	tag="$(print -r -- "$details" | awk -F': *' '/^  Tag:/{print $2}')"
+	print -r -- "$tag"
+}
+
 # @desc  Start the Orchestrator hcom role
 # @cat   hcom
 hcom-orchestrator() {
@@ -169,6 +186,58 @@ hcom-scout() {
 		--initial-prompt "${2:-}"
 }
 
+# @desc  Start a fresh reviewer and announce it to the project orchestrator
+# @cat   hcom
+# Starts the normal reviewer role in the current directory without restoring the stopped Claude session.
+#
+# @param  {string}  name
+#     The stopped reviewer name or role-prefixed shorthand.
+# @param  {string}  initial_prompt
+#     Optional task for the fresh reviewer after it announces itself.
+hcom-restart-reviewer() {
+	local raw_name="$1"
+	shift
+
+	if [[ -z "$raw_name" ]] || [[ $# -gt 1 ]]; then
+		printf 'hcom-restart-reviewer: usage: hcom-restart-reviewer <name> [initial-prompt]\n' >&2
+		return 1
+	fi
+
+	local name="${raw_name##*-}"
+	local tag role
+	tag="$(_hcom_resolve_agent_tag "$name")"
+
+	if [[ -z "$tag" ]]; then
+		printf 'hcom-restart-reviewer: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
+		return 1
+	fi
+
+	role="${tag##*-}"
+	if [[ "$role" != "reviewer" ]]; then
+		printf 'hcom-restart-reviewer: %s is a %s, not a reviewer\n' "$name" "$role" >&2
+		return 1
+	fi
+
+	local orchestrator_tag="${tag%-reviewer}-orchestrator"
+	local -a prompt_lines
+	prompt_lines=(
+		"Before any other work, use the Bash tool to run:"
+		"hcom send @${orchestrator_tag}-all -- \"Fresh replacement reviewer ready. Original reviewer: ${raw_name}.\""
+	)
+
+	if [[ -n "${1:-}" ]]; then
+		prompt_lines+=("" "After announcing yourself, do this task:" "$1")
+	else
+		prompt_lines+=("" "Then wait for the orchestrator's task.")
+	fi
+
+	local launch_prompt
+	launch_prompt="$(print -rl -- "${prompt_lines[@]}")"
+
+	printf 'Starting a fresh reviewer for %s; it will announce itself to @%s-all.\n' "$name" "$orchestrator_tag"
+	hcom-reviewer "$PWD" "$launch_prompt"
+}
+
 # @desc  Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt)
 # @cat   hcom
 hcom-resume() {
@@ -184,16 +253,8 @@ hcom-resume() {
 	# hcom itself only ever resumes by the bare 4-letter name.
 	local name="${raw_name##*-}"
 
-	# `hcom list -v` only searches alive agents. A name worth resuming is stopped by
-	# definition, so fall back to `hcom list --stopped` to find its tag.
-	local details
-	details="$(command hcom list -v "$name" 2>&1)"
-	if [[ $? -ne 0 ]]; then
-		details="$(command hcom list --stopped "$name" 2>&1)"
-	fi
-
 	local tag role
-	tag="$(print -r -- "$details" | awk -F': *' '/^  Tag:/{print $2}')"
+	tag="$(_hcom_resolve_agent_tag "$name")"
 
 	if [[ -z "$tag" ]]; then
 		printf 'hcom-resume: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
