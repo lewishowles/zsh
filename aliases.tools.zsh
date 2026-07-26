@@ -77,7 +77,7 @@ function repo:open:all() {
 
 # @desc  Set up agent files (Claude + Codex) globally
 # @cat   agents
-alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both --no-backup"
+alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
 # @desc  Set up agent files (Claude + Codex) for the current project
 # @cat   agents
 alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
