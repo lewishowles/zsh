@@ -287,6 +287,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `goto:agents` | Open the agent configuration directory |
 | `goto:anpr` | Open the Gatekeeper Admin root |
 | `goto:blog` | Open the blog project |
+| `goto:boilerplace` | Open the CLI style library project |
 | `goto:boilersuit` | Open the Boilersuit macOS app project |
 | `goto:cli` | Open the CLI style library project |
 | `goto:components` | Open the Vue component library project |
@@ -295,7 +296,6 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `goto:sketch` | Open the Sketch plugins root |
 | `goto:testing` | Open the testing helper library project |
 | `goto:tools` | Open the dev tools project |
-| `goto:vscode` | Open the VS Code extensions root |
 | `goto:zsh` | Open the ZSH config repo |
 
 ### package

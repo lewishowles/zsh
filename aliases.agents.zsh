@@ -177,11 +177,10 @@ hcom-reviewer() {
 # @cat   hcom
 hcom-scout() {
 	_hcom_launch_role \
-		--tool codex \
+		--tool claude \
 		--tag scout \
-		--model gpt-5.6-luna \
+		--model haiku \
 		--role-file scout.md \
-		--thinking medium \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
