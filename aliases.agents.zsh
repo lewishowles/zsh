@@ -221,8 +221,8 @@ hcom-restart-reviewer() {
 	local orchestrator_tag="${tag%-reviewer}-orchestrator"
 	local -a prompt_lines
 	prompt_lines=(
-		"Before any other work, use the Bash tool to run:"
-		"hcom send @${orchestrator_tag}- -- \"Fresh replacement reviewer ready. Original reviewer: ${raw_name}.\""
+		"Before any other work, use the Bash tool to run this command, replacing YOUR_HCOM_NAME with your assigned hcom name:"
+		"hcom send @${orchestrator_tag}- --name YOUR_HCOM_NAME -- \"Fresh replacement reviewer ready. Original reviewer: ${raw_name}.\""
 	)
 
 	if [[ -n "${1:-}" ]]; then
