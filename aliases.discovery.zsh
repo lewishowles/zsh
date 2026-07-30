@@ -63,6 +63,24 @@ _progress_task_steps() {
 	' "$file"
 }
 
+# Count completed and total checklist items in a task's Commit plan section.
+#
+# @param  {string}  file
+#     Task file to inspect.
+_progress_task_commits() {
+	local file="$1"
+
+	awk '
+		/^## Commit plan[[:space:]]*$/ { commits = 1; next }
+		commits && /^## / { exit }
+		commits && /^- \[[ xX]\] Commit [0-9]+:/ {
+			total++
+			if ($0 ~ /^- \[[xX]\] Commit [0-9]+:/) completed++
+		}
+		END { printf "%d\t%d\n", completed, total }
+	' "$file"
+}
+
 # Return the task path linked from the Session handoff's Active task section.
 #
 # @param  {string}  file
@@ -172,6 +190,7 @@ progress:check() {
 	local next_task_path next_task next_title next_status next_summary
 	local task_status status_label status_colour
 	local ready in_progress blocked needs_decision done unknown
+	local commit_counts completed_commits total_commits commit_colour
 	local step_counts completed_steps total_steps progress_colour
 	local task_summary task_colour
 	local release_title
@@ -243,6 +262,19 @@ progress:check() {
 			esac
 
 			cli_style_row "Status" "$status_label" --label-width 14 --value-colour "$status_colour"
+
+			commit_colour="info"
+			commit_counts=$(_progress_task_commits "$current_task")
+			completed_commits="${commit_counts%%$'\t'*}"
+			total_commits="${commit_counts#*$'\t'}"
+
+			if ((total_commits > 0 && completed_commits == total_commits)); then
+				commit_colour="success"
+			fi
+
+			if ((total_commits > 0)); then
+				cli_style_row "Commits" "$completed_commits/$total_commits complete" --label-width 14 --value-colour "$commit_colour"
+			fi
 
 			progress_colour="info"
 			step_counts=$(_progress_task_steps "$current_task")
