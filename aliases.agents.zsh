@@ -143,6 +143,7 @@ hcom-orchestrator() {
 		--tag orchestrator \
 		--model sonnet \
 		--role-file orchestrator.md \
+		--thinking high \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
