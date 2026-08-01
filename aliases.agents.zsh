@@ -274,6 +274,56 @@ hcom-scout() {
 		--initial-prompt "${2:-}"
 }
 
+# Builds the shared planning-peer independent-review initial prompt.
+#
+# @param  {string}  task_name
+#     The task name or path to resolve for review.
+_hcom_plan_prompt() {
+	local quoted_task_name="${(q)1}"
+
+	print -r -- "Use project-review-task in independent review mode to review task ${quoted_task_name}. Resolve exactly one task using the skill's exact-resolution order. Do not edit the task or contact the peer. Retain the complete review packet, report the resolved path, content hash, verdict, every finding and its evidence, and \"Safe to reset: no\", then wait."
+}
+
+# @desc  Start a Claude planning-peer task review
+# @cat   hcom
+function hcom-plan-claude() {
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom-plan-claude: usage: hcom-plan-claude <task-name>\n' >&2
+		return 1
+	fi
+
+	local task_name="$1"
+
+	_hcom_launch_role \
+		--tool claude \
+		--tag planning-peer \
+		--model sonnet \
+		--role-file planning-peer.md \
+		--thinking high \
+		--working-dir "$PWD" \
+		--initial-prompt "$(_hcom_plan_prompt "$task_name")"
+}
+
+# @desc  Start a Codex planning-peer task review
+# @cat   hcom
+function hcom-plan-codex() {
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom-plan-codex: usage: hcom-plan-codex <task-name>\n' >&2
+		return 1
+	fi
+
+	local task_name="$1"
+
+	_hcom_launch_role \
+		--tool codex \
+		--tag planning-peer \
+		--model gpt-5.6-sol \
+		--role-file planning-peer.md \
+		--thinking high \
+		--working-dir "$PWD" \
+		--initial-prompt "$(_hcom_plan_prompt "$task_name")"
+}
+
 # @desc  Start a fresh reviewer and announce it to the project orchestrator
 # @cat   hcom
 # Starts the normal reviewer role in the current directory without restoring the stopped Claude session.
