@@ -8,10 +8,12 @@ export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
 alias codex="codex"
 # @desc  Run claude with auto-mode
 # @cat   agent
-alias claude="claude --permission-mode auto";
+alias claude="claude --permission-mode auto"
 
 AGENTS_CONFIG_ROOT="${AGENTS_CONFIG_ROOT:-${ZSH_CONFIG_ROOT:h}/Agents}"
 HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
+
+# Core launch helpers
 
 # Launches one role in the current terminal, using the selected project directory.
 #
@@ -138,6 +140,8 @@ _hcom_resolve_agent_tag() {
 	print -r -- "$tag"
 }
 
+# Ghostty team layout (hcom-team and AppleScript)
+
 # @desc  Start the complete hcom team in four Ghostty panes
 # @cat   hcom
 #
@@ -222,57 +226,65 @@ APPLESCRIPT
 	hcom-orchestrator "$working_directory" "$initial_prompt"
 }
 
+# Role launchers
+
+typeset -A HCOM_ROLE_CONFIG=(
+	orchestrator "claude|orchestrator|sonnet|orchestrator.md|high"
+	implementer "codex|implementer|gpt-5.6-luna|implementer.md|xhigh"
+	reviewer "claude|reviewer|sonnet|reviewer.md|high"
+	scout "codex|scout|gpt-5.6-luna|scout.md|medium"
+)
+
+# Launches a role using its shared hcom configuration.
+#
+# @param  {string}  role
+#     The configured role to launch.
+# @param  {string}  working_directory
+#     Optional project directory. Defaults to the current directory.
+# @param  {string}  initial_prompt
+#     Optional initial prompt for the role.
+_hcom_launch_configured_role() {
+	local role="$1"
+	shift
+
+	local -a role_config
+	role_config=("${(@s:|:)HCOM_ROLE_CONFIG[$role]}")
+
+	_hcom_launch_role \
+		--tool "${role_config[1]}" \
+		--tag "${role_config[2]}" \
+		--model "${role_config[3]}" \
+		--role-file "${role_config[4]}" \
+		--thinking "${role_config[5]}" \
+		--working-dir "${1:-$PWD}" \
+		--initial-prompt "${2:-}"
+}
+
 # @desc  Start the Orchestrator hcom role
 # @cat   hcom
 hcom-orchestrator() {
-	_hcom_launch_role \
-		--tool claude \
-		--tag orchestrator \
-		--model sonnet \
-		--role-file orchestrator.md \
-		--thinking high \
-		--working-dir "${1:-$PWD}" \
-		--initial-prompt "${2:-}"
+	_hcom_launch_configured_role orchestrator "$@"
 }
 
 # @desc  Start the Implementer hcom role
 # @cat   hcom
 hcom-implementer() {
-	_hcom_launch_role \
-		--tool codex \
-		--tag implementer \
-		--model gpt-5.6-luna \
-		--role-file implementer.md \
-		--thinking xhigh \
-		--working-dir "${1:-$PWD}" \
-		--initial-prompt "${2:-}"
+	_hcom_launch_configured_role implementer "$@"
 }
 
 # @desc  Start the Reviewer hcom role
 # @cat   hcom
 hcom-reviewer() {
-	_hcom_launch_role \
-		--tool claude \
-		--tag reviewer \
-		--model sonnet \
-		--role-file reviewer.md \
-		--thinking high \
-		--working-dir "${1:-$PWD}" \
-		--initial-prompt "${2:-}"
+	_hcom_launch_configured_role reviewer "$@"
 }
 
 # @desc  Start the Scout hcom role
 # @cat   hcom
 hcom-scout() {
-	_hcom_launch_role \
-		--tool codex \
-		--tag scout \
-		--model gpt-5.6-luna \
-		--role-file scout.md \
-		--thinking medium \
-		--working-dir "${1:-$PWD}" \
-		--initial-prompt "${2:-}"
+	_hcom_launch_configured_role scout "$@"
 }
+
+# Plan-review launchers
 
 # Builds the shared planning-peer independent-review initial prompt.
 #
@@ -324,6 +336,23 @@ function hcom-plan-codex() {
 		--initial-prompt "$(_hcom_plan_prompt "$task_name")"
 }
 
+# Session management
+
+# Resolves a bare or role-prefixed hcom name and prints its name, tag, and role.
+#
+# @param  {string}  raw_name
+#     The active or stopped agent name, optionally prefixed by its role.
+_hcom_resolve_agent() {
+	local raw_name="$1"
+	local name="${raw_name##*-}"
+	local tag role
+	tag="$(_hcom_resolve_agent_tag "$name")"
+	role="${tag##*-}"
+	print -r -- "$name"
+	print -r -- "$tag"
+	print -r -- "$role"
+}
+
 # @desc  Start a fresh reviewer and announce it to the project orchestrator
 # @cat   hcom
 # Starts the normal reviewer role in the current directory without restoring the stopped Claude session.
@@ -341,16 +370,17 @@ hcom-restart-reviewer() {
 		return 1
 	fi
 
-	local name="${raw_name##*-}"
-	local tag role
-	tag="$(_hcom_resolve_agent_tag "$name")"
+	local -a resolved_agent
+	resolved_agent=("${(@f)$(_hcom_resolve_agent "$raw_name")}")
+	local name="${resolved_agent[1]:-}"
+	local tag="${resolved_agent[2]:-}"
+	local role="${resolved_agent[3]:-}"
 
 	if [[ -z "$tag" ]]; then
 		printf 'hcom-restart-reviewer: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
 		return 1
 	fi
 
-	role="${tag##*-}"
 	if [[ "$role" != "reviewer" ]]; then
 		printf 'hcom-restart-reviewer: %s is a %s, not a reviewer\n' "$name" "$role" >&2
 		return 1
@@ -387,19 +417,17 @@ hcom-resume() {
 		return 1
 	fi
 
-	# Accepts a bare hcom name ("naru") or a role-prefixed shorthand ("orchestrator-naru");
-	# hcom itself only ever resumes by the bare 4-letter name.
-	local name="${raw_name##*-}"
-
-	local tag role
-	tag="$(_hcom_resolve_agent_tag "$name")"
+	local -a resolved_agent
+	resolved_agent=("${(@f)$(_hcom_resolve_agent "$raw_name")}")
+	local name="${resolved_agent[1]:-}"
+	local tag="${resolved_agent[2]:-}"
+	local role="${resolved_agent[3]:-}"
 
 	if [[ -z "$tag" ]]; then
 		printf 'hcom-resume: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
 		return 1
 	fi
 
-	role="${tag##*-}"
 	printf 'Resuming %s (role: %s, tag: %s)\n' "$name" "$role" "$tag"
 	command hcom r "$name" "$@"
 }
