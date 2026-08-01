@@ -138,6 +138,90 @@ _hcom_resolve_agent_tag() {
 	print -r -- "$tag"
 }
 
+# @desc  Start the complete hcom team in four Ghostty panes
+# @cat   hcom
+#
+# Creates this layout in the current Ghostty tab:
+#
+#   orchestrator | implementer
+#   reviewer     | scout
+#
+# @param  {string}  working_directory
+#     Optional project directory. Defaults to the current directory.
+# @param  {string}  initial_prompt
+#     Optional initial prompt for the orchestrator.
+hcom-team() {
+	if [[ $# -gt 2 ]]; then
+		printf 'hcom-team: usage: hcom-team [working-directory] [initial-prompt]\n' >&2
+		return 1
+	fi
+
+	local working_directory="${1:-$PWD}"
+	local initial_prompt="${2:-}"
+
+	if [[ ! -d "$working_directory" ]]; then
+		printf 'hcom-team: working directory not found: %s\n' "$working_directory" >&2
+		return 1
+	fi
+
+	local quoted_working_directory="${(q)working_directory}"
+
+	local reviewer_command="hcom-reviewer $quoted_working_directory"
+	local implementer_command="hcom-implementer $quoted_working_directory"
+	local scout_command="hcom-scout $quoted_working_directory"
+
+	/usr/bin/osascript - \
+		"$reviewer_command" \
+		"$implementer_command" \
+		"$scout_command" <<'APPLESCRIPT'
+on run arguments
+	set reviewerCommand to item 1 of arguments
+	set implementerCommand to item 2 of arguments
+	set scoutCommand to item 3 of arguments
+
+	tell application "Ghostty"
+		activate
+
+		if (count of windows) = 0 then
+			error "Open a Ghostty terminal first."
+		end if
+
+		set currentWindow to front window
+		set currentTab to selected tab of currentWindow
+		set orchestratorTerminal to focused terminal of currentTab
+
+		set implementerTerminal to split orchestratorTerminal direction right
+		set reviewerTerminal to split orchestratorTerminal direction down
+		set scoutTerminal to split implementerTerminal direction down
+
+		perform action "resize_split:down,150" on orchestratorTerminal
+		perform action "resize_split:down,150" on implementerTerminal
+
+		my runCommand(reviewerTerminal, reviewerCommand)
+		my runCommand(implementerTerminal, implementerCommand)
+		my runCommand(scoutTerminal, scoutCommand)
+
+		focus orchestratorTerminal
+	end tell
+end run
+
+on runCommand(targetTerminal, commandText)
+	tell application "Ghostty"
+		input text commandText to targetTerminal
+		send key "enter" to targetTerminal
+	end tell
+end runCommand
+APPLESCRIPT
+
+	local osascript_exit_code=$?
+
+	if (( osascript_exit_code != 0 )); then
+		return "$osascript_exit_code"
+	fi
+
+	hcom-orchestrator "$working_directory" "$initial_prompt"
+}
+
 # @desc  Start the Orchestrator hcom role
 # @cat   hcom
 hcom-orchestrator() {
