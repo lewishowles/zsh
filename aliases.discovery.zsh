@@ -178,7 +178,7 @@ _progress_roadmap_release() {
 
 			if (current == 0) exit
 
-			print titles[current]
+			printf "%s\t%s\n", ids[current], titles[current]
 		}
 	' "$file"
 }
@@ -193,7 +193,7 @@ progress:check() {
 	local commit_counts completed_commits total_commits commit_colour
 	local step_counts completed_steps total_steps progress_colour
 	local task_summary task_colour
-	local release_title
+	local release_info release_id release_title release_summary
 
 	dirs=("${(@f)$(fd --hidden --no-ignore-vcs --type f '^PROGRESS\.md$' "$HOME/Dev" \
 		--ignore-file "$_zsh_config_dir/ignores.fd" \
@@ -249,6 +249,18 @@ progress:check() {
 			current_release=$(_progress_frontmatter_value "$current_task" release)
 			current_status=$(_progress_frontmatter_value "$current_task" status)
 			[[ -z "$current_title" ]] && current_title="${current_task:t:r}"
+
+			# Exclude the current task from the Tasks breakdown below; its
+			# status is already shown in the Status row.
+			case "$current_status" in
+				ready) ((ready--)) ;;
+				in-progress) ((in_progress--)) ;;
+				blocked) ((blocked--)) ;;
+				needs-decision) ((needs_decision--)) ;;
+				done) ((done--)) ;;
+				*) ((unknown--)) ;;
+			esac
+
 			cli_style_row "Current task" "$current_title" --label-width 14 --value-colour info
 
 			status_label=$(_progress_status_label "$current_status")
@@ -273,7 +285,7 @@ progress:check() {
 			fi
 
 			if ((total_commits > 0)); then
-				cli_style_row "Commits" "$completed_commits/$total_commits complete" --label-width 14 --value-colour "$commit_colour"
+				cli_style_row "Commit plan" "$completed_commits/$total_commits complete" --label-width 14 --value-colour "$commit_colour"
 			fi
 
 			progress_colour="info"
@@ -286,7 +298,7 @@ progress:check() {
 			fi
 
 			if ((total_steps > 0)); then
-				cli_style_row "Steps" "$completed_steps/$total_steps complete" --label-width 14 --value-colour "$progress_colour"
+				cli_style_row "Task steps" "$completed_steps/$total_steps complete" --label-width 14 --value-colour "$progress_colour"
 			fi
 		fi
 
@@ -306,8 +318,15 @@ progress:check() {
 		((${#task_files[@]} == 0)) && task_colour="muted"
 		cli_style_row "Tasks" "$task_summary" --label-width 14 --value-colour "$task_colour"
 
-		release_title=$(_progress_roadmap_release "$dir/PROGRESS.md" "$current_release")
-		[[ -n "$release_title" ]] && cli_style_row "Release" "$release_title" --label-width 14 --value-colour success
+		release_info=$(_progress_roadmap_release "$dir/PROGRESS.md" "$current_release")
+		release_id="${release_info%%$'\t'*}"
+		release_title="${release_info#*$'\t'}"
+
+		if [[ -n "$release_title" ]]; then
+			release_summary="$release_title"
+			[[ "$release_id" =~ ^[0-9]+(\.[0-9]+)*$ ]] && release_summary="$release_id · $release_title"
+			cli_style_row "Release" "$release_summary" --label-width 14 --value-colour success
+		fi
 
 		next_task_path=$(_progress_next_task_path "$dir/PROGRESS.md" "$active_task_path")
 		next_task=""
