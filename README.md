@@ -284,8 +284,15 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
+| `hcom-implementer` | Start the Implementer hcom role |
+| `hcom-orchestrator` | Start the Orchestrator hcom role |
 | `hcom-plan-claude` | Start a Claude planning-peer task review |
 | `hcom-plan-codex` | Start a Codex planning-peer task review |
+| `hcom-restart-reviewer` | Start a fresh reviewer and announce it to the project orchestrator |
+| `hcom-resume` | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
+| `hcom-reviewer` | Start the Reviewer hcom role |
+| `hcom-scout` | Start the Scout hcom role |
+| `hcom-team` | Start the complete hcom team in four Ghostty panes |
 
 ### nav
 

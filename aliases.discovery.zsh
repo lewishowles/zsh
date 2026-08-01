@@ -383,6 +383,12 @@ function _alias_parse() {
 			print cat "\t" name "\t" desc "\t" needs
 			desc=""; cat=""; needs=""; next
 		}
+		/^[[:alnum:]_:-]+\(\)[[:space:]]*\{/ {
+			if (cat == "") { desc=""; cat=""; needs=""; next }
+			name = $1; sub(/\(\)$/, "", name)
+			print cat "\t" name "\t" desc "\t" needs
+			desc=""; cat=""; needs=""; next
+		}
 	' "${files[@]}" | sort -t$'\t' -k1,1 -k2,2
 }
 
