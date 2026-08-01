@@ -280,6 +280,13 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | --- | --- |
 | `docs:generate` | Regenerate the command table in README.md from annotations |
 
+### hcom
+
+| Command | Description |
+| --- | --- |
+| `hcom-plan-claude` | Start a Claude planning-peer task review |
+| `hcom-plan-codex` | Start a Codex planning-peer task review |
+
 ### nav
 
 | Command | Description |
