@@ -1,8 +1,11 @@
 # hcom role launchers for manually managed Hyper tabs.
 
+# Keep Claude Code in the normal terminal buffer for native selection and scrollback.
+export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+
 # @desc  Run Codex with shared configuration defaults
 # @cat   agent
-alias codex="codex";
+alias codex="codex"
 # @desc  Run claude with auto-mode
 # @cat   agent
 alias claude="claude --permission-mode auto";
@@ -154,9 +157,9 @@ hcom-implementer() {
 	_hcom_launch_role \
 		--tool codex \
 		--tag implementer \
-		--model gpt-5.6-terra \
+		--model gpt-5.6-luna \
 		--role-file implementer.md \
-		--thinking high \
+		--thinking xhigh \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
 }
