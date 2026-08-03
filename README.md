@@ -237,8 +237,10 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
+| `agents` | Open the current AGENTS.md file |
 | `claude` | Run claude with auto-mode |
 | `codex` | Run Codex with shared configuration defaults |
+| `progress` | Open the current PROGRESS.md file |
 
 ### agents
 
@@ -326,9 +328,8 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
-| `repo:index` | Index the current repository in codebase-memory-mcp and store an ADR |
+| `repo:actions` | Open the GitHub actions page for a repo |
 | `repo:open` | Open the main GitHub page for a repo |
-| `repo:open:all` | Open main page, releases, and actions for a repo (3 tabs) |
 
 ### test
 
