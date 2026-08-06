@@ -331,7 +331,7 @@ hcom-plan() {
 _hcom_plan_prompt() {
 	local quoted_task_name="${(q)1}"
 
-	print -r -- "Use project-review-task in independent review mode to review task ${quoted_task_name}. Resolve exactly one task using the skill's exact-resolution order. Do not edit the task or contact the peer. Retain the complete review packet, report the resolved path, content hash, verdict, every finding and its evidence, and \"Safe to reset: no\", then wait."
+	print -r -- "Use project-review-task in independent review mode to review task ${quoted_task_name}. Resolve exactly one task using the skill's exact-resolution order. Route one bounded repository-research packet to your existing same-model HCOM Scout before investigating; this is required HCOM team routing, not sub-agent spawning. Do not edit the task or contact the opposite planning reviewer. Retain the complete review packet, report the resolved path, content hash, verdict, every finding and its evidence, and \"Safe to reset: no\", then wait."
 }
 
 # @desc  Start a Claude planning-peer task review
