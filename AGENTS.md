@@ -21,7 +21,7 @@ Personal macOS Zsh configuration for shell startup, shared environment, aliases,
 
 - Keep login and interactive loaders small. Put reusable environment values in `environment.zsh` and commands in the nearest `aliases.<topic>.zsh` file.
 - Public commands use `# @desc`, `# @cat`, and optional `# @needs` annotations so discovery and README generation stay aligned.
-- Agent and HCOM launchers live in `aliases.agents.zsh`. Shared HCOM role prompts live in `/Users/lewis/Dev/Configuration/Agents/teams/hcom/roles/` and are injected through `_hcom_launch_role`.
+- Agent aliases live in `aliases.agents.zsh`; HCOM launchers are split across `aliases.hcom-core.zsh`, `aliases.hcom-team.zsh`, `aliases.hcom-learn.zsh`, `aliases.hcom-plan.zsh` and `aliases.hcom-session.zsh`. Shared HCOM role prompts live in `/Users/lewis/Dev/Configuration/Agents/teams/hcom/roles/` and are injected through `_hcom_launch_role`.
 - `README.md` documents setup, repository structure, and the generated command catalogue.
 
 ## Need to know

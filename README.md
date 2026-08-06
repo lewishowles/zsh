@@ -182,23 +182,29 @@ Reports:
 
 ## Repository structure
 
-| File                     | What it holds                                                                                                                 |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| `zprofile`               | Login-shell loader. Sources the shared environment and is symlinked from `~/.zprofile`.                                       |
-| `zshrc`                  | Interactive-shell loader. Sources the environment, aliases, hooks and interactive tool integrations.                          |
-| `environment.zsh`        | Shared `PATH` and command environment for interactive and non-interactive login shells, including the cli-style Bash adapter. |
-| `starship.toml`          | Starship prompt layout, Git status, package version, command duration and background-job configuration.                       |
-| `aliases.config.zsh`     | Colour variables and configuration-editing aliases. Loaded first so shared values are available elsewhere.                    |
-| `aliases.discovery.zsh`  | `alias:list`, `alias:find` and `docs:generate` for browsing commands and maintaining this README.                             |
-| `aliases.doctor.zsh`     | The `zsh:doctor` health check.                                                                                                |
-| `aliases.project.zsh`    | `dev`, `build`, `lint` and `test:*` project commands.                                                                         |
-| `aliases.packages.zsh`   | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                                 |
-| `aliases.tools.zsh`      | Tool aliases, file listings, repository helpers, SVG optimisation and agent setup commands.                                   |
-| `bun-settings.zsh`       | Bun shell completions.                                                                                                        |
-| `oh-my-zsh-settings.zsh` | Oh My Zsh configuration and plugin initialisation.                                                                            |
-| `ghostty.config`         | Ghostty typography, padding, cursor, shell integration, tab behaviour and macOS-specific settings.                            |
-| `ignores.fd`             | Shared ignore patterns for file discovery.                                                                                    |
-| `hooks/`                 | Zsh hooks, including repository-aware Ghostty tab titles.                                                                     |
+| File                       | What it holds                                                                                                                 |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `zprofile`                 | Login-shell loader. Sources the shared environment and is symlinked from `~/.zprofile`.                                       |
+| `zshrc`                    | Interactive-shell loader. Sources the environment, aliases, hooks and interactive tool integrations.                          |
+| `environment.zsh`          | Shared `PATH` and command environment for interactive and non-interactive login shells, including the cli-style Bash adapter. |
+| `starship.toml`            | Starship prompt layout, Git status, package version, command duration and background-job configuration.                       |
+| `aliases.agents.zsh`       | Agent setup aliases and the basic Codex, Claude, progress and agents commands.                                                |
+| `aliases.config.zsh`       | Colour variables and configuration-editing aliases. Loaded first so shared values are available elsewhere.                    |
+| `aliases.discovery.zsh`    | `alias:list`, `alias:find` and `docs:generate` for browsing commands and maintaining this README.                             |
+| `aliases.doctor.zsh`       | The `zsh:doctor` health check.                                                                                                |
+| `aliases.hcom-core.zsh`    | Shared HCOM launch helpers, role prompts and tag resolution.                                                                  |
+| `aliases.hcom-team.zsh`    | Ghostty team layout and configured HCOM role launchers.                                                                       |
+| `aliases.hcom-learn.zsh`   | Source-learning learner and Scout launchers.                                                                                  |
+| `aliases.hcom-plan.zsh`    | HCOM plan-review launchers and planning-peer prompts.                                                                         |
+| `aliases.hcom-session.zsh` | HCOM agent resolution, reviewer restart and session resume commands.                                                          |
+| `aliases.project.zsh`      | `dev`, `build`, `lint` and `test:*` project commands.                                                                         |
+| `aliases.packages.zsh`     | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                                 |
+| `aliases.tools.zsh`        | Tool aliases, file listings, repository helpers, SVG optimisation and agent setup commands.                                   |
+| `bun-settings.zsh`         | Bun shell completions.                                                                                                        |
+| `oh-my-zsh-settings.zsh`   | Oh My Zsh configuration and plugin initialisation.                                                                            |
+| `ghostty.config`           | Ghostty typography, padding, cursor, shell integration, tab behaviour and macOS-specific settings.                            |
+| `ignores.fd`               | Shared ignore patterns for file discovery.                                                                                    |
+| `hooks/`                   | Zsh hooks, including repository-aware Ghostty tab titles.                                                                     |
 
 ## Adding an alias or function
 
