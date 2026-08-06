@@ -215,6 +215,8 @@ typeset -A HCOM_ROLE_CONFIG=(
 	implementer "codex|implementer|gpt-5.6-luna|implementer.md|xhigh"
 	reviewer "claude|reviewer|sonnet|reviewer.md|high"
 	scout "codex|scout|gpt-5.6-luna|scout.md|medium"
+	scout-claude "codex|scout-claude|gpt-5.6-luna|scout.md|medium"
+	scout-codex "codex|scout-codex|gpt-5.6-luna|scout.md|medium"
 )
 
 # Launches a role using its shared hcom configuration.
@@ -266,7 +268,61 @@ hcom-scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
+# @desc  Start the Claude planning peer's Scout
+# @cat   hcom
+hcom-scout-claude() {
+	_hcom_launch_configured_role scout-claude "$@"
+}
+
+# @desc  Start the Codex planning peer's Scout
+# @cat   hcom
+hcom-scout-codex() {
+	_hcom_launch_configured_role scout-codex "$@"
+}
+
 # Plan-review launchers
+
+# @desc  Start the complete hcom plan review in four Ghostty panes
+# @cat   hcom
+#
+# Creates this layout in the current Ghostty tab:
+#
+#   plan-claude  | plan-codex
+#   scout-claude | scout-codex
+#
+# Each planning peer routes its research through the scout in its own
+# column (`<repo>-scout-claude` / `<repo>-scout-codex`); once both peers
+# report `Ready as written` or `Changes requested`, pick whichever one
+# found more to consolidate with `project-review-task`.
+#
+# @param  {string}  task_name
+#     The task name or path to resolve for independent review.
+hcom-plan() {
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom-plan: usage: hcom-plan <task-name>\n' >&2
+		return 1
+	fi
+
+	local task_name="$1"
+	local quoted_task_name="${(q)task_name}"
+
+	local plan_codex_command="hcom-plan-codex $quoted_task_name"
+	local scout_claude_command="hcom-scout-claude"
+	local scout_codex_command="hcom-scout-codex"
+
+	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
+		"$plan_codex_command" \
+		"$scout_claude_command" \
+		"$scout_codex_command"
+
+	local osascript_exit_code=$?
+
+	if (( osascript_exit_code != 0 )); then
+		return "$osascript_exit_code"
+	fi
+
+	hcom-plan-claude "$task_name"
+}
 
 # Builds the shared planning-peer independent-review initial prompt.
 #
@@ -291,7 +347,7 @@ function hcom-plan-claude() {
 	_hcom_launch_role \
 		--tool claude \
 		--tag planning-peer \
-		--model sonnet \
+		--model opus \
 		--role-file planning-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
