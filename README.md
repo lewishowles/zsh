@@ -287,6 +287,8 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `hcom-implementer` | Start the Implementer hcom role |
+| `hcom-learn-claude` | Start a Claude source-learning learner and its dedicated Scout |
+| `hcom-learn-codex` | Start a Codex source-learning learner and its dedicated Scout |
 | `hcom-orchestrator` | Start the Orchestrator hcom role |
 | `hcom-plan` | Start the complete hcom plan review in four Ghostty panes |
 | `hcom-plan-claude` | Start a Claude planning-peer task review |
