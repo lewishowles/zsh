@@ -51,11 +51,17 @@ hcom-restart-reviewer() {
 	fi
 
 	local orchestrator_tag="${tag%-reviewer}-orchestrator"
+	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-restart-reviewer.md"
+	if [[ ! -f "$prompt_file" ]]; then
+		printf 'hcom-restart-reviewer: prompt file not found: %s\n' "$prompt_file" >&2
+		return 1
+	fi
+
+	local prompt_template="$(<"$prompt_file")"
+	prompt_template="${prompt_template//__ORCHESTRATOR_TAG__/$orchestrator_tag}"
+	prompt_template="${prompt_template//__RAW_NAME__/$raw_name}"
 	local -a prompt_lines
-	prompt_lines=(
-		"Before any other work, use the Bash tool to run this command, replacing YOUR_HCOM_NAME with your assigned hcom name:"
-		"hcom send @${orchestrator_tag}- --name YOUR_HCOM_NAME -- \"Fresh replacement reviewer ready. Original reviewer: ${raw_name}.\""
-	)
+	prompt_lines=("${(@f)prompt_template}")
 
 	if [[ -n "${1:-}" ]]; then
 		prompt_lines+=("" "After announcing yourself, do this task:" "$1")

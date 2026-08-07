@@ -2,6 +2,8 @@ on run arguments
 	set planCodexCommand to item 1 of arguments
 	set scoutClaudeCommand to item 2 of arguments
 	set scoutCodexCommand to item 3 of arguments
+	set planningPairId to item 4 of arguments
+	set planningPairArgument to quoted form of planningPairId
 
 	tell application "Ghostty"
 		activate
@@ -21,7 +23,7 @@ on run arguments
 		perform action "resize_split:down,150" on planClaudeTerminal
 		perform action "resize_split:down,150" on planCodexTerminal
 
-		my runCommand(planCodexTerminal, planCodexCommand)
+		my runCommand(planCodexTerminal, planCodexCommand & " " & planningPairArgument)
 		my runCommand(scoutClaudeTerminal, scoutClaudeCommand)
 		my runCommand(scoutCodexTerminal, scoutCodexCommand)
 
