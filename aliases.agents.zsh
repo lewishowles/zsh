@@ -29,3 +29,6 @@ alias agents:workspace="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh 
 # @desc  Force-regenerate WORKSPACE.md for the current project
 # @cat   agents
 alias agents:workspace:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-workspace"
+# @desc  Inspect agent token usage
+# @cat   agents
+alias agents:usage='python3 /Users/lewis/Dev/Configuration/Agents/scripts/audit/usage.py'
