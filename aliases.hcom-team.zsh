@@ -1,22 +1,30 @@
 # hcom team layout and configured role launchers.
 
-# Ghostty team layout (hcom-team and AppleScript)
-
-# @desc  Start the complete hcom team in four Ghostty panes
-# @cat   hcom
+# Starts a complete hcom team with the requested orchestrator and reviewer.
 #
 # Creates this layout in the current Ghostty tab:
 #
 #   orchestrator | implementer
 #   reviewer     | scout
 #
+# @param  {string}  command_name
+#     Public command name used in validation errors.
+# @param  {string}  orchestrator_launcher
+#     Function that starts the orchestrator role.
+# @param  {string}  reviewer_launcher
+#     Function that starts the reviewer role.
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
 # @param  {string}  initial_prompt
 #     Optional initial prompt for the orchestrator.
-hcom-team() {
+_hcom_launch_team() {
+	local command_name="$1"
+	local orchestrator_launcher="$2"
+	local reviewer_launcher="$3"
+	shift 3
+
 	if [[ $# -gt 2 ]]; then
-		printf 'hcom-team: usage: hcom-team [working-directory] [initial-prompt]\n' >&2
+		printf '%s: usage: %s [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
 		return 1
 	fi
 
@@ -24,13 +32,13 @@ hcom-team() {
 	local initial_prompt="${2:-}"
 
 	if [[ ! -d "$working_directory" ]]; then
-		printf 'hcom-team: working directory not found: %s\n' "$working_directory" >&2
+		printf '%s: working directory not found: %s\n' "$command_name" "$working_directory" >&2
 		return 1
 	fi
 
 	local quoted_working_directory="${(q)working_directory}"
 
-	local reviewer_command="hcom-reviewer $quoted_working_directory"
+	local reviewer_command="$reviewer_launcher $quoted_working_directory"
 	local implementer_command="hcom-implementer $quoted_working_directory"
 	local scout_command="hcom-scout $quoted_working_directory"
 
@@ -45,7 +53,29 @@ hcom-team() {
 		return "$osascript_exit_code"
 	fi
 
-	hcom-orchestrator "$working_directory" "$initial_prompt"
+	"$orchestrator_launcher" "$working_directory" "$initial_prompt"
+}
+
+# @desc  Start the complete hcom team in four Ghostty panes
+# @cat   hcom
+#
+# @param  {string}  working_directory
+#     Optional project directory. Defaults to the current directory.
+# @param  {string}  initial_prompt
+#     Optional initial prompt for the orchestrator.
+hcom-team() {
+	_hcom_launch_team hcom-team hcom-orchestrator hcom-reviewer "$@"
+}
+
+# @desc  Start the complete Codex hcom team in four Ghostty panes
+# @cat   hcom
+#
+# @param  {string}  working_directory
+#     Optional project directory. Defaults to the current directory.
+# @param  {string}  initial_prompt
+#     Optional initial prompt for the orchestrator.
+hcom-team-codex() {
+	_hcom_launch_team hcom-team-codex hcom-orchestrator-codex hcom-reviewer-codex "$@"
 }
 
 # Role launchers
@@ -53,8 +83,10 @@ hcom-team() {
 # Role configuration fields: tool|tag|model|role_file|thinking.
 typeset -A HCOM_ROLE_CONFIG=(
 	orchestrator "claude|orchestrator|sonnet|orchestrator.md|high"
+	orchestrator-codex "codex|orchestrator|gpt-5.6-terra|orchestrator.md|medium"
 	implementer "codex|implementer|gpt-5.6-luna|implementer.md|xhigh"
 	reviewer "claude|reviewer|sonnet|reviewer.md|high"
+	reviewer-codex "codex|reviewer|gpt-5.6-sol|reviewer.md|high"
 	scout "codex|scout|gpt-5.6-luna|scout.md|medium"
 	scout-claude "codex|scout-claude|gpt-5.6-luna|scout.md|medium"
 	scout-codex "codex|scout-codex|gpt-5.6-luna|scout.md|medium"
@@ -95,6 +127,12 @@ hcom-orchestrator() {
 	_hcom_launch_configured_role orchestrator "$@"
 }
 
+# @desc  Start the Codex Orchestrator hcom role
+# @cat   hcom
+hcom-orchestrator-codex() {
+	_hcom_launch_configured_role orchestrator-codex "$@"
+}
+
 # @desc  Start the Implementer hcom role
 # @cat   hcom
 hcom-implementer() {
@@ -105,6 +143,12 @@ hcom-implementer() {
 # @cat   hcom
 hcom-reviewer() {
 	_hcom_launch_configured_role reviewer "$@"
+}
+
+# @desc  Start the Codex Reviewer hcom role
+# @cat   hcom
+hcom-reviewer-codex() {
+	_hcom_launch_configured_role reviewer-codex "$@"
 }
 
 # @desc  Start the Scout hcom role

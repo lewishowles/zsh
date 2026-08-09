@@ -297,16 +297,19 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `hcom-learn-claude` | Start a Claude source-learning learner and its dedicated Scout |
 | `hcom-learn-codex` | Start a Codex source-learning learner and its dedicated Scout |
 | `hcom-orchestrator` | Start the Orchestrator hcom role |
+| `hcom-orchestrator-codex` | Start the Codex Orchestrator hcom role |
 | `hcom-plan` | Start the complete hcom plan review in four Ghostty panes |
 | `hcom-plan-claude` | Start a Claude planning-peer task review |
 | `hcom-plan-codex` | Start a Codex planning-peer task review |
 | `hcom-restart-reviewer` | Start a fresh reviewer and announce it to the project orchestrator |
 | `hcom-resume` | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
 | `hcom-reviewer` | Start the Reviewer hcom role |
+| `hcom-reviewer-codex` | Start the Codex Reviewer hcom role |
 | `hcom-scout` | Start the Scout hcom role |
 | `hcom-scout-claude` | Start the Claude planning peer's Scout |
 | `hcom-scout-codex` | Start the Codex planning peer's Scout |
 | `hcom-team` | Start the complete hcom team in four Ghostty panes |
+| `hcom-team-codex` | Start the complete Codex hcom team in four Ghostty panes |
 
 ### nav
 
