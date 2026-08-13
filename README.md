@@ -293,6 +293,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
+| `hcom-handoff` | Read or append the current repository's HCOM cycle handoff |
 | `hcom-implementer` | Start the Implementer hcom role |
 | `hcom-learn-claude` | Start a Claude source-learning learner and its dedicated Scout |
 | `hcom-learn-codex` | Start a Codex source-learning learner and its dedicated Scout |
