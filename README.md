@@ -316,6 +316,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Description |
 | --- | --- |
 | `goto:agents` | Open the agent configuration directory |
+| `goto:airops` | Open the AirOps Admin root |
 | `goto:anpr` | Open the Gatekeeper Admin root |
 | `goto:blog` | Open the blog project |
 | `goto:boilerplate` | Open the boilerplate project |
