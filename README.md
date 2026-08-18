@@ -243,7 +243,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
-| `acct2` | Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 hcom-team) |
+| `acct2` | Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 team) |
 | `agents` | Open the current AGENTS.md file |
 | `claude` | Run claude with auto-mode |
 | `codex` | Run Codex with shared configuration defaults |

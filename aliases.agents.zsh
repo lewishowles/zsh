@@ -9,9 +9,23 @@ alias codex="codex"
 # @desc  Run claude with auto-mode
 # @cat   agent
 alias claude="claude --permission-mode auto"
-# @desc  Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 hcom-team)
+# @desc  Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 team)
 # @cat   agent
 acct2() {
+	# "$@" bypasses alias expansion (aliases only expand in command
+	# position while a line is parsed), so short aliases like `team` or
+	# `claude` would otherwise silently fall through or drop their flags.
+	# Expand one level of alias manually before dispatching.
+	local head="$1"
+	shift
+	if (( ${+aliases[$head]} )); then
+		local -a expanded
+		expanded=("${(z)aliases[$head]}")
+		set -- "${expanded[@]}" "$@"
+	else
+		set -- "$head" "$@"
+	fi
+
 	CLAUDE_CONFIG_DIR="$HOME/.claude-2" CODEX_HOME="$HOME/.codex-2" "$@"
 }
 # @desc  Open the current AGENTS.md file

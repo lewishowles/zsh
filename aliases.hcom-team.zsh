@@ -44,9 +44,16 @@ _hcom_launch_team() {
 
 	local quoted_working_directory="${(q)working_directory}"
 
-	local reviewer_command="$reviewer_launcher $quoted_working_directory"
-	local implementer_command="hcom-implementer $quoted_working_directory"
-	local scout_command="hcom-scout $quoted_working_directory"
+	# Ghostty panes start fresh shells that don't inherit this shell's
+	# exported env, so an active account override must ride along in the
+	# typed command line instead.
+	local account_env=""
+	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
+	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+
+	local reviewer_command="${account_env}$reviewer_launcher $quoted_working_directory"
+	local implementer_command="${account_env}hcom-implementer $quoted_working_directory"
+	local scout_command="${account_env}hcom-scout $quoted_working_directory"
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" \
 		"$reviewer_command" \
