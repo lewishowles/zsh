@@ -9,17 +9,22 @@ alias codex="codex"
 # @desc  Run claude with auto-mode
 # @cat   agent
 alias claude="claude --permission-mode auto"
-
-# @desc  Open the current PROGRESS.md file
+# @desc  Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 hcom-team)
 # @cat   agent
-alias progress="zed PROGRESS.md"
+acct2() {
+	CLAUDE_CONFIG_DIR="$HOME/.claude-2" CODEX_HOME="$HOME/.codex-2" "$@"
+}
 # @desc  Open the current AGENTS.md file
 # @cat   agent
 alias agents="zed AGENTS.md"
 
-# @desc  Set up agent files (Claude + Codex) globally
+# @desc  Set up agent files (Claude + Codex) globally, for both accounts
 # @cat   agents
-alias agents:setup:global="$HOME/Dev/Configuration/Agents/scripts/setup-global.sh --both"
+agents:setup:global() {
+	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both "$@"
+	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both --skip-external \
+		--claude-dir "$HOME/.claude-2" --codex-dir "$HOME/.codex-2" "$@"
+}
 # @desc  Set up agent files (Claude + Codex) for the current project
 # @cat   agents
 alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"

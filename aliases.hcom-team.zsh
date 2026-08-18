@@ -1,5 +1,11 @@
 # hcom team layout and configured role launchers.
 
+alias team="hcom-team"
+alias ho="hcom-orchestrator"
+alias hr="hcom-reviewer"
+alias hi="hcom-implementer"
+alias hs="hcom-scout"
+
 # Starts a complete hcom team with the requested orchestrator and reviewer.
 #
 # Creates this layout in the current Ghostty tab:
@@ -83,7 +89,7 @@ hcom-team-codex() {
 # Role configuration fields: tool|tag|model|role_file|thinking.
 typeset -A HCOM_ROLE_CONFIG=(
 	orchestrator "claude|orchestrator|sonnet|orchestrator.md|high"
-	orchestrator-codex "codex|orchestrator|gpt-5.6-sol|orchestrator.md|medium"
+	orchestrator-codex "codex|orchestrator|gpt-5.6-sol|orchestrator.md|high"
 	implementer "codex|implementer|gpt-5.6-luna|implementer.md|xhigh"
 	reviewer "claude|reviewer|sonnet|reviewer.md|high"
 	reviewer-codex "codex|reviewer|gpt-5.6-sol|reviewer.md|high"

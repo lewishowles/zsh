@@ -243,17 +243,17 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
+| `acct2` | Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 hcom-team) |
 | `agents` | Open the current AGENTS.md file |
 | `claude` | Run claude with auto-mode |
 | `codex` | Run Codex with shared configuration defaults |
-| `progress` | Open the current PROGRESS.md file |
 
 ### agents
 
 | Command | Description |
 | --- | --- |
 | `agents:setup` | Set up agent files (Claude + Codex) for the current project |
-| `agents:setup:global` | Set up agent files (Claude + Codex) globally |
+| `agents:setup:global` | Set up agent files (Claude + Codex) globally, for both accounts |
 | `agents:usage` | Inspect agent token usage |
 | `agents:workspace` | Initialise WORKSPACE.md for the current project |
 | `agents:workspace:force` | Force-regenerate WORKSPACE.md for the current project |

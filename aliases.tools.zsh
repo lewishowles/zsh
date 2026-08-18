@@ -5,6 +5,10 @@ alias la='eza --long --header --git --icons --all'
 alias lt='eza --tree --level=2 --icons'
 # Read files with syntax highlighting and paging.
 alias b='bat --paging=never'
+# Add review feedback
+alias fa="review-feedback add"
+# Copy finished review feedback
+alias fc="review-feedback finish --copy"
 
 # @desc  Optimise SVG files in ~/Downloads using SVGO
 # @cat   tools
