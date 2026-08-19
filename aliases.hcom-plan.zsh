@@ -29,9 +29,16 @@ hcom-plan() {
 	local quoted_task_name="${(q)task_name}"
 	local planning_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
 
-	local plan_codex_command="HCOM_PLANNING_WORKFLOW=1 hcom-plan-codex $quoted_task_name"
-	local scout_claude_command="HCOM_PLANNING_WORKFLOW=1 hcom-scout-claude"
-	local scout_codex_command="HCOM_PLANNING_WORKFLOW=1 hcom-scout-codex"
+	# Ghostty panes start fresh shells that don't inherit this shell's
+	# exported env, so an active account override must ride along in the
+	# typed command line instead.
+	local account_env=""
+	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
+	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+
+	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-plan-codex $quoted_task_name"
+	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-claude"
+	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-codex"
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \

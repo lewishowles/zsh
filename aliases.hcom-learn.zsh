@@ -76,7 +76,15 @@ function hcom-learn-claude() {
 	learning_context=("${reply[@]}")
 
 	local working_directory="$PWD"
-	local scout_command="_hcom_launch_learning_scout_claude ${(q)working_directory}"
+
+	# Ghostty panes start fresh shells that don't inherit this shell's
+	# exported env, so an active account override must ride along in the
+	# typed command line instead.
+	local account_env=""
+	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
+	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+
+	local scout_command="${account_env}_hcom_launch_learning_scout_claude ${(q)working_directory}"
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-learn.applescript" "$scout_command"
 	local osascript_exit_code=$?
@@ -102,7 +110,15 @@ function hcom-learn-codex() {
 	learning_context=("${reply[@]}")
 
 	local working_directory="$PWD"
-	local scout_command="_hcom_launch_learning_scout_codex ${(q)working_directory}"
+
+	# Ghostty panes start fresh shells that don't inherit this shell's
+	# exported env, so an active account override must ride along in the
+	# typed command line instead.
+	local account_env=""
+	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
+	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+
+	local scout_command="${account_env}_hcom_launch_learning_scout_codex ${(q)working_directory}"
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-learn.applescript" "$scout_command"
 	local osascript_exit_code=$?
