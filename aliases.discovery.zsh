@@ -1,33 +1,5 @@
 local _zsh_config_dir="${0:A:h}"
 
-# Read a value from a task file's flat YAML front matter.
-#
-# @param  {string}  file
-#     Task file to read.
-# @param  {string}  field
-#     Front matter field to return.
-_progress_frontmatter_value() {
-	local file="$1"
-	local field="$2"
-
-	awk -v field="$field" '
-		NR == 1 && $0 == "---" { frontmatter = 1; next }
-		frontmatter && $0 == "---" { exit }
-		frontmatter {
-			separator = index($0, ":")
-			if (separator == 0) next
-
-			key = substr($0, 1, separator - 1)
-			if (key != field) next
-
-			value = substr($0, separator + 1)
-			sub(/^[[:space:]]+/, "", value)
-			print value
-			exit
-		}
-	' "$file"
-}
-
 # Return a task status as a human-readable label.
 #
 # @param  {string}  task_status
@@ -45,160 +17,40 @@ _progress_status_label() {
 	esac
 }
 
-# Count completed and total checklist items in a task's Tasks section.
+# Return success when a `progress ... --json` response is non-empty and reports ok:true.
 #
-# @param  {string}  file
-#     Task file to inspect.
-_progress_task_steps() {
-	local file="$1"
+# @param  {string}  json
+#     JSON text from a `progress` command's --json output.
+_progress_json_ok() {
+	local json="$1"
 
-	awk '
-		/^## Tasks[[:space:]]*$/ { tasks = 1; next }
-		tasks && /^## / { exit }
-		tasks && /^- \[[ xX]\]/ {
-			total++
-			if ($0 ~ /^- \[[xX]\]/) completed++
-		}
-		END { printf "%d\t%d\n", completed, total }
-	' "$file"
+	if [[ -z "$json" ]]; then
+		return 1
+	fi
+
+	jq -e '.ok == true' <<< "$json" >/dev/null 2>&1
 }
 
-# Count completed and total checklist items in a task's Commit plan section.
-#
-# @param  {string}  file
-#     Task file to inspect.
-_progress_task_commits() {
-	local file="$1"
-
-	awk '
-		/^## Commit plan[[:space:]]*$/ { commits = 1; next }
-		commits && /^## / { exit }
-		commits && /^- \[[ xX]\] Commit [0-9]+:/ {
-			total++
-			if ($0 ~ /^- \[[xX]\] Commit [0-9]+:/) completed++
-		}
-		END { printf "%d\t%d\n", completed, total }
-	' "$file"
-}
-
-# Return the task path linked from the Session handoff's Active task section.
-#
-# @param  {string}  file
-#     PROGRESS.md file to inspect.
-_progress_active_task_path() {
-	local file="$1"
-
-	awk '
-		/^### Active task[[:space:]]*$/ { active_task = 1; next }
-		active_task && /^### / { exit }
-		active_task && /\]\(\.agent\/tasks\/[^)]+\)/ {
-			path = $0
-			sub(/^.*\]\(/, "", path)
-			sub(/\).*$/, "", path)
-			print path
-			exit
-		}
-	' "$file"
-}
-
-# Return the first queued task path after the active task.
-#
-# @param  {string}  file
-#     PROGRESS.md file containing the upcoming queue.
-# @param  {string}  active_task_path
-#     Active task path to exclude when tolerated legacy queues repeat it.
-_progress_next_task_path() {
-	local file="$1"
-	local active_task_path="$2"
-
-	awk -v active_task_path="$active_task_path" '
-		/^### Upcoming queue[[:space:]]*$/ { queue = 1; next }
-		queue && /^### / { exit }
-		queue && /^## / { exit }
-		queue && /\]\(\.agent\/tasks\/[^)]+\)/ {
-			path = $0
-			sub(/^.*\]\(/, "", path)
-			sub(/\).*$/, "", path)
-
-			if (path != active_task_path) {
-				print path
-				exit
-			}
-		}
-	' "$file"
-}
-
-# Return the current roadmap release title.
-#
-# @param  {string}  file
-#     PROGRESS.md file containing the roadmap.
-# @param  {string}  release_id
-#     Preferred release ID from the active task, or an empty string.
-_progress_roadmap_release() {
-	local file="$1"
-	local release_id="$2"
-
-	awk -F'|' -v release_id="$release_id" '
-		function trim(value) {
-			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-			return value
-		}
-
-		/^## Roadmap[[:space:]]*$/ { roadmap = 1; next }
-		roadmap && /^## / { exit }
-		roadmap && /^\|/ {
-			id = trim($2)
-			title = trim($3)
-			status = trim($5)
-
-			if (id == "" || id == "ID" || id ~ /^-+$/) next
-
-			count++
-			ids[count] = id
-			titles[count] = title
-			statuses[count] = status
-		}
-
-		END {
-			for (row_index = 1; row_index <= count; row_index++) {
-				if (release_id != "" && ids[row_index] == release_id) {
-					current = row_index
-					break
-				}
-			}
-
-			if (current == 0) {
-				for (row_index = 1; row_index <= count; row_index++) {
-					if (statuses[row_index] == "active") {
-						current = row_index
-						break
-					}
-				}
-			}
-
-			if (current == 0) exit
-
-			printf "%s\t%s\n", ids[current], titles[current]
-		}
-	' "$file"
-}
-
-# Summarise projects with an active PROGRESS.md file.
+# Summarise each progress-bound project: current task, commit-plan progress, and what's next.
 progress:check() {
-	local -a dirs task_files task_parts
-	local dir task_file active_task_path fallback_task current_task current_title current_release current_status
-	local next_task_path next_task next_title next_status next_summary
-	local task_status status_label status_colour
-	local ready in_progress blocked needs_decision done unknown
-	local commit_counts completed_commits total_commits commit_colour
-	local step_counts completed_steps total_steps progress_colour
-	local task_summary task_colour
-	local release_info release_id release_title release_summary
+	local -a dirs task_parts next_title_lines
+	local dir progress_project_id current_json fallback_next_json next_json task_json chunk_json release_json
+	local current_task_id current_title current_status current_release_id
+	local next_task_id next_title next_hint next_title_line
+	local task_counts in_progress ready blocked needs_decision
+	local chunk_counts completed_chunks total_chunks commit_colour
+	local task_summary task_colour task_row_label status_label status_colour release_title
 
-	dirs=("${(@f)$(fd --hidden --no-ignore-vcs --type f '^PROGRESS\.md$' "$HOME/Dev" \
-		--ignore-file "$_zsh_config_dir/ignores.fd" \
+	# The shared ignore file normally excludes .git; strip that entry so this scan can still find each repo's progress binding.
+	dirs=("${(@f)$(fd --hidden --no-ignore-vcs --type d '^\.git$' "$HOME/Dev" \
+		--ignore-file <(sed '/^\.git\/$/d' "$_zsh_config_dir/ignores.fd") \
 		--exec dirname {} |
-		sort)}")
+		while IFS= read -r dir; do
+			if progress_project_id="$(git -C "$dir" config --local --get progress.project-id 2>/dev/null)"; then
+				[[ -n "$progress_project_id" ]] && printf '%s\n' "$dir"
+			fi
+		done |
+		sort -u)}")
 
 	[[ ${#dirs} -eq 1 && -z "${dirs[1]}" ]] && dirs=()
 
@@ -207,60 +59,63 @@ progress:check() {
 	for dir in "${dirs[@]}"; do
 		cli_style_status info "$dir"
 
-		task_files=("$dir"/.agent/tasks/*.md(N))
-
-		active_task_path=$(_progress_active_task_path "$dir/PROGRESS.md")
-		fallback_task=""
-		current_task=""
-		current_title=""
-		current_release=""
-		current_status=""
-		ready=0
-		in_progress=0
-		blocked=0
-		needs_decision=0
-		done=0
-		unknown=0
-
-		for task_file in "${task_files[@]}"; do
-			task_status=$(_progress_frontmatter_value "$task_file" status)
-
-			case "$task_status" in
-				ready) ((ready++)) ;;
-				in-progress)
-					((in_progress++))
-					[[ -z "$fallback_task" ]] && fallback_task="$task_file"
-					;;
-				blocked) ((blocked++)) ;;
-				needs-decision) ((needs_decision++)) ;;
-				done) ((done++)) ;;
-				*) ((unknown++)) ;;
-			esac
-		done
-
-		if [[ -n "$active_task_path" && -f "$dir/$active_task_path" ]]; then
-			current_task="$dir/$active_task_path"
-		else
-			current_task="$fallback_task"
+		current_json="$(cd "$dir" && progress current --json 2>/dev/null)"
+		if ! _progress_json_ok "$current_json"; then
+			cli_style_row "Progress" "Could not read project data" --label-width 14 --value-colour danger
+			printf '\n'
+			continue
 		fi
 
-		if [[ -n "$current_task" ]]; then
-			current_title=$(_progress_frontmatter_value "$current_task" title)
-			current_release=$(_progress_frontmatter_value "$current_task" release)
-			current_status=$(_progress_frontmatter_value "$current_task" status)
-			[[ -z "$current_title" ]] && current_title="${current_task:t:r}"
+		current_task_id="$(jq -r '.data.task.id // empty' <<< "$current_json")"
+		current_title="$(jq -r '.data.task.title // empty' <<< "$current_json")"
+		current_status="$(jq -r '.data.task.status // empty' <<< "$current_json")"
+		current_release_id="$(jq -r '.data.task.release_id // empty' <<< "$current_json")"
 
-			# Exclude the current task from the Tasks breakdown below; its
-			# status is already shown in the Status row.
-			case "$current_status" in
-				ready) ((ready--)) ;;
-				in-progress) ((in_progress--)) ;;
-				blocked) ((blocked--)) ;;
-				needs-decision) ((needs_decision--)) ;;
-				done) ((done--)) ;;
-				*) ((unknown--)) ;;
-			esac
+		if [[ -z "$current_task_id" ]]; then
+			fallback_next_json="$(cd "$dir" && progress next --json 2>/dev/null)"
+			if ! _progress_json_ok "$fallback_next_json"; then
+				cli_style_row "Progress" "Could not read project data" --label-width 14 --value-colour danger
+				printf '\n'
+				continue
+			fi
 
+			current_task_id="$(jq -r '.data.task.id // empty' <<< "$fallback_next_json")"
+			current_title="$(jq -r '.data.task.title // empty' <<< "$fallback_next_json")"
+			current_status="$(jq -r '.data.task.status // empty' <<< "$fallback_next_json")"
+			current_release_id="$(jq -r '.data.task.release_id // empty' <<< "$fallback_next_json")"
+		fi
+
+		next_json="$(cd "$dir" && progress next --json 2>/dev/null)"
+		if ! _progress_json_ok "$next_json"; then
+			cli_style_row "Progress" "Could not read project data" --label-width 14 --value-colour danger
+			printf '\n'
+			continue
+		fi
+
+		next_task_id="$(jq -r '.data.task.id // empty' <<< "$next_json")"
+		next_title="$(jq -r '.data.task.title // empty' <<< "$next_json")"
+		next_hint="$(jq -r '.data.hint_command // empty' <<< "$next_json")"
+
+		task_json="$(cd "$dir" && progress task list --limit 200 --json 2>/dev/null)"
+		if ! _progress_json_ok "$task_json"; then
+			cli_style_row "Progress" "Could not read project data" --label-width 14 --value-colour danger
+			printf '\n'
+			continue
+		fi
+
+		task_counts="$(jq -r --arg current_task_id "$current_task_id" '
+			.data.items // [] |
+			[
+				(map(select(.id != $current_task_id and .status == "in-progress")) | length),
+				(map(select(.id != $current_task_id and .status == "ready")) | length),
+				(map(select(.id != $current_task_id and .status == "blocked")) | length),
+				(map(select(.id != $current_task_id and .status == "needs-decision")) | length)
+			] | @tsv
+		' <<< "$task_json")"
+		read -r in_progress ready blocked needs_decision <<< "$task_counts"
+
+		if [[ -n "$current_task_id" ]]; then
+			[[ -z "$current_title" ]] && current_title="$current_task_id"
 			cli_style_row "Current task" "$current_title" --label-width 14 --value-colour info
 
 			status_label=$(_progress_status_label "$current_status")
@@ -275,30 +130,22 @@ progress:check() {
 
 			cli_style_row "Status" "$status_label" --label-width 14 --value-colour "$status_colour"
 
-			commit_colour="info"
-			commit_counts=$(_progress_task_commits "$current_task")
-			completed_commits="${commit_counts%%$'\t'*}"
-			total_commits="${commit_counts#*$'\t'}"
+			chunk_json="$(cd "$dir" && progress chunk list --task "$current_task_id" --limit 200 --json 2>/dev/null)"
+			if _progress_json_ok "$chunk_json"; then
+				chunk_counts="$(jq -r '
+					.data.items // [] |
+					[length, (map(select(.status == "done")) | length)] | @tsv
+				' <<< "$chunk_json")"
+				read -r total_chunks completed_chunks <<< "$chunk_counts"
 
-			if ((total_commits > 0 && completed_commits == total_commits)); then
-				commit_colour="success"
-			fi
+				commit_colour="info"
+				if ((total_chunks > 0 && completed_chunks == total_chunks)); then
+					commit_colour="success"
+				fi
 
-			if ((total_commits > 0)); then
-				cli_style_row "Commit plan" "$completed_commits/$total_commits complete" --label-width 14 --value-colour "$commit_colour"
-			fi
-
-			progress_colour="info"
-			step_counts=$(_progress_task_steps "$current_task")
-			completed_steps="${step_counts%%$'\t'*}"
-			total_steps="${step_counts#*$'\t'}"
-
-			if ((total_steps > 0 && completed_steps == total_steps)); then
-				progress_colour="success"
-			fi
-
-			if ((total_steps > 0)); then
-				cli_style_row "Task steps" "$completed_steps/$total_steps complete" --label-width 14 --value-colour "$progress_colour"
+				if ((total_chunks > 0)); then
+					cli_style_row "Commit plan" "$completed_chunks/$total_chunks complete" --label-width 14 --value-colour "$commit_colour"
+				fi
 			fi
 		fi
 
@@ -307,43 +154,35 @@ progress:check() {
 		((ready > 0)) && task_parts+=("$ready ready")
 		((blocked > 0)) && task_parts+=("$blocked blocked")
 		((needs_decision > 0)) && task_parts+=("$needs_decision need decision")
-		((done > 0)) && task_parts+=("$done done")
-		((unknown > 0)) && task_parts+=("$unknown unknown")
 		((${#task_parts[@]} == 0)) && task_parts=("None")
 		task_summary="${(j: · :)task_parts}"
 
 		task_colour="info"
 		((needs_decision > 0)) && task_colour="warning"
 		((blocked > 0)) && task_colour="danger"
-		((${#task_files[@]} == 0)) && task_colour="muted"
-		cli_style_row "Tasks" "$task_summary" --label-width 14 --value-colour "$task_colour"
 
-		release_info=$(_progress_roadmap_release "$dir/PROGRESS.md" "$current_release")
-		release_id="${release_info%%$'\t'*}"
-		release_title="${release_info#*$'\t'}"
+		task_row_label="Other tasks"
+		[[ -z "$current_task_id" ]] && task_row_label="Tasks"
 
-		if [[ -n "$release_title" ]]; then
-			release_summary="$release_title"
-			[[ "$release_id" =~ ^[0-9]+(\.[0-9]+)*$ ]] && release_summary="$release_id · $release_title"
-			cli_style_row "Release" "$release_summary" --label-width 14 --value-colour success
+		cli_style_row "$task_row_label" "$task_summary" --label-width 14 --value-colour "$task_colour"
+
+		if [[ -n "$current_release_id" ]]; then
+			release_json="$(cd "$dir" && progress release get "$current_release_id" --json 2>/dev/null)"
+			if _progress_json_ok "$release_json"; then
+				release_title="$(jq -r '.data.title // empty' <<< "$release_json")"
+				[[ -n "$release_title" ]] && cli_style_row "Release" "$release_title" --label-width 14 --value-colour success
+			fi
 		fi
 
-		next_task_path=$(_progress_next_task_path "$dir/PROGRESS.md" "$active_task_path")
-		next_task=""
-
-		if [[ -n "$next_task_path" && -f "$dir/$next_task_path" ]]; then
-			next_task="$dir/$next_task_path"
-			next_title=$(_progress_frontmatter_value "$next_task" title)
-			next_status=$(_progress_frontmatter_value "$next_task" status)
-			[[ -z "$next_title" ]] && next_title="${next_task:t:r}"
-			next_summary="$next_title"
-
-			if [[ "$next_status" != "ready" ]]; then
-				status_label=$(_progress_status_label "$next_status")
-				next_summary+=" · ${(L)status_label}"
-			fi
-
-			cli_style_row "Next task" "$next_summary" --label-width 14 --value-colour muted
+		if [[ -n "$next_task_id" ]]; then
+			next_title="$(jq -r 'if (.data.task.status_reason // "") != "" then .data.task.status_reason else (.data.task.title // empty) end' <<< "$next_json")"
+			[[ -z "$next_title" ]] && next_title="$next_task_id"
+			next_title_lines=("${(@f)$(fold -s -w 72 <<< "$next_title")}")
+			cli_style_row "Next action" "${next_title_lines[1]}" --label-width 14 --value-colour muted
+			for next_title_line in "${(@)next_title_lines[2,-1]}"; do
+				cli_style_row "" "$next_title_line" --label-width 14 --value-colour muted
+			done
+			[[ -n "$next_hint" ]] && cli_style_row "" "$next_hint" --label-width 14 --value-colour muted
 		fi
 
 		printf '\n'
