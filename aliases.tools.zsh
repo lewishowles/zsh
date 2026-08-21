@@ -75,3 +75,13 @@ function repo:open() {
 function repo:actions() {
 	_repo_open "actions" "$1"
 }
+
+# @desc  Copy the output of one command (or multiple "if quoted") to clipboard.
+# @cat   tools
+function clip() {
+	if (( $# )); then
+		eval "$*" 2>&1 | tee >(pbcopy)
+	else
+		tee >(pbcopy)
+	fi
+}
