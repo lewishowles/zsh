@@ -39,7 +39,7 @@ alias agents="zed AGENTS.md"
 # @cat   agents
 agents:setup:global() {
 	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both "$@"
-	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both --skip-external \
+	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both \
 		--claude-dir "$HOME/.claude-2" --codex-dir "$HOME/.codex-2" "$@"
 }
 # @desc  Set up agent files (Claude + Codex) for the current project
