@@ -363,6 +363,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Description |
 | --- | --- |
+| `clip` | Copy the output of one command (or multiple "if quoted") to clipboard. |
 | `svg` | Optimise SVG files in ~/Downloads using SVGO |
 | `updates:check` | List available global updaters without starting them |
 | `updates:run` | Update global tools while preserving each updater's interaction |

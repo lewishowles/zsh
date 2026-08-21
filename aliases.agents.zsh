@@ -3,6 +3,9 @@
 # Keep Claude Code in the normal terminal buffer for native selection and scrollback.
 export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
 
+export VISUAL="zed --wait"
+export EDITOR="$VISUAL"
+
 # @desc  Run Codex with shared configuration defaults
 # @cat   agent
 alias codex="codex"
