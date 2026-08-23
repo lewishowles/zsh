@@ -59,7 +59,7 @@ progress:check() {
 	for dir in "${dirs[@]}"; do
 		cli_style_status info "$dir"
 
-		current_json="$(cd "$dir" && progress current --json 2>/dev/null)"
+		current_json="$(cd "$dir" && progress next --json 2>/dev/null)"
 		if ! _progress_json_ok "$current_json"; then
 			cli_style_row "Progress" "Could not read project data" --label-width 14 --value-colour danger
 			printf '\n'
