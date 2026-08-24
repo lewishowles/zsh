@@ -19,6 +19,7 @@ _hcom_resolve_agent() {
 
 # @desc  Start a fresh reviewer and announce it to the project orchestrator
 # @cat   hcom
+# Usage: hcom-restart-reviewer <name> [initial-prompt]
 # Starts the normal reviewer role in the current directory without restoring the stopped Claude session.
 #
 # @param  {string}  name

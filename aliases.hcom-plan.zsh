@@ -2,8 +2,9 @@
 
 # Plan-review launchers
 
-# @desc  Start the complete hcom plan review in four Ghostty panes
+# @desc  Start the complete hcom plan review of a given task name or path in four Ghostty panes
 # @cat   hcom
+# Usage: hcom-plan <task-name>
 #
 # Creates this layout in the current Ghostty tab:
 #
@@ -84,8 +85,9 @@ _hcom_plan_prompt() {
 	print -r -- "${prompt_template//__TASK_NAME__/$quoted_task_name}"
 }
 
-# @desc  Start a Claude planning-peer task review
+# @desc  Start a Claude planning-peer review of a given task name or path
 # @cat   hcom
+# Usage: hcom-plan-claude <task-name> [planning-pair-id]
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
@@ -111,8 +113,9 @@ function hcom-plan-claude() {
 		--initial-prompt "$(_hcom_plan_prompt "$task_name")"
 }
 
-# @desc  Start a Codex planning-peer task review
+# @desc  Start a Codex planning-peer review of a given task name or path
 # @cat   hcom
+# Usage: hcom-plan-codex <task-name> [planning-pair-id]
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.

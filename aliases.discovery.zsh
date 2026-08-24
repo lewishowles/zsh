@@ -193,7 +193,7 @@ progress:check() {
 	printf '\n'
 }
 
-# Shared annotation parser — outputs cat TAB name TAB desc TAB needs.
+# Shared annotation parser outputs cat TAB name TAB desc TAB needs TAB usage.
 # Used by both alias:list and alias:find.
 function _alias_parse() {
 	local -a files
@@ -202,7 +202,7 @@ function _alias_parse() {
 	[[ ${#files} -eq 0 ]] && return
 
 	awk '
-		/^[[:space:]]*$/ { desc=""; cat=""; needs=""; next }
+		/^[[:space:]]*$/ { desc=""; cat=""; needs=""; usage=""; next }
 		/^# @desc[[:space:]]/ {
 			desc = $0; sub(/^# @desc[[:space:]]*/, "", desc); next
 		}
@@ -210,23 +210,26 @@ function _alias_parse() {
 		/^# @needs[[:space:]]/ {
 			needs = $0; sub(/^# @needs[[:space:]]*/, "", needs); next
 		}
+		/^# Usage:[[:space:]]/ {
+			usage = $0; sub(/^# Usage:[[:space:]]*/, "", usage); next
+		}
 		/^alias [^=]+=/ {
-			if (cat == "") { desc=""; cat=""; needs=""; next }
+			if (cat == "") { desc=""; cat=""; needs=""; usage=""; next }
 			name = $2; sub(/=.*/, "", name)
-			print cat "\t" name "\t" desc "\t" needs
-			desc=""; cat=""; needs=""; next
+			print cat "\t" name "\t" desc "\t" needs "\t" usage
+			desc=""; cat=""; needs=""; usage=""; next
 		}
 		/^function [[:alnum:]]/ {
-			if (cat == "") { desc=""; cat=""; needs=""; next }
+			if (cat == "") { desc=""; cat=""; needs=""; usage=""; next }
 			name = $2; sub(/\(\).*/, "", name); sub(/[[:space:]]+$/, "", name)
-			print cat "\t" name "\t" desc "\t" needs
-			desc=""; cat=""; needs=""; next
+			print cat "\t" name "\t" desc "\t" needs "\t" usage
+			desc=""; cat=""; needs=""; usage=""; next
 		}
 		/^[[:alnum:]_:-]+\(\)[[:space:]]*\{/ {
-			if (cat == "") { desc=""; cat=""; needs=""; next }
+			if (cat == "") { desc=""; cat=""; needs=""; usage=""; next }
 			name = $1; sub(/\(\)$/, "", name)
-			print cat "\t" name "\t" desc "\t" needs
-			desc=""; cat=""; needs=""; next
+			print cat "\t" name "\t" desc "\t" needs "\t" usage
+			desc=""; cat=""; needs=""; usage=""; next
 		}
 	' "${files[@]}" | sort -t$'\t' -k1,1 -k2,2
 }
@@ -271,10 +274,12 @@ function _docs_write() {
 			{
 				if ($1 != prev_cat) {
 					if (prev_cat != "") printf "\n"
-					printf "### %s\n\n| Command | Description |\n| --- | --- |\n", $1
+					printf "### %s\n\n| Command | Parameters | Description |\n| --- | --- | --- |\n", $1
 					prev_cat = $1
 				}
-				printf "| `%s` | %s |\n", $2, $3
+				parameters = $5
+				sub(/^[^[:space:]]+[[:space:]]*/, "", parameters)
+				printf "| `%s` | %s | %s |\n", $2, parameters, $3
 			}
 		'
 	)

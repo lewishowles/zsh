@@ -113,7 +113,7 @@ _hcom_launch_team() {
 	HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"
 }
 
-# @desc  Start the complete hcom team, optionally grouped by team label
+# @desc  Start the complete hcom team, scoped to this directory and optionally a team label
 # @cat   hcom
 #
 # Usage: hcom-team [--team <label>] [working-directory] [initial-prompt]
@@ -126,7 +126,7 @@ hcom-team() {
 	_hcom_launch_team hcom-team hcom-orchestrator hcom-reviewer "$@"
 }
 
-# @desc  Start the complete Codex hcom team, optionally grouped by team label
+# @desc  Start the complete Codex hcom team, scoped to this directory and optionally a team label
 # @cat   hcom
 #
 # Usage: hcom-team-codex [--team <label>] [working-directory] [initial-prompt]

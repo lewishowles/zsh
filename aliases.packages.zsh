@@ -13,6 +13,7 @@ alias deps:update="ncu -u; bun i";
 #     Library name without scope (e.g. "helpers" for @lewishowles/helpers).
 # @desc  Symlink a local @lewishowles package into this project
 # @cat   package
+# Usage: package:link <library-name>
 # @needs bun
 function package:link() {
 	local library=$1
@@ -49,6 +50,7 @@ function package:link() {
 #     Library name without scope.
 # @desc  Restore a linked @lewishowles package to its registry version
 # @cat   package
+# Usage: package:unlink <library-name>
 # @needs bun
 function package:unlink() {
 	local library=$1
@@ -74,6 +76,7 @@ function package:unlink() {
 #     Library name without scope.
 # @desc  Unlink then re-link a local @lewishowles package
 # @cat   package
+# Usage: package:relink <library-name>
 # @needs bun
 function package:relink() {
 	local library=$1
@@ -94,6 +97,7 @@ function package:relink() {
 #     Library name without scope.
 # @desc  Wipe and reinstall a @lewishowles package from the registry
 # @cat   package
+# Usage: package:reinstall <library-name>
 # @needs bun
 function package:reinstall() {
 	local library=$1

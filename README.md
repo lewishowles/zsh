@@ -241,131 +241,134 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 ### agent
 
-| Command | Description |
-| --- | --- |
-| `acct2` | Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 team) |
-| `agents` | Open the current AGENTS.md file |
-| `claude` | Run claude with auto-mode |
-| `codex` | Run Codex with shared configuration defaults |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `acct2` |  | Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 team) |
+| `agents` |  | Open the current AGENTS.md file |
+| `claude` |  | Run claude with auto-mode |
+| `codex` |  | Run Codex with shared configuration defaults |
 
 ### agents
 
-| Command | Description |
-| --- | --- |
-| `agents:setup` | Set up agent files (Claude + Codex) for the current project |
-| `agents:setup:global` | Set up agent files (Claude + Codex) globally, for both accounts |
-| `agents:usage` | Inspect agent token usage |
-| `agents:workspace` | Initialise WORKSPACE.md for the current project |
-| `agents:workspace:force` | Force-regenerate WORKSPACE.md for the current project |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `agents:setup` |  | Set up agent files (Claude + Codex) for the current project |
+| `agents:setup:global` |  | Set up agent files (Claude + Codex) globally, for both accounts |
+| `agents:usage` |  | Inspect agent token usage |
+| `agents:workspace` |  | Initialise WORKSPACE.md for the current project |
+| `agents:workspace:force` |  | Force-regenerate WORKSPACE.md for the current project |
 
 ### config
 
-| Command | Description |
-| --- | --- |
-| `alias:find` | Interactively browse and run annotated commands with fzf |
-| `alias:list` | List all annotated commands, grouped by category |
-| `zsh:doctor` | Check zsh config health: files, tools, goto paths, syntax, PATH, docs |
-| `zshrc` | Open .zshrc in VS Code |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `alias:find` |  | Interactively browse and run annotated commands with fzf |
+| `alias:list` |  | List all annotated commands, grouped by category |
+| `zsh:doctor` |  | Check zsh config health: files, tools, goto paths, syntax, PATH, docs |
+| `zshrc` |  | Open .zshrc in VS Code |
 
 ### deps
 
-| Command | Description |
-| --- | --- |
-| `deps:refresh` | Wipe node_modules and lockfile, then reinstall all dependencies |
-| `deps:update` | Upgrade all dependencies to latest versions, then install |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `deps:refresh` |  | Wipe node_modules and lockfile, then reinstall all dependencies |
+| `deps:update` |  | Upgrade all dependencies to latest versions, then install |
 
 ### dev
 
-| Command | Description |
-| --- | --- |
-| `build` | Build the project for production |
-| `dev` | Run the dev server |
-| `lint` | Run the linter |
-| `xcode:build` | Build the current app in Xcode |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `build` |  | Build the project for production |
+| `dev` |  | Run the dev server |
+| `lint` |  | Run the linter |
+| `xcode:build` |  | Build the current app in Xcode |
 
 ### docs
 
-| Command | Description |
-| --- | --- |
-| `docs:generate` | Regenerate the command table in README.md from annotations |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `docs:generate` |  | Regenerate the command table in README.md from annotations |
 
 ### hcom
 
-| Command | Description |
-| --- | --- |
-| `hcom-handoff` | Read or append the current repository's HCOM cycle handoff |
-| `hcom-implementer` | Start the Implementer hcom role |
-| `hcom-learn-claude` | Start a Claude source-learning learner and its dedicated Scout |
-| `hcom-learn-codex` | Start a Codex source-learning learner and its dedicated Scout |
-| `hcom-orchestrator` | Start the Orchestrator hcom role |
-| `hcom-orchestrator-codex` | Start the Codex Orchestrator hcom role |
-| `hcom-plan` | Start the complete hcom plan review in four Ghostty panes |
-| `hcom-plan-claude` | Start a Claude planning-peer task review |
-| `hcom-plan-codex` | Start a Codex planning-peer task review |
-| `hcom-restart-reviewer` | Start a fresh reviewer and announce it to the project orchestrator |
-| `hcom-resume` | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
-| `hcom-reviewer` | Start the Reviewer hcom role |
-| `hcom-reviewer-codex` | Start the Codex Reviewer hcom role |
-| `hcom-scout` | Start the Scout hcom role |
-| `hcom-scout-claude` | Start the Claude planning peer's Scout |
-| `hcom-scout-codex` | Start the Codex planning peer's Scout |
-| `hcom-team` | Start the complete hcom team, optionally grouped by team label |
-| `hcom-team-codex` | Start the complete Codex hcom team, optionally grouped by team label |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `hcom-handoff` |  | Read or append the current repository's HCOM cycle handoff |
+| `hcom-implementer` |  | Start the Implementer hcom role |
+| `hcom-insights-review` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
+| `hcom-insights-review-claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
+| `hcom-insights-review-codex` | <report-path> [insights-review-pair-id] | Start a Codex insights-review peer review of a given report file |
+| `hcom-learn-claude` |  | Start a Claude source-learning learner and its dedicated Scout |
+| `hcom-learn-codex` |  | Start a Codex source-learning learner and its dedicated Scout |
+| `hcom-orchestrator` |  | Start the Orchestrator hcom role |
+| `hcom-orchestrator-codex` |  | Start the Codex Orchestrator hcom role |
+| `hcom-plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
+| `hcom-plan-claude` | <task-name> [planning-pair-id] | Start a Claude planning-peer review of a given task name or path |
+| `hcom-plan-codex` | <task-name> [planning-pair-id] | Start a Codex planning-peer review of a given task name or path |
+| `hcom-restart-reviewer` | <name> [initial-prompt] | Start a fresh reviewer and announce it to the project orchestrator |
+| `hcom-resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
+| `hcom-reviewer` |  | Start the Reviewer hcom role |
+| `hcom-reviewer-codex` |  | Start the Codex Reviewer hcom role |
+| `hcom-scout` |  | Start the Scout hcom role |
+| `hcom-scout-claude` |  | Start the Claude planning peer's Scout |
+| `hcom-scout-codex` |  | Start the Codex planning peer's Scout |
+| `hcom-team` | [--team <label>] [working-directory] [initial-prompt] | Start the complete hcom team, scoped to this directory and optionally a team label |
+| `hcom-team-codex` | [--team <label>] [working-directory] [initial-prompt] | Start the complete Codex hcom team, scoped to this directory and optionally a team label |
 
 ### nav
 
-| Command | Description |
-| --- | --- |
-| `goto:agents` | Open the agent configuration directory |
-| `goto:airops` | Open the AirOps Admin root |
-| `goto:anpr` | Open the Gatekeeper Admin root |
-| `goto:blog` | Open the blog project |
-| `goto:boilerplate` | Open the boilerplate project |
-| `goto:boilersuit` | Open the Boilersuit macOS app project |
-| `goto:cli` | Open the CLI style library project |
-| `goto:components` | Open the Vue component library project |
-| `goto:helpers` | Open the JavaScript helper library project |
-| `goto:howles` | Open the primary website project |
-| `goto:lint` | Open the central linting project |
-| `goto:sketch` | Open the Sketch plugins root |
-| `goto:testing` | Open the testing helper library project |
-| `goto:tools` | Open the dev tools project |
-| `goto:zsh` | Open the ZSH config repo |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `goto:agents` |  | Open the agent configuration directory |
+| `goto:airops` |  | Open the AirOps Admin root |
+| `goto:anpr` |  | Open the Gatekeeper Admin root |
+| `goto:blog` |  | Open the blog project |
+| `goto:boilerplate` |  | Open the boilerplate project |
+| `goto:boilersuit` |  | Open the Boilersuit macOS app project |
+| `goto:cli` |  | Open the CLI style library project |
+| `goto:components` |  | Open the Vue component library project |
+| `goto:helpers` |  | Open the JavaScript helper library project |
+| `goto:howles` |  | Open the primary website project |
+| `goto:lint` |  | Open the central linting project |
+| `goto:sketch` |  | Open the Sketch plugins root |
+| `goto:testing` |  | Open the testing helper library project |
+| `goto:tools` |  | Open the dev tools project |
+| `goto:zsh` |  | Open the ZSH config repo |
 
 ### package
 
-| Command | Description |
-| --- | --- |
-| `package:link` | Symlink a local @lewishowles package into this project |
-| `package:reinstall` | Wipe and reinstall a @lewishowles package from the registry |
-| `package:relink` | Unlink then re-link a local @lewishowles package |
-| `package:unlink` | Restore a linked @lewishowles package to its registry version |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `package:link` | <library-name> | Symlink a local @lewishowles package into this project |
+| `package:reinstall` | <library-name> | Wipe and reinstall a @lewishowles package from the registry |
+| `package:relink` | <library-name> | Unlink then re-link a local @lewishowles package |
+| `package:unlink` | <library-name> | Restore a linked @lewishowles package to its registry version |
 
 ### repo
 
-| Command | Description |
-| --- | --- |
-| `repo:actions` | Open the GitHub actions page for a repo |
-| `repo:open` | Open the main GitHub page for a repo |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `repo:actions` |  | Open the GitHub actions page for a repo |
+| `repo:open` |  | Open the main GitHub page for a repo |
 
 ### test
 
-| Command | Description |
-| --- | --- |
-| `test:e2e` | Run all e2e tests headlessly |
-| `test:e2e:spec` | Run e2e tests matching an optional file path filter |
-| `test:e2e:ui` | Run e2e tests in interactive UI mode |
-| `test:unit` | Run unit tests headlessly |
-| `test:unit:ui` | Run unit tests in browser UI mode |
-| `xcode:test` | Run Xcode tests, which may include UI tests |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `test:e2e` |  | Run all e2e tests headlessly |
+| `test:e2e:spec` |  | Run e2e tests matching an optional file path filter |
+| `test:e2e:ui` |  | Run e2e tests in interactive UI mode |
+| `test:unit` |  | Run unit tests headlessly |
+| `test:unit:ui` |  | Run unit tests in browser UI mode |
+| `xcode:test` |  | Run Xcode tests, which may include UI tests |
 
 ### tools
 
-| Command | Description |
-| --- | --- |
-| `clip` | Copy the output of one command (or multiple "if quoted") to clipboard. |
-| `svg` | Optimise SVG files in ~/Downloads using SVGO |
-| `updates:check` | List available global updaters without starting them |
-| `updates:run` | Update global tools while preserving each updater's interaction |
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `clip` |  | Copy the output of one command (or multiple "if quoted") to clipboard. |
+| `svg` |  | Optimise SVG files in ~/Downloads using SVGO |
+| `updates:check` |  | List available global updaters without starting them |
+| `updates:run` |  | Update global tools while preserving each updater's interaction |
 
 <!-- commands:end -->
