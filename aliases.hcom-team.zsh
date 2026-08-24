@@ -86,16 +86,25 @@ _hcom_launch_team() {
 	local implementer_command="${launch_env}hcom-implementer $quoted_working_directory"
 	local scout_command="${launch_env}hcom-scout $quoted_working_directory"
 
-	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" \
-		"$reviewer_command" \
-		"$implementer_command" \
-		"$scout_command"
+	# A terminal ID survives the agent session and lets the next launch replace
+	# only the teammate panels created by this orchestrator shell.
+	local previous_terminal_ids="${HCOM_TEAM_TERMINAL_IDS:-}"
+	local team_terminal_ids
+	team_terminal_ids="$(
+		/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" \
+			"$reviewer_command" \
+			"$implementer_command" \
+			"$scout_command" \
+			"$previous_terminal_ids"
+	)"
 
 	local osascript_exit_code=$?
 
 	if (( osascript_exit_code != 0 )); then
 		return "$osascript_exit_code"
 	fi
+
+	typeset -g HCOM_TEAM_TERMINAL_IDS="$team_terminal_ids"
 
 	if [[ -n "$team_label" ]]; then
 		printf 'Starting hcom team %s in %s.\n' "$team_label" "$working_directory"
