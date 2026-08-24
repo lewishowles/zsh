@@ -50,6 +50,13 @@ hcom-restart-reviewer() {
 		return 1
 	fi
 
+	local repository_tag="$(_hcom_scoped_tag "$PWD")" || return 1
+	local reviewer_scope="${tag%-reviewer}"
+	local team_label=""
+	if [[ "$reviewer_scope" == "$repository_tag"-* ]]; then
+		team_label="${reviewer_scope#"$repository_tag"-}"
+	fi
+
 	local orchestrator_tag="${tag%-reviewer}-orchestrator"
 	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-restart-reviewer.md"
 	if [[ ! -f "$prompt_file" ]]; then
@@ -73,7 +80,7 @@ hcom-restart-reviewer() {
 	launch_prompt="$(print -rl -- "${prompt_lines[@]}")"
 
 	printf 'Starting a fresh reviewer for %s; it will announce itself to @%s.\n' "$name" "$orchestrator_tag"
-	hcom-reviewer "$PWD" "$launch_prompt"
+	HCOM_TEAM_LABEL="$team_label" hcom-reviewer "$PWD" "$launch_prompt"
 }
 
 # @desc  Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt)

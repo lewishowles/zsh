@@ -5,6 +5,23 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 
 # Core launch helpers
 
+# Checks that a team label is safe to include in an hcom tag.
+#
+# @param  {string}  team_label
+#     The explicit label supplied for one team.
+# @param  {string}  command_name
+#     The public command name used in errors.
+_hcom_validate_team_label() {
+	local team_label="$1"
+	local command_name="$2"
+
+	if [[ -z "$team_label" ]] || [[ "$team_label" == -* ]] || [[ "$team_label" == *- ]] || [[ "$team_label" == *[^a-z0-9-]* ]]; then
+		printf '%s: invalid team label: %s\n' "$command_name" "$team_label" >&2
+		printf '%s: use lowercase letters, numbers, and internal hyphens.\n' "$command_name" >&2
+		return 1
+	fi
+}
+
 # Launches one role in the current terminal, using the selected project directory.
 #
 # `--hcom-system-prompt` doesn't reach the agent's actual system prompt (verified: the
@@ -24,6 +41,7 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 _hcom_launch_role() {
 	local tool="" tag="" model="" role_file=""
 	local working_directory="$PWD" initial_prompt="" thinking_effort=""
+	local team_label="${HCOM_TEAM_LABEL:-}"
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -59,6 +77,11 @@ _hcom_launch_role() {
 	local repository_tag scoped_tag
 	repository_tag="$(_hcom_scoped_tag "$working_directory")" || return 1
 	scoped_tag="${repository_tag}-${tag}"
+
+	if [[ -n "$team_label" ]]; then
+		_hcom_validate_team_label "$team_label" hcom || return 1
+		scoped_tag="${repository_tag}-${team_label}-${tag}"
+	fi
 
 	local -a hcom_arguments
 	hcom_arguments=(

@@ -109,7 +109,7 @@ function hcom-handoff() {
 
 			role_prefix="${writer_identity%-????}"
 			if [[ "$role_prefix" == "$writer_identity" || "$role_prefix" != *-* ]]; then
-				printf 'hcom-handoff: HCOM_NAME must use <repo>-<role>-<CVCV>; got %s.\n' "$writer_identity" >&2
+				printf 'hcom-handoff: HCOM_NAME must use <repo>-<role>-<CVCV> or <repo>-<team>-<role>-<CVCV>; got %s.\n' "$writer_identity" >&2
 				return 1
 			fi
 

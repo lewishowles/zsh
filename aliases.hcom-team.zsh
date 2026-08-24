@@ -29,9 +29,37 @@ _hcom_launch_team() {
 	local reviewer_launcher="$3"
 	shift 3
 
+	local team_label=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--team)
+				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
+					printf '%s: --team requires a label.\n' "$command_name" >&2
+					return 1
+				fi
+
+				team_label="$2"
+				shift 2
+				;;
+			--)
+				shift
+				break
+				;;
+			--*)
+				printf '%s: unknown option: %s\n' "$command_name" "$1" >&2
+				return 1
+				;;
+			*) break ;;
+		esac
+	done
+
 	if [[ $# -gt 2 ]]; then
-		printf '%s: usage: %s [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
+		printf '%s: usage: %s [--team <label>] [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
 		return 1
+	fi
+
+	if [[ -n "$team_label" ]]; then
+		_hcom_validate_team_label "$team_label" "$command_name" || return 1
 	fi
 
 	local working_directory="${1:-$PWD}"
@@ -50,10 +78,13 @@ _hcom_launch_team() {
 	local account_env=""
 	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
 	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+	local team_env=""
+	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
+	local launch_env="${account_env}${team_env}"
 
-	local reviewer_command="${account_env}$reviewer_launcher $quoted_working_directory"
-	local implementer_command="${account_env}hcom-implementer $quoted_working_directory"
-	local scout_command="${account_env}hcom-scout $quoted_working_directory"
+	local reviewer_command="${launch_env}$reviewer_launcher $quoted_working_directory"
+	local implementer_command="${launch_env}hcom-implementer $quoted_working_directory"
+	local scout_command="${launch_env}hcom-scout $quoted_working_directory"
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" \
 		"$reviewer_command" \
@@ -66,11 +97,17 @@ _hcom_launch_team() {
 		return "$osascript_exit_code"
 	fi
 
-	"$orchestrator_launcher" "$working_directory" "$initial_prompt"
+	if [[ -n "$team_label" ]]; then
+		printf 'Starting hcom team %s in %s.\n' "$team_label" "$working_directory"
+	fi
+
+	HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"
 }
 
-# @desc  Start the complete hcom team in four Ghostty panes
+# @desc  Start the complete hcom team, optionally grouped by team label
 # @cat   hcom
+#
+# Usage: hcom-team [--team <label>] [working-directory] [initial-prompt]
 #
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
@@ -80,8 +117,10 @@ hcom-team() {
 	_hcom_launch_team hcom-team hcom-orchestrator hcom-reviewer "$@"
 }
 
-# @desc  Start the complete Codex hcom team in four Ghostty panes
+# @desc  Start the complete Codex hcom team, optionally grouped by team label
 # @cat   hcom
+#
+# Usage: hcom-team-codex [--team <label>] [working-directory] [initial-prompt]
 #
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.

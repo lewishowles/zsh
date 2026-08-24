@@ -309,8 +309,8 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `hcom-scout` | Start the Scout hcom role |
 | `hcom-scout-claude` | Start the Claude planning peer's Scout |
 | `hcom-scout-codex` | Start the Codex planning peer's Scout |
-| `hcom-team` | Start the complete hcom team in four Ghostty panes |
-| `hcom-team-codex` | Start the complete Codex hcom team in four Ghostty panes |
+| `hcom-team` | Start the complete hcom team, optionally grouped by team label |
+| `hcom-team-codex` | Start the complete Codex hcom team, optionally grouped by team label |
 
 ### nav
 
