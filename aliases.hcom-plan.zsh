@@ -1,6 +1,4 @@
-# hcom plan-review launchers.
-
-# Plan-review launchers
+# Provides hcom plan-review launchers and their prompt-loading helpers.
 
 # @desc  Start the complete hcom plan review of a given task name or path in four Ghostty panes
 # @cat   hcom
@@ -26,19 +24,19 @@ hcom-plan() {
 		return 1
 	fi
 
-	local task_name="$1"
-	local quoted_task_name="${(q)task_name}"
-	local planning_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
+	local task_name="$1"  # Task name or path passed to both planning peers.
+	local quoted_task_name="${(q)task_name}"  # Shell-quoted task name for the typed launch command.
+	local planning_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"  # ID shared by the planning-peer tags.
 
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
 	# typed command line instead.
-	local account_env
+	local account_env  # Optional account override to include in each fresh Ghostty shell.
 	account_env="$(_hcom_account_environment)"
 
-	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-plan-codex $quoted_task_name"
-	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-claude"
-	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-codex"
+	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-plan-codex $quoted_task_name"  # Command for the Codex planning pane.
+	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-claude"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-codex"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \
@@ -46,7 +44,7 @@ hcom-plan() {
 		"$scout_codex_command" \
 		"$planning_pair_id"
 
-	local osascript_exit_code=$?
+	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
 
 	if (( osascript_exit_code != 0 )); then
 		return "$osascript_exit_code"
@@ -61,7 +59,7 @@ hcom-plan() {
 #     Optional. The ID shared by the Claude and Codex planning peers; when
 #     omitted, a fresh ID is generated.
 _hcom_plan_peer_tag() {
-	local planning_pair_id="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"
+	local planning_pair_id="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"  # Pair ID to include in the shared tag.
 
 	planning_pair_id="${planning_pair_id//[^[:alnum:]_.-]/-}"
 	print -r -- "planning-peer-${planning_pair_id}"
@@ -72,15 +70,20 @@ _hcom_plan_peer_tag() {
 # @param  {string}  task_name
 #     The task name or path to resolve for review.
 _hcom_plan_prompt() {
-	local quoted_task_name="${(q)1}"
-	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-plan.md"
+	local quoted_task_name="${(q)1}"  # Shell-quoted task name to insert into the prompt template.
+	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-plan.md"  # Planning prompt template used by both peers.
 
 	if [[ ! -f "$prompt_file" ]]; then
 		printf 'hcom-plan: prompt file not found: %s\n' "$prompt_file" >&2
 		return 1
 	fi
 
-	local prompt_template="$(<"$prompt_file")"
+	if [[ ! -r "$prompt_file" ]]; then
+		printf 'hcom-plan: prompt file is not readable: %s\n' "$prompt_file" >&2
+		return 1
+	fi
+
+	local prompt_template="$(<"$prompt_file")"  # Prompt template with the task placeholder.
 	print -r -- "${prompt_template//__TASK_NAME__/$quoted_task_name}"
 }
 
@@ -99,8 +102,14 @@ function hcom-plan-claude() {
 		return 1
 	fi
 
-	local task_name="$1"
-	local planning_peer_tag="$(_hcom_plan_peer_tag "${2:-}")"
+	local task_name="$1"  # Task name or path passed to the planning peer.
+	local planning_peer_tag="$(_hcom_plan_peer_tag "${2:-}")"  # Tag shared with the paired planning peer.
+	local initial_prompt  # Prompt text that must load successfully before launch.
+
+	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
+		printf 'hcom-plan-claude: cannot launch without a readable planning prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-plan.md" >&2
+		return 1
+	fi
 
 	_hcom_launch_role \
 		--tool claude \
@@ -109,7 +118,7 @@ function hcom-plan-claude() {
 		--role-file planning-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
-		--initial-prompt "$(_hcom_plan_prompt "$task_name")"
+		--initial-prompt "$initial_prompt"
 }
 
 # @desc  Start a Codex planning-peer review of a given task name or path
@@ -127,8 +136,14 @@ function hcom-plan-codex() {
 		return 1
 	fi
 
-	local task_name="$1"
-	local planning_peer_tag="$(_hcom_plan_peer_tag "${2:-}")"
+	local task_name="$1"  # Task name or path passed to the planning peer.
+	local planning_peer_tag="$(_hcom_plan_peer_tag "${2:-}")"  # Tag shared with the paired planning peer.
+	local initial_prompt  # Prompt text that must load successfully before launch.
+
+	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
+		printf 'hcom-plan-codex: cannot launch without a readable planning prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-plan.md" >&2
+		return 1
+	fi
 
 	_hcom_launch_role \
 		--tool codex \
@@ -137,5 +152,5 @@ function hcom-plan-codex() {
 		--role-file planning-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
-		--initial-prompt "$(_hcom_plan_prompt "$task_name")"
+		--initial-prompt "$initial_prompt"
 }
