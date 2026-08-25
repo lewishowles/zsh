@@ -1,4 +1,12 @@
 on run arguments
+	if (count of arguments) > 0 and item 1 of arguments is "--close" then
+		if (count of arguments) > 1 then
+			my closeTrackedTerminals(item 2 of arguments)
+		end if
+
+		return
+	end if
+
 	set reviewerCommand to item 1 of arguments
 	set implementerCommand to item 2 of arguments
 	set scoutCommand to item 3 of arguments
@@ -12,9 +20,9 @@ on run arguments
 			error "Open a Ghostty terminal first."
 		end if
 
-		set currentWindow to front window
-		set currentTab to selected tab of currentWindow
-		set orchestratorTerminal to focused terminal of currentTab
+		set frontGhosttyWindow to front window
+		set selectedGhosttyTab to selected tab of frontGhosttyWindow
+		set orchestratorTerminal to focused terminal of selectedGhosttyTab
 		set orchestratorTerminalId to id of orchestratorTerminal
 
 		if previousTerminalIdText is not "" then
@@ -27,7 +35,7 @@ on run arguments
 				error "Run the previous team command from its orchestrator panel."
 			end if
 
-			set existingTerminals to get terminals of currentTab
+			set existingTerminals to get terminals of selectedGhosttyTab
 
 			repeat with existingTerminal in existingTerminals
 				set existingTerminalId to id of existingTerminal
@@ -60,6 +68,38 @@ on run arguments
 		return teamTerminalIdText
 	end tell
 end run
+
+on closeTrackedTerminals(terminalIdText)
+	if terminalIdText is "" then
+		return
+	end if
+
+	set terminalIdSeparator to "|"
+	set originalTextItemDelimiters to AppleScript's text item delimiters
+	set AppleScript's text item delimiters to terminalIdSeparator
+	set trackedTerminalIds to text items of terminalIdText
+	set AppleScript's text item delimiters to originalTextItemDelimiters
+
+	try
+		tell application "Ghostty"
+			repeat with currentWindow in windows
+				repeat with activeTab in tabs of currentWindow
+					set currentTerminals to get terminals of activeTab
+
+					repeat with currentTerminal in currentTerminals
+						set currentTerminalId to id of currentTerminal
+
+						if trackedTerminalIds contains currentTerminalId then
+							try
+								close currentTerminal
+							end try
+						end if
+					end repeat
+				end repeat
+			end repeat
+		end tell
+	end try
+end closeTrackedTerminals
 
 on runCommand(targetTerminal, commandText)
 	tell application "Ghostty"

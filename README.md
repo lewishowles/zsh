@@ -312,8 +312,9 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `hcom-scout` |  | Start the Scout hcom role |
 | `hcom-scout-claude` |  | Start the Claude planning peer's Scout |
 | `hcom-scout-codex` |  | Start the Codex planning peer's Scout |
-| `hcom-team` | [--team <label>] [working-directory] [initial-prompt] | Start the complete hcom team, scoped to this directory and optionally a team label |
-| `hcom-team-codex` | [--team <label>] [working-directory] [initial-prompt] | Start the complete Codex hcom team, scoped to this directory and optionally a team label |
+| `hcom-team` | [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start the complete hcom team, scoped to this directory and optionally a team label |
+| `hcom-team-codex` | [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start the complete Codex hcom team, scoped to this directory and optionally a team label |
+| `hcom-team-stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
 
 ### nav
 
