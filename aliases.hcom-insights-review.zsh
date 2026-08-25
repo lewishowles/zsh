@@ -36,9 +36,8 @@ hcom-insights-review() {
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
 	# typed command line instead.
-	local account_env=""
-	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
-	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+	local account_env
+	account_env="$(_hcom_account_environment)"
 
 	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-insights-review-codex ${quoted_report_path}"
 	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-claude"

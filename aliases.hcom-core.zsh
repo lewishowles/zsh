@@ -22,6 +22,19 @@ _hcom_validate_team_label() {
 	fi
 }
 
+# Builds the account environment passed to fresh HCOM terminals.
+#
+# Prints shell-safe assignments for the active Claude and Codex account
+# overrides. Returns success with an empty string when no override is set.
+_hcom_account_environment() {
+	local account_environment=""  # Quoted account assignments for a child terminal.
+
+	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_environment+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
+	[[ -n "${CODEX_HOME:-}" ]] && account_environment+="CODEX_HOME=${(q)CODEX_HOME} "
+
+	print -r -- "$account_environment"
+}
+
 # Launches one role in the current terminal, using the selected project directory.
 #
 # `--hcom-system-prompt` doesn't reach the agent's actual system prompt (verified: the

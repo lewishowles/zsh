@@ -80,9 +80,8 @@ function hcom-learn-claude() {
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
 	# typed command line instead.
-	local account_env=""
-	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
-	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+	local account_env
+	account_env="$(_hcom_account_environment)"
 
 	local scout_command="${account_env}_hcom_launch_learning_scout_claude ${(q)working_directory}"
 
@@ -114,9 +113,8 @@ function hcom-learn-codex() {
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
 	# typed command line instead.
-	local account_env=""
-	[[ -n "${CLAUDE_CONFIG_DIR:-}" ]] && account_env+="CLAUDE_CONFIG_DIR=${(q)CLAUDE_CONFIG_DIR} "
-	[[ -n "${CODEX_HOME:-}" ]] && account_env+="CODEX_HOME=${(q)CODEX_HOME} "
+	local account_env
+	account_env="$(_hcom_account_environment)"
 
 	local scout_command="${account_env}_hcom_launch_learning_scout_codex ${(q)working_directory}"
 
