@@ -192,6 +192,10 @@ _hcom_launch_team() {
 	fi
 
 	local orchestrator_exit_code
+	# Without this, SIGINT during the foreground orchestrator call aborts this whole function,
+	# skipping the cleanup below; localtraps restores the prior INT trap on any return path.
+	setopt localoptions localtraps
+	trap ':' INT
 	if HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 		orchestrator_exit_code=0
 	else
