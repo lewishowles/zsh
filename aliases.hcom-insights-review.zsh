@@ -23,15 +23,15 @@ hcom-insights-review() {
 		return 1
 	fi
 
-	local report_path="$1"
+	local report_path="$1"  # Report file path passed by the caller.
 
 	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
 		printf 'hcom-insights-review: report file is missing or unreadable: %s\n' "$report_path" >&2
 		return 1
 	fi
 
-	local quoted_report_path="${(q)report_path}"
-	local insights_review_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
+	local quoted_report_path="${(q)report_path}"  # Shell-quoted report path for the typed launch command.
+	local insights_review_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"  # ID shared by the paired insights-review tags.
 
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
@@ -39,9 +39,9 @@ hcom-insights-review() {
 	local account_env
 	account_env="$(_hcom_account_environment)"
 
-	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-insights-review-codex ${quoted_report_path}"
-	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-claude"
-	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-codex"
+	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-insights-review-codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
+	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-claude"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-codex"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \
@@ -49,7 +49,7 @@ hcom-insights-review() {
 		"$scout_codex_command" \
 		"$insights_review_pair_id"
 
-	local osascript_exit_code=$?
+	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
 
 	if (( osascript_exit_code != 0 )); then
 		return "$osascript_exit_code"
@@ -64,7 +64,7 @@ hcom-insights-review() {
 #     Optional. The ID shared by the Claude and Codex insights reviewers; when
 #     omitted, a fresh ID is generated.
 _hcom_insights_review_peer_tag() {
-	local insights_review_pair_id="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"
+	local insights_review_pair_id="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"  # Shared pair ID, generated when the caller doesn't supply one.
 
 	insights_review_pair_id="${insights_review_pair_id//[^[:alnum:]_.-]/-}"
 	print -r -- "insights-review-peer-${insights_review_pair_id}"
@@ -75,15 +75,15 @@ _hcom_insights_review_peer_tag() {
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
 _hcom_insights_review_prompt() {
-	local quoted_report_path="${(q)1}"
-	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md"
+	local quoted_report_path="${(q)1}"  # Shell-quoted report path to insert into the prompt template.
+	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md"  # Insights-review prompt template used by both peers.
 
 	if [[ ! -f "$prompt_file" ]]; then
 		printf 'hcom-insights-review: prompt file not found: %s\n' "$prompt_file" >&2
 		return 1
 	fi
 
-	local prompt_template="$(<"$prompt_file")"
+	local prompt_template="$(<"$prompt_file")"  # Prompt template with the report-path placeholder.
 	print -r -- "${prompt_template//__REPORT_PATH__/$quoted_report_path}"
 }
 
@@ -102,8 +102,14 @@ function hcom-insights-review-claude() {
 		return 1
 	fi
 
-	local report_path="$1"
-	local insights_review_peer_tag="$(_hcom_insights_review_peer_tag "${2:-}")"
+	local report_path="$1"  # Report file path passed by the caller.
+
+	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
+		printf 'hcom-insights-review-claude: report file is missing or unreadable: %s\n' "$report_path" >&2
+		return 1
+	fi
+
+	local insights_review_peer_tag="$(_hcom_insights_review_peer_tag "${2:-}")"  # Tag shared with the paired insights-review peer.
 
 	_hcom_launch_role \
 		--tool claude \
@@ -130,8 +136,14 @@ function hcom-insights-review-codex() {
 		return 1
 	fi
 
-	local report_path="$1"
-	local insights_review_peer_tag="$(_hcom_insights_review_peer_tag "${2:-}")"
+	local report_path="$1"  # Report file path passed by the caller.
+
+	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
+		printf 'hcom-insights-review-codex: report file is missing or unreadable: %s\n' "$report_path" >&2
+		return 1
+	fi
+
+	local insights_review_peer_tag="$(_hcom_insights_review_peer_tag "${2:-}")"  # Tag shared with the paired insights-review peer.
 
 	_hcom_launch_role \
 		--tool codex \
