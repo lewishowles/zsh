@@ -1,8 +1,30 @@
 # @desc  Read or append the current repository's HCOM cycle handoff
 # @cat   hcom
 # @needs trash
+# Each repository has one handoff file at $HOME/.hcom/handoffs/<repository_slug>.md,
+# where the slug is the Git root basename. The file is repository-wide rather than
+# per-agent; each record identifies its writer with the HCOM_NAME-derived Writer
+# identity and Role prefix fields.
+#
+# @param  {string}  action
+#     Optional path, append, or close action. With no action, reads the handoff.
+# @param  {string}  append_options
+#     Append options select a record kind and optionally a body file; body text
+#     otherwise comes from standard input.
+# @output
+#     Prints the handoff path and requested content or operation result.
+# @failure
+#     Returns 1 when Git, input validation, filesystem, timestamp, or Trash
+#     operations fail.
+# @side-effects
+#     Append creates or updates the repository handoff with mode 600. Close moves
+#     the handoff to Trash instead of deleting it.
 function hcom-handoff() {
-	local repository_root repository_slug handoff_dir handoff_path action
+	local repository_root  # Canonical absolute path to the current Git root.
+	local repository_slug  # Git root basename used to identify the repository.
+	local handoff_dir  # Private directory containing repository handoff files.
+	local handoff_path  # Repository-wide handoff file for the current repository.
+	local action  # Requested path, append, or close operation.
 
 	if ! repository_root=$(git rev-parse --show-toplevel 2>/dev/null); then
 		printf 'hcom-handoff: current directory is not inside a Git repository.\n' >&2
@@ -46,24 +68,50 @@ function hcom-handoff() {
 			printf '%s\n' "$handoff_path"
 			;;
 		append)
-			local kind="" body_file="" body_file_set=0 writer_identity="" role_prefix="" timestamp
-			local body_with_sentinel="" body="" record=""
+			local kind=""  # Record kind selected by --kind.
+			local kind_set=0  # Whether --kind has already been supplied.
+			local body_file=""  # Optional file containing the record body.
+			local body_file_set=0  # Whether --file has already been supplied.
+			local writer_identity=""  # Agent identity read from HCOM_NAME.
+			local role_prefix=""  # HCOM_NAME without its final CVCV agent name.
+			local writer_suffix=""  # Final CVCV agent name from HCOM_NAME.
+			local timestamp  # UTC timestamp stored in the record.
+			local body_with_sentinel=""  # Body plus a sentinel used to preserve trailing newlines.
+			local body=""  # Record body read from --file or standard input.
+			local record=""  # Complete record assembled before the append attempt.
 
 			while (( $# > 0 )); do
 				case "$1" in
 					--kind)
+						if (( kind_set )); then
+							printf 'hcom-handoff: --kind may be provided only once.\n' >&2
+							return 1
+						fi
+
 						if (( $# < 2 )); then
 							printf 'hcom-handoff: --kind needs a record kind.\n' >&2
 							return 1
 						fi
 						kind="$2"
+						kind_set=1
 						shift 2
 						;;
 					--file)
+						if (( body_file_set )); then
+							printf 'hcom-handoff: --file may be provided only once.\n' >&2
+							return 1
+						fi
+
 						if (( $# < 2 )); then
 							printf 'hcom-handoff: --file needs a path.\n' >&2
 							return 1
 						fi
+
+						if [[ -z "$2" ]]; then
+							printf 'hcom-handoff: --file needs a non-empty path.\n' >&2
+							return 1
+						fi
+
 						body_file="$2"
 						body_file_set=1
 						shift 2
@@ -104,6 +152,12 @@ function hcom-handoff() {
 			writer_identity="${HCOM_NAME:-}"
 			if [[ -z "$writer_identity" ]]; then
 				printf 'hcom-handoff: HCOM_NAME must be set before appending a record.\n' >&2
+				return 1
+			fi
+
+			writer_suffix="${writer_identity##*-}"
+			if [[ ! "$writer_suffix" =~ ^[bcdfghjklmnpqrstvwxyz][aeiou][bcdfghjklmnpqrstvwxyz][aeiou]$ ]]; then
+				printf 'hcom-handoff: HCOM_NAME must end with a CVCV agent name; got %s.\n' "$writer_identity" >&2
 				return 1
 			fi
 
@@ -164,14 +218,14 @@ function hcom-handoff() {
 
 				body="${body_with_sentinel%$'\001'}"
 
-				# Build the full record before writing so concurrent writers can't interleave a partial record.
+				# Assemble the record before one printf append attempt; no lock serialises concurrent writers.
 				record=$(printf '## %s\n- Timestamp: %s\n- Role prefix: %s\n- Writer identity: %s' "$kind" "$timestamp" "$role_prefix" "$writer_identity")
 				record+=$'\n\n'
 				record+="$body"
 				record+=$'\n\n'
 				printf '%s' "$record" >> "$handoff_path"
 			)
-			local append_exit_code=$?
+			local append_exit_code=$?  # Status returned by the directory, read, or append subshell.
 
 			if (( append_exit_code != 0 )); then
 				return "$append_exit_code"
