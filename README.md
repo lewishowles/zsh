@@ -345,6 +345,15 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | `package:relink` | <library-name> | Unlink then re-link a local @lewishowles package |
 | `package:unlink` | <library-name> | Restore a linked @lewishowles package to its registry version |
 
+### progress
+
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `chunks` |  | List all chunks for the provided task ID |
+| `complete` |  | Complete the given task or chunk, depending on ID format |
+| `releases` |  | List all releases for the current project |
+| `tasks` |  | List all tasks for the current project |
+
 ### repo
 
 | Command | Parameters | Description |
