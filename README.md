@@ -31,12 +31,12 @@ The Nerd Font provides the symbols used by the Starship prompt.
 
 ```sh
 brew install \
-    atuin \
-    bat \
-    eza \
-    fzf \
-    starship \
-    zoxide
+	atuin \
+	bat \
+	eza \
+	fzf \
+	starship \
+	zoxide
 ```
 
 These provide:
@@ -70,7 +70,7 @@ ln -sf ~/Dev/Configuration/zsh/zshrc ~/.zshrc
 ln -sf ~/Dev/Configuration/zsh/zprofile ~/.zprofile
 ln -sf ~/Dev/Configuration/zsh/starship.toml ~/.config/starship.toml
 ln -sf ~/Dev/Configuration/zsh/ghostty.config \
-    "$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
+	"$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
 
 touch ~/.hushlogin
 
@@ -350,7 +350,7 @@ The pre-commit hook regenerates the command table automatically on each commit.
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `chunks` |  | List all chunks for the provided task ID |
-| `complete` |  | Complete the given task or chunk, depending on ID format |
+| `completed` |  | Complete the given task or chunk, depending on ID format |
 | `releases` |  | List all releases for the current project |
 | `tasks` |  | List all tasks for the current project |
 

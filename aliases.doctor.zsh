@@ -15,7 +15,6 @@ function zsh:doctor() {
 	_doctor_section 'files'
 	local -a required_files=(
 		zshrc
-		oh-my-zsh-settings.zsh
 		bun-settings.zsh
 		aliases.config.zsh
 		aliases.packages.zsh
@@ -41,17 +40,6 @@ function zsh:doctor() {
 
 	# --- Tools ---
 	_doctor_section 'tools'
-	# Oh My Zsh and Powerlevel10k checked by directory, not PATH
-	if [[ -d "${ZSH:-}" ]]; then
-		_doctor_pass "oh-my-zsh"
-	else
-		_doctor_fail "oh-my-zsh  (\$ZSH not set or missing)"
-	fi
-	if [[ -d "${ZSH:-}/custom/themes/powerlevel10k" ]]; then
-		_doctor_pass "powerlevel10k"
-	else
-		_doctor_fail "powerlevel10k  (expected in \$ZSH/custom/themes/)"
-	fi
 	# Core tools + all unique tools from @needs annotations
 	local -a all_tools
 	all_tools=(
@@ -98,7 +86,6 @@ function zsh:doctor() {
 	_doctor_section 'syntax'
 	local -a source_files=(
 		"$ZSH_CONFIG_ROOT"/aliases.*.zsh(N)
-		"$ZSH_CONFIG_ROOT/oh-my-zsh-settings.zsh"
 		"$ZSH_CONFIG_ROOT/bun-settings.zsh"
 	)
 	local err

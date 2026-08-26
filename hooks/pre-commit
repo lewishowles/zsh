@@ -2,8 +2,8 @@
 # Regenerate the README command table from annotations before each commit.
 repo_root=$(git rev-parse --show-toplevel)
 ZSH_CONFIG_ROOT="$repo_root" zsh -c '
-    source "$ZSH_CONFIG_ROOT/aliases.config.zsh"
-    source "$ZSH_CONFIG_ROOT/aliases.discovery.zsh"
-    docs:generate
+	source "$ZSH_CONFIG_ROOT/aliases.config.zsh"
+	source "$ZSH_CONFIG_ROOT/aliases.discovery.zsh"
+	docs:generate
 ' || exit 1
 git add "$repo_root/README.md"

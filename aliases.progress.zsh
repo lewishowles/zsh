@@ -4,19 +4,21 @@ alias releases="progress release list"
 # @desc  List all tasks for the current project
 # @cat   progress
 alias tasks="progress task list"
+
 # @desc  List all chunks for the provided task ID
 # @cat   progress
 chunks() {
-    progress chunk list --task "$1"
+	progress chunk list --task "$1"
 }
+
 # @desc  Complete the given task or chunk, depending on ID format
 # @cat   progress
-complete() {
-    case "$1" in
-        tsk_*) progress task complete "$1" ;;
-        chk_*) progress chunk complete "$1" ;;
-        *) print -u2 "Unknown progress ID: $1"; return 1 ;;
-    esac
+completed() {
+	case "$1" in
+		tsk_*) progress task complete "$1" ;;
+		chk_*) progress chunk complete "$1" ;;
+		*) print -u2 "Unknown progress ID: $1"; return 1 ;;
+	esac
 }
 
 # Summarise each progress-bound project: current task, commit-plan progress, and what's next.
