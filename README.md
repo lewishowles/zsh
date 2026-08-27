@@ -6,7 +6,7 @@ The configuration lives here so it can be version-controlled, reviewed and edite
 
 Built around:
 
-- Zsh and Oh My Zsh
+- Zsh
 - Starship
 - Ghostty
 - zoxide
@@ -50,15 +50,7 @@ These provide:
 | `atuin`    | Searchable, contextual shell history                  |
 | `bat`      | Syntax-highlighted file viewing                       |
 
-### 3. Install Oh My Zsh
-
-```sh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-```
-
-Do this before linking the repository configuration because the installer may create or replace `~/.zshrc`.
-
-### 4. Link the configuration
+### 3. Link the configuration
 
 Assuming this repository is checked out at `~/Dev/Configuration/zsh`:
 
@@ -86,7 +78,7 @@ The `core.hooksPath` setting activates the repository’s Git hooks, including t
 
 Open a new terminal after linking the files. The shell automatically loads every `aliases.*.zsh` file in sorted order, so adding a new alias file does not require editing `zshrc`.
 
-### 5. Import existing shell history
+### 4. Import existing shell history
 
 On a machine with existing Zsh history:
 
@@ -201,7 +193,6 @@ Reports:
 | `aliases.packages.zsh`     | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                                 |
 | `aliases.tools.zsh`        | Tool aliases, file listings, repository helpers, SVG optimisation and agent setup commands.                                   |
 | `bun-settings.zsh`         | Bun shell completions.                                                                                                        |
-| `oh-my-zsh-settings.zsh`   | Oh My Zsh configuration and plugin initialisation.                                                                            |
 | `ghostty.config`           | Ghostty typography, padding, cursor, shell integration, tab behaviour and macOS-specific settings.                            |
 | `ignores.fd`               | Shared ignore patterns for file discovery.                                                                                    |
 | `hooks/`                   | Zsh hooks, including repository-aware Ghostty tab titles.                                                                     |
@@ -220,21 +211,6 @@ alias my:command="..."
 ```
 
 The pre-commit hook regenerates the command table automatically before each commit.
-
-## Adding a new alias or function
-
-Pick the file that matches what the thing does. Drop a new `aliases.<topic>.zsh` into the folder and it's sourced automatically.
-
-Annotate it so it appears in `alias:list`, `alias:find`, and this README:
-
-```zsh
-# @desc  Short description shown in the command table
-# @cat   category-name
-# @needs optional-tool-dependency
-alias my:command="..."
-```
-
-The pre-commit hook regenerates the command table automatically on each commit.
 
 ## Commands
 <!-- commands:start -->

@@ -13,7 +13,7 @@ Personal macOS Zsh configuration for shell startup, shared environment, aliases,
 ## Technology choices
 
 - Zsh on macOS, with shell-native functions and aliases.
-- Starship supplies the prompt; Oh My Zsh supplies selected plugins.
+- Starship supplies the prompt.
 - Optional tools such as Atuin, fzf, zoxide, eza, bat, Bun, and HCOM are integrated when installed.
 - No project package manager, build system, or automated test runner is assumed.
 
@@ -36,4 +36,4 @@ Personal macOS Zsh configuration for shell startup, shared environment, aliases,
 
 ## Planning
 
-Current work and handoff state live in root `PROGRESS.md`. Concrete work lives under `.agent/tasks/`.
+Task, chunk, and handoff state live in the `progress` CLI. Run `progress next --json` at the start of a session.
