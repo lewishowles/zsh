@@ -349,9 +349,12 @@ The pre-commit hook regenerates the command table automatically on each commit.
 
 | Command | Parameters | Description |
 | --- | --- | --- |
+| `chunk` |  | Show details for the given chunk, or the selected next chunk if omitted |
 | `chunks` |  | List all chunks for the given task, or the selected next task if omitted |
+| `clean` |  | Clean completed tasks and releases |
 | `completed` |  | Complete the given task or chunk, depending on ID format |
 | `releases` |  | List all releases for the current project |
+| `task` |  | Show details for the given task, or the selected next task if omitted |
 | `tasks` |  | List all tasks for the current project |
 
 ### repo
