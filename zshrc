@@ -12,7 +12,7 @@ done
 # Initialise completions (previously handled by Oh My Zsh).
 autoload -Uz compinit && compinit
 
-# Bun completions.
+# Bun completions. Sourced after compinit because ~/.bun/_bun calls compdef.
 source "$ZSH_CONFIG_ROOT/bun-settings.zsh"
 
 export NVM_DIR="$HOME/.nvm"
@@ -50,13 +50,19 @@ npx() {
 }
 
 # Smarter directory navigation.
-eval "$(zoxide init zsh)"
+if (( $+commands[zoxide] )); then
+	eval "$(zoxide init zsh)"
+fi
 
 # Fuzzy file, directory and history search.
-eval "$(fzf --zsh)"
+if (( $+commands[fzf] )); then
+	eval "$(fzf --zsh)"
+fi
 
 # Searchable, contextual shell history.
-eval "$(atuin init zsh --disable-up-arrow --disable-ai)"
+if (( $+commands[atuin] )); then
+	eval "$(atuin init zsh --disable-up-arrow --disable-ai)"
+fi
 
 # Shell hooks.
 for f in "$ZSH_CONFIG_ROOT"/hooks/*.zsh(N); do
@@ -64,4 +70,6 @@ for f in "$ZSH_CONFIG_ROOT"/hooks/*.zsh(N); do
 done
 
 # Prompt.
-eval "$(starship init zsh)"
+if (( $+commands[starship] )); then
+	eval "$(starship init zsh)"
+fi
