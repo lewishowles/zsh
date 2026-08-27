@@ -269,7 +269,6 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
-| `hcom-handoff` |  | Read or append the current repository's HCOM cycle handoff |
 | `hcom-implementer` |  | Start the Implementer hcom role |
 | `hcom-insights-review` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
 | `hcom-insights-review-claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
