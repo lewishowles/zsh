@@ -5,10 +5,28 @@ alias releases="progress release list"
 # @cat   progress
 alias tasks="progress task list"
 
-# @desc  List all chunks for the provided task ID
+# @desc  List all chunks for the given task, or the selected next task if omitted
 # @cat   progress
 chunks() {
-	progress chunk list --task "$1"
+	local task_id="$1"
+
+	if [[ -z "$task_id" ]]; then
+		local next_json
+
+		if ! next_json="$(progress next --json 2>/dev/null)" || ! _progress_json_ok "$next_json"; then
+			print -u2 "Could not determine the next task."
+			return 1
+		fi
+
+		task_id="$(jq -r '.data.task.id // empty' <<< "$next_json")"
+
+		if [[ -z "$task_id" ]]; then
+			print -u2 "No next task is selected."
+			return 1
+		fi
+	fi
+
+	progress chunk list --task "$task_id"
 }
 
 # @desc  Complete the given task or chunk, depending on ID format
