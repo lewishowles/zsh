@@ -1,8 +1,9 @@
 -- Creates the Ghostty team layout, starts the three teammate commands, and
 -- returns the four pane IDs joined by pipe characters. With --close, delegates
--- to closeTrackedTerminals and returns without creating panes. When prior pane
--- IDs are supplied, verifies the focused terminal is the prior orchestrator and
--- closes the prior team's other tracked panes before creating the new layout.
+-- to closeTrackedTerminals, optionally focuses a remaining pane, and returns
+-- without creating panes. When prior pane IDs are supplied, verifies the focused
+-- terminal is the prior orchestrator and closes the prior team's other tracked
+-- panes before creating the new layout.
 -- Argument access, Ghostty operations, split/resize actions, and command input
 -- errors propagate.
 -- @param arguments
@@ -10,7 +11,13 @@
 on run arguments
 	if (count of arguments) > 0 and item 1 of arguments is "--close" then
 		if (count of arguments) > 1 then
-			my closeTrackedTerminals(item 2 of arguments)
+			-- Optional pane restored after tracked teammates close.
+			set focusTerminalId to ""
+			if (count of arguments) > 2 then
+				set focusTerminalId to item 3 of arguments
+			end if
+
+			my closeTrackedTerminals(item 2 of arguments, focusTerminalId)
 		end if
 
 		return
@@ -102,7 +109,9 @@ end run
 -- errors are suppressed so missing panes and repeated stops remain harmless.
 -- @param terminalIdText
 --     Pipe-separated Ghostty terminal IDs to close.
-on closeTrackedTerminals(terminalIdText)
+-- @param focusTerminalId
+--     Optional Ghostty terminal ID to focus after closing tracked panes.
+on closeTrackedTerminals(terminalIdText, focusTerminalId)
 	if terminalIdText is "" then
 		return
 	end if
@@ -115,6 +124,8 @@ on closeTrackedTerminals(terminalIdText)
 	-- IDs whose matching Ghostty panes should be closed.
 	set trackedTerminalIds to text items of terminalIdText
 	set AppleScript's text item delimiters to originalTextItemDelimiters
+	-- Remaining Ghostty terminal to focus after cleanup, when found.
+	set focusTerminal to missing value
 
 	try
 		tell application "Ghostty"
@@ -129,6 +140,10 @@ on closeTrackedTerminals(terminalIdText)
 						-- Terminal candidate whose ID is compared with the tracked list.
 						set currentTerminalId to id of currentTerminal
 
+						if currentTerminalId is focusTerminalId then
+							set focusTerminal to contents of currentTerminal
+						end if
+
 						if trackedTerminalIds contains currentTerminalId then
 							try
 								close currentTerminal
@@ -137,6 +152,10 @@ on closeTrackedTerminals(terminalIdText)
 					end repeat
 				end repeat
 			end repeat
+
+			if focusTerminal is not missing value then
+				focus focusTerminal
+			end if
 		end tell
 	end try
 end closeTrackedTerminals

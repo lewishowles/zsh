@@ -40,18 +40,21 @@ _hcom_stop_team_tags() {
 	done
 }
 
-# Closes tracked Ghostty panes, ignoring panes that have already disappeared.
+# Closes tracked Ghostty panes and optionally focuses a remaining pane.
 #
 # @param  {string}  terminal_ids
 #     Pipe-separated Ghostty terminal IDs to close.
+# @param  {string}  focus_terminal_id
+#     Optional Ghostty terminal ID to focus after closing the tracked panes.
 _hcom_close_team_terminals() {
 	local terminal_ids="$1"  # Pipe-separated Ghostty terminal IDs to close.
+	local focus_terminal_id="${2:-}"  # Remaining Ghostty pane to focus after cleanup.
 
 	if [[ -z "$terminal_ids" ]]; then
 		return 0
 	fi
 
-	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" --close "$terminal_ids" >/dev/null 2>&1 || :
+	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" --close "$terminal_ids" "$focus_terminal_id" >/dev/null 2>&1 || :
 }
 
 # Clears all stored state for the active team in the launching shell.
@@ -207,7 +210,8 @@ _hcom_launch_team() {
 
 	if (( keep_agents == 0 )); then
 		_hcom_stop_team_tags "${team_tags#*|}"
-		_hcom_close_team_terminals "${team_terminal_ids#*|}"
+		local orchestrator_terminal_id="${team_terminal_ids%%|*}"  # Orchestrator pane restored after teammate cleanup.
+		_hcom_close_team_terminals "${team_terminal_ids#*|}" "$orchestrator_terminal_id"
 		_hcom_clear_team_scope
 	fi
 
