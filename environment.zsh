@@ -1,3 +1,10 @@
+# A login interactive shell sources this file twice, from zprofile and then
+# zshrc. This flag makes the second source a no-op so PATH doesn't gain a
+# duplicate Bun entry and brew shellenv doesn't run again. Not exported, so
+# each new shell that reads zprofile or zshrc still runs the setup for itself.
+[[ -n "$_ZSH_ENVIRONMENT_LOADED" ]] && return
+_ZSH_ENVIRONMENT_LOADED=1
+
 export BUN_INSTALL="$HOME/.bun"
 export PATH="$BUN_INSTALL/bin:$PATH"
 
