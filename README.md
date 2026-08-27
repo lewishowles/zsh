@@ -255,6 +255,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `build` |  | Build the project for production |
+| `check` |  | Run lint, unit tests and build, stopping at the first failure |
 | `dev` |  | Run the dev server |
 | `lint` |  | Run the linter |
 | `xcode:build` |  | Build the current app in Xcode |
@@ -347,6 +348,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `test:e2e:spec` |  | Run e2e tests matching an optional file path filter |
 | `test:e2e:ui` |  | Run e2e tests in interactive UI mode |
 | `test:unit` |  | Run unit tests headlessly |
+| `test:unit:spec` |  | Run unit tests matching an optional file path filter |
 | `test:unit:ui` |  | Run unit tests in browser UI mode |
 | `xcode:test` |  | Run Xcode tests, which may include UI tests |
 
