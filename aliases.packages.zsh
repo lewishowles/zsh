@@ -5,6 +5,10 @@ alias deps:refresh="rm -rf node_modules; rm -f bun.lock bun.lockb; bun i";
 # @cat   deps
 # @needs ncu
 alias deps:update="ncu -u; bun i";
+# @desc  Report available dependency updates without making changes
+# @cat   deps
+# @needs ncu
+alias deps:outdated="ncu";
 
 # Symlink a locally-built @lewishowles package into this project.
 # Removes any current registry version first so the link is the only copy.

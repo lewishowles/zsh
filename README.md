@@ -248,6 +248,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
+| `deps:outdated` |  | Report available dependency updates without making changes |
 | `deps:refresh` |  | Wipe node_modules and lockfile, then reinstall all dependencies |
 | `deps:update` |  | Upgrade all dependencies to latest versions, then install |
 
