@@ -320,6 +320,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `package:link` | <library-name> | Symlink a local @lewishowles package into this project |
 | `package:reinstall` | <library-name> | Wipe and reinstall a @lewishowles package from the registry |
 | `package:relink` | <library-name> | Unlink then re-link a local @lewishowles package |
+| `package:status` | [library-name] | Report the state of @lewishowles dependencies |
 | `package:unlink` | <library-name> | Restore a linked @lewishowles package to its registry version |
 
 ### progress

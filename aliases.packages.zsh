@@ -116,3 +116,89 @@ function package:reinstall() {
 	bun pm cache rm
 	bun add "@lewishowles/$library"
 }
+
+# Report whether each @lewishowles dependency is linked, installed, or missing.
+#
+# @param  {string}  library
+#     Library name without scope. Optional; with no argument every
+#     @lewishowles dependency is reported.
+# @desc  Report the state of @lewishowles dependencies
+# @cat   package
+# Usage: package:status [library-name]
+# @needs jq
+function package:status() {
+	local library=$1
+	# Shared by the lookup, width, and report loops below.
+	local dependency
+
+	if [[ ! -f ./package.json ]]; then
+		printf 'package:status must be run in a Node project with ./package.json\n' >&2
+		return 1
+	fi
+
+	if ! command -v jq &>/dev/null; then
+		printf 'jq is required to read package.json\n' >&2
+		return 1
+	fi
+
+	# Merge both dependency lists and emit the @lewishowles names without their scope prefix.
+	local dependencies
+	if ! dependencies=$(jq -r '
+		[.dependencies // {}, .devDependencies // {}]
+		| add
+		| keys[]
+		| select(startswith("@lewishowles/"))
+		| sub("^@lewishowles/"; "")
+	' ./package.json 2>/dev/null); then
+		printf 'Unable to read dependencies from ./package.json\n' >&2
+		return 1
+	fi
+
+	local -a libraries
+	libraries=(${(f)dependencies})
+
+	if [[ -n "$library" ]]; then
+		# Zero means the requested dependency was found.
+		local found=1
+		for dependency in "${libraries[@]}"; do
+			if [[ "$dependency" == "$library" ]]; then
+				found=0
+				break
+			fi
+		done
+
+		if (( found )); then
+			printf '@lewishowles/%s is not a dependency of this project\n' "$library" >&2
+			return 1
+		fi
+
+		libraries=("$library")
+	fi
+
+	local width=0
+	for dependency in "${libraries[@]}"; do
+		if (( ${#dependency} > width )); then
+			width=${#dependency}
+		fi
+	done
+
+	local package_path
+	local version
+	for dependency in "${libraries[@]}"; do
+		package_path="node_modules/@lewishowles/$dependency"
+
+		# A symlink is a local link; :A resolves it to the real package directory it points at.
+		if [[ -L "$package_path" ]]; then
+			printf "%-${width}s  %s\n" "$dependency" "${package_path:A}"
+			continue
+		fi
+
+		if [[ -d "$package_path" ]]; then
+			version=$(jq -r '.version // empty' "$package_path/package.json" 2>/dev/null)
+			printf "%-${width}s  registry %s\n" "$dependency" "${version:-(unknown version)}"
+			continue
+		fi
+
+		printf "%-${width}s  missing\n" "$dependency"
+	done
+}
