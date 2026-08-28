@@ -324,6 +324,13 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `package:status` | [library-name] | Report the state of @lewishowles dependencies |
 | `package:unlink` | <library-name> | Restore a linked @lewishowles package to its registry version |
 
+### port
+
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `port:find` | <port> | Show the process listening on a TCP port |
+| `port:kill` | <port> | Kill the process listening on a TCP port |
+
 ### progress
 
 | Command | Parameters | Description |
