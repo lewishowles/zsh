@@ -58,33 +58,14 @@ hcom-insights-review() {
 	HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-insights-review-claude "$report_path" "$insights_review_pair_id"
 }
 
-# Builds the shared insights-review-peer tag for one report review launch.
-#
-# @param  {string}  insights_review_pair_id
-#     Optional. The ID shared by the Claude and Codex insights reviewers; when
-#     omitted, a fresh ID is generated.
-_hcom_insights_review_peer_tag() {
-	local insights_review_pair_id="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"  # Shared pair ID, generated when the caller doesn't supply one.
-
-	insights_review_pair_id="${insights_review_pair_id//[^[:alnum:]_.-]/-}"
-	print -r -- "insights-review-peer-${insights_review_pair_id}"
-}
-
 # Builds the shared insights-review-peer independent-review initial prompt.
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
 _hcom_insights_review_prompt() {
-	local quoted_report_path="${(q)1}"  # Shell-quoted report path to insert into the prompt template.
 	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md"  # Insights-review prompt template used by both peers.
 
-	if [[ ! -f "$prompt_file" ]]; then
-		printf 'hcom-insights-review: prompt file not found: %s\n' "$prompt_file" >&2
-		return 1
-	fi
-
-	local prompt_template="$(<"$prompt_file")"  # Prompt template with the report-path placeholder.
-	print -r -- "${prompt_template//__REPORT_PATH__/$quoted_report_path}"
+	_hcom_workflow_prompt hcom-insights-review "$prompt_file" __REPORT_PATH__ "$1"
 }
 
 # @desc  Start a Claude insights-review peer review of a given report file
@@ -109,7 +90,13 @@ function hcom-insights-review-claude() {
 		return 1
 	fi
 
-	local insights_review_peer_tag="$(_hcom_insights_review_peer_tag "${2:-}")"  # Tag shared with the paired insights-review peer.
+	local insights_review_peer_tag="$(_hcom_workflow_peer_tag insights-review-peer "${2:-}")"  # Tag shared with the paired insights-review peer.
+	local initial_prompt  # Prompt text that must load successfully before launch.
+
+	if ! initial_prompt="$(_hcom_insights_review_prompt "$report_path")"; then
+		printf 'hcom-insights-review-claude: cannot launch without a readable insights-review prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md" >&2
+		return 1
+	fi
 
 	_hcom_launch_role \
 		--tool claude \
@@ -118,7 +105,7 @@ function hcom-insights-review-claude() {
 		--role-file insights-review-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
-		--initial-prompt "$(_hcom_insights_review_prompt "$report_path")"
+		--initial-prompt "$initial_prompt"
 }
 
 # @desc  Start a Codex insights-review peer review of a given report file
@@ -143,7 +130,13 @@ function hcom-insights-review-codex() {
 		return 1
 	fi
 
-	local insights_review_peer_tag="$(_hcom_insights_review_peer_tag "${2:-}")"  # Tag shared with the paired insights-review peer.
+	local insights_review_peer_tag="$(_hcom_workflow_peer_tag insights-review-peer "${2:-}")"  # Tag shared with the paired insights-review peer.
+	local initial_prompt  # Prompt text that must load successfully before launch.
+
+	if ! initial_prompt="$(_hcom_insights_review_prompt "$report_path")"; then
+		printf 'hcom-insights-review-codex: cannot launch without a readable insights-review prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md" >&2
+		return 1
+	fi
 
 	_hcom_launch_role \
 		--tool codex \
@@ -152,5 +145,5 @@ function hcom-insights-review-codex() {
 		--role-file insights-review-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
-		--initial-prompt "$(_hcom_insights_review_prompt "$report_path")"
+		--initial-prompt "$initial_prompt"
 }

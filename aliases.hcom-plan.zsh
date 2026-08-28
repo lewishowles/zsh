@@ -53,38 +53,14 @@ hcom-plan() {
 	HCOM_PLANNING_WORKFLOW=1 hcom-plan-claude "$task_name" "$planning_pair_id"
 }
 
-# Builds the shared planning-peer tag for one task review launch.
-#
-# @param  {string}  planning_pair_id
-#     Optional. The ID shared by the Claude and Codex planning peers; when
-#     omitted, a fresh ID is generated.
-_hcom_plan_peer_tag() {
-	local planning_pair_id="${1:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"  # Pair ID to include in the shared tag.
-
-	planning_pair_id="${planning_pair_id//[^[:alnum:]_.-]/-}"
-	print -r -- "planning-peer-${planning_pair_id}"
-}
-
 # Builds the shared planning-peer independent-review initial prompt.
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for review.
 _hcom_plan_prompt() {
-	local quoted_task_name="${(q)1}"  # Shell-quoted task name to insert into the prompt template.
 	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-plan.md"  # Planning prompt template used by both peers.
 
-	if [[ ! -f "$prompt_file" ]]; then
-		printf 'hcom-plan: prompt file not found: %s\n' "$prompt_file" >&2
-		return 1
-	fi
-
-	if [[ ! -r "$prompt_file" ]]; then
-		printf 'hcom-plan: prompt file is not readable: %s\n' "$prompt_file" >&2
-		return 1
-	fi
-
-	local prompt_template="$(<"$prompt_file")"  # Prompt template with the task placeholder.
-	print -r -- "${prompt_template//__TASK_NAME__/$quoted_task_name}"
+	_hcom_workflow_prompt hcom-plan "$prompt_file" __TASK_NAME__ "$1"
 }
 
 # @desc  Start a Claude planning-peer review of a given task name or path
@@ -103,7 +79,7 @@ function hcom-plan-claude() {
 	fi
 
 	local task_name="$1"  # Task name or path passed to the planning peer.
-	local planning_peer_tag="$(_hcom_plan_peer_tag "${2:-}")"  # Tag shared with the paired planning peer.
+	local planning_peer_tag="$(_hcom_workflow_peer_tag planning-peer "${2:-}")"  # Tag shared with the paired planning peer.
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
@@ -137,7 +113,7 @@ function hcom-plan-codex() {
 	fi
 
 	local task_name="$1"  # Task name or path passed to the planning peer.
-	local planning_peer_tag="$(_hcom_plan_peer_tag "${2:-}")"  # Tag shared with the paired planning peer.
+	local planning_peer_tag="$(_hcom_workflow_peer_tag planning-peer "${2:-}")"  # Tag shared with the paired planning peer.
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
