@@ -1,5 +1,10 @@
 local _zsh_config_dir="${0:A:h}"
 
+# Matches lines that define aliases or public shell functions.
+if (( ! ${+_command_definition_pattern} )); then
+	readonly _command_definition_pattern='^(alias [^=]+=|function [[:alnum:]][[:alnum:]_:-]*|[[:alnum:]][[:alnum:]_:-]*\(\)[[:space:]]*\{)'
+fi
+
 # Print one tab-separated record (category, name, desc, needs, usage) for each
 # command in the given files that carries a # @cat annotation. Single source of
 # the annotation grammar, shared by _alias_parse and zsh:doctor.

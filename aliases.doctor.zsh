@@ -88,6 +88,10 @@ function zsh:doctor() {
 	local -a source_files=(
 		"$ZSH_CONFIG_ROOT"/aliases.*.zsh(N)
 		"$ZSH_CONFIG_ROOT/bun-settings.zsh"
+		"$ZSH_CONFIG_ROOT/zprofile"
+		"$ZSH_CONFIG_ROOT/zshrc"
+		"$ZSH_CONFIG_ROOT/environment.zsh"
+		"$ZSH_CONFIG_ROOT"/hooks/*.zsh(N)
 	)
 	local err
 	for f in "${source_files[@]}"; do
@@ -98,6 +102,23 @@ function zsh:doctor() {
 			_doctor_fail "${f:t}  — $err"
 		fi
 	done
+
+	# --- Annotations ---
+	_doctor_section 'annotations'
+	local -a unannotated_files=()
+	for f in "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N); do
+		if [[ -z "$(_annotations_parse "$f")" ]] \
+			&& grep -Eq "$_command_definition_pattern" "$f"; then
+			unannotated_files+=("${f:t}")
+		fi
+	done
+	if (( ${#unannotated_files[@]} == 0 )); then
+		_doctor_pass 'all public command files are annotated'
+	else
+		for f in "${unannotated_files[@]}"; do
+			_doctor_fail "$f  (commands without annotations)"
+		done
+	fi
 
 	# --- PATH ---
 	_doctor_section 'path'
