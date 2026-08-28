@@ -76,7 +76,7 @@ The Ghostty symlink keeps terminal appearance, padding, key behaviour and shell 
 
 The `core.hooksPath` setting activates the repository’s Git hooks, including the pre-commit hook that keeps the README command table up to date.
 
-Open a new terminal after linking the files. The shell automatically loads every `aliases.*.zsh` file in sorted order, so adding a new alias file does not require editing `zshrc`.
+Run `zsh:reload` or open a new terminal after linking the files to apply the linked configuration. The shell automatically loads every `aliases.*.zsh` file in sorted order, so adding a new alias file does not require editing `zshrc`.
 
 ### 4. Import existing shell history
 
@@ -241,7 +241,8 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `alias:find` |  | Interactively browse and run annotated commands with fzf |
 | `alias:list` |  | List all annotated commands, grouped by category |
 | `zsh:doctor` |  | Check zsh config health: files, tools, goto paths, syntax, PATH, docs |
-| `zshrc` |  | Open .zshrc in VS Code |
+| `zsh:reload` |  | Replace the current shell with a fresh login shell |
+| `zshrc` |  | Open .zshrc in the configured editor |
 
 ### deps
 

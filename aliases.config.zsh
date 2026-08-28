@@ -14,6 +14,10 @@ else
 	BLACK='' RED='' GREEN='' YELLOW='' BLUE='' PURPLE='' CYAN='' WHITE='' RESET_COLOUR=''
 fi
 
-# @desc  Open .zshrc in VS Code
+# @desc  Open .zshrc in the configured editor
 # @cat   config
-alias zshrc="pushd ~ > /dev/null && code .zshrc && popd > /dev/null"
+alias zshrc='pushd ~ > /dev/null && ${=VISUAL:-${EDITOR:-code}} .zshrc && popd > /dev/null'
+
+# @desc  Replace the current shell with a fresh login shell
+# @cat   config
+alias zsh:reload="exec zsh -l"
