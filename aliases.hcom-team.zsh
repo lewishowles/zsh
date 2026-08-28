@@ -69,6 +69,27 @@ _hcom_clear_team_scope() {
 	unset HCOM_TEAM_TERMINAL_IDS
 }
 
+# Returns the orchestrator prompt for a team continuation mode.
+#
+# @param  {string}  launch_mode
+#     Controls whether the orchestrator resumes a handoff or selects the next work.
+_hcom_team_continuation_prompt() {
+	local launch_mode="$1"  # Continuation mode that determines how progress records are used.
+
+	case "$launch_mode" in
+		resume)
+			print -r -- "Retrieve the full handoff with progress context get --json, then resume the interrupted work from that handoff. Do not select a new task."
+			;;
+		continue)
+			print -r -- "Use the project-continue skill to retrieve the current progress records and continue with the next ready work."
+			;;
+		*)
+			printf 'hcom: unknown team continuation mode: %s\n' "$launch_mode" >&2
+			return 1
+			;;
+	esac
+}
+
 # Starts a complete hcom team with the requested orchestrator and reviewer.
 #
 # Creates this layout in the current Ghostty tab:
@@ -98,6 +119,14 @@ _hcom_launch_team() {
 	local orchestrator_launcher="$2"  # Launcher for the foreground orchestrator.
 	local reviewer_launcher="$3"  # Launcher for the reviewer pane.
 	shift 3
+	local launch_mode=""  # Optional resume or continue behaviour for the orchestrator.
+
+	case "${1:-}" in
+		resume|continue)
+			launch_mode="$1"
+			shift
+			;;
+	esac
 
 	local team_label=""  # Optional label parsed from the launch options.
 	local keep_agents=0  # Whether cleanup should leave agents and panes running.
@@ -128,8 +157,13 @@ _hcom_launch_team() {
 		esac
 	done
 
-	if [[ $# -gt 2 ]]; then
-		printf '%s: usage: %s [--team <label>] [--keep-agents] [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
+	local maximum_positionals=2  # Directory and optional prompt accepted by a fresh launch.
+	if [[ -n "$launch_mode" ]]; then
+		maximum_positionals=1
+	fi
+
+	if [[ $# -gt maximum_positionals ]]; then
+		printf '%s: usage: %s [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
 		return 1
 	fi
 
@@ -139,6 +173,10 @@ _hcom_launch_team() {
 
 	local working_directory="${1:-$PWD}"  # Project directory for the team.
 	local initial_prompt="${2:-}"  # Optional prompt passed to the orchestrator.
+
+	if [[ -n "$launch_mode" ]]; then
+		initial_prompt="$(_hcom_team_continuation_prompt "$launch_mode")" || return 1
+	fi
 
 	if [[ ! -d "$working_directory" ]]; then
 		printf '%s: working directory not found: %s\n' "$command_name" "$working_directory" >&2
@@ -218,28 +256,28 @@ _hcom_launch_team() {
 	return "$orchestrator_exit_code"
 }
 
-# @desc  Start the complete hcom team, scoped to this directory and optionally a team label
+# @desc  Start, resume, or continue the complete hcom team
 # @cat   hcom
 #
-# Usage: hcom-team [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
+# Usage: hcom-team [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
 #
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
 # @param  {string}  initial_prompt
-#     Optional initial prompt for the orchestrator.
+#     Optional orchestrator prompt for a fresh launch.
 hcom-team() {
 	_hcom_launch_team hcom-team hcom-orchestrator hcom-reviewer "$@"
 }
 
-# @desc  Start the complete Codex hcom team, scoped to this directory and optionally a team label
+# @desc  Start, resume, or continue the complete Codex hcom team
 # @cat   hcom
 #
-# Usage: hcom-team-codex [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
+# Usage: hcom-team-codex [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
 #
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
 # @param  {string}  initial_prompt
-#     Optional initial prompt for the orchestrator.
+#     Optional orchestrator prompt for a fresh launch.
 hcom-team-codex() {
 	_hcom_launch_team hcom-team-codex hcom-orchestrator-codex hcom-reviewer-codex "$@"
 }
