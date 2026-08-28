@@ -133,6 +133,10 @@ function _docs_write() {
 		printf 'No <!-- commands:start --> sentinel found in %s\n' "$target" >&2
 		return 1
 	fi
+	if ! grep -q '^<!-- commands:end -->' "$target" 2>/dev/null; then
+		printf 'No <!-- commands:end --> sentinel found in %s\n' "$target" >&2
+		return 1
+	fi
 
 	local before new_block after
 	before=$(awk '/^<!-- commands:start -->/{exit} {print}' "$target")
@@ -165,13 +169,14 @@ function _docs_write() {
 function _docs_check() {
 	local readme="$ZSH_CONFIG_ROOT/README.md"
 	[[ ! -f "$readme" ]] && return 1
-	local tmp
-	tmp=$(mktemp "${TMPDIR:-/tmp}/zsh-docs-check.XXXXXX")
-	cp "$readme" "$tmp"
-	_docs_write "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+	local tmpfile
+	tmpfile=$(mktemp "${TMPDIR:-/tmp}/zsh-docs-check.XXXXXX")
+	setopt localoptions localtraps
+	trap 'rm -f "$tmpfile"' EXIT INT TERM
+	cp "$readme" "$tmpfile"
+	_docs_write "$tmpfile" 2>/dev/null || return 1
 	local result=0
-	diff -q "$readme" "$tmp" &>/dev/null || result=1
-	rm -f "$tmp"
+	diff -q "$readme" "$tmpfile" &>/dev/null || result=1
 	return $result
 }
 
