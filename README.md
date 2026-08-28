@@ -340,6 +340,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | --- | --- | --- |
 | `repo:actions` |  | Open the GitHub actions page for a repo |
 | `repo:open` |  | Open the main GitHub page for a repo |
+| `repo:root` |  | Jump to the current Git repository root |
 
 ### test
 

@@ -76,6 +76,19 @@ function repo:actions() {
 	_repo_open "actions" "$1"
 }
 
+# @desc  Jump to the current Git repository root
+# @cat   repo
+function repo:root() {
+	local repo_root
+
+	if ! repo_root=$(git rev-parse --show-toplevel 2>/dev/null); then
+		printf 'Not inside a Git repository\n' >&2
+		return 1
+	fi
+
+	cd "$repo_root"
+}
+
 # @desc  Copy the output of one command (or multiple "if quoted") to clipboard.
 # @cat   tools
 function clip() {
