@@ -48,3 +48,17 @@ _hcom_workflow_prompt() {
 
 	print -r -- "${prompt_template//${placeholder}/$quoted_placeholder_value}"
 }
+
+# Runs the given Ghostty layout AppleScript, passing it the command to type into
+# the pane it creates. Shared by launchers that open a dedicated peer pane.
+#
+# @param  {string}  layout_script
+#     Path to the AppleScript file that creates the Ghostty layout.
+# @param  {string}  launch_command
+#     Shell command to type into the pane the script creates.
+_hcom_workflow_launch_layout() {
+	local layout_script="$1"  # Path to the AppleScript file that creates the layout.
+	local launch_command="$2"  # Shell command to type into the pane the script creates.
+
+	/usr/bin/osascript "$layout_script" "$launch_command"
+}
