@@ -1,12 +1,13 @@
 local _zsh_config_dir="${0:A:h}"
 
-# Shared annotation parser outputs cat TAB name TAB desc TAB needs TAB usage.
-# Used by both alias:list and alias:find.
-function _alias_parse() {
-	local -a files
-	files=("$ZSH_CONFIG_ROOT"/aliases.*.zsh(N))
-
-	[[ ${#files} -eq 0 ]] && return
+# Print one tab-separated record (category, name, desc, needs, usage) for each
+# command in the given files that carries a # @cat annotation. Single source of
+# the annotation grammar, shared by _alias_parse and zsh:doctor.
+function _annotations_parse() {
+	# No files means awk would block reading stdin, so stop before it runs.
+	if (( $# == 0 )); then
+		return 0
+	fi
 
 	awk '
 		/^[[:space:]]*$/ { desc=""; cat=""; needs=""; usage=""; next }
@@ -38,7 +39,13 @@ function _alias_parse() {
 			print cat "\t" name "\t" desc "\t" needs "\t" usage
 			desc=""; cat=""; needs=""; usage=""; next
 		}
-	' "${files[@]}" | sort -t$'\t' -k1,1 -k2,2
+	' "$@"
+}
+
+# All annotated commands across the aliases.*.zsh files, sorted by category then
+# name. Backs alias:list, alias:find and the README command table.
+function _alias_parse() {
+	_annotations_parse "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N) | sort -t$'\t' -k1,1 -k2,2
 }
 
 # @desc  List all annotated commands, grouped by category

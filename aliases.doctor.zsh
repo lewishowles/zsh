@@ -44,11 +44,12 @@ function zsh:doctor() {
 	local -a all_tools
 	all_tools=(
 		bun code vp
-		$(awk '/^# @needs[[:space:]]/ {
-			sub(/^# @needs[[:space:]]*/, "")
-			n = split($0, a, " ")
-			for (i = 1; i <= n; i++) print a[i]
-		}' "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N) | sort -u)
+		$(_annotations_parse "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N) \
+			| awk -F$'\t' '$4 != "" {
+				n = split($4, a, " ")
+				for (i = 1; i <= n; i++) print a[i]
+			}' \
+			| sort -u)
 	)
 	local tool
 	for tool in "${(u)all_tools[@]}"; do
