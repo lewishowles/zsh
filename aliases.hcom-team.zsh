@@ -141,23 +141,6 @@ _hcom_launch_team() {
 		initial_prompt="$(_hcom_team_continuation_prompt "$launch_mode")" || return 1
 	fi
 
-	local quoted_working_directory="${(q)working_directory}"  # Zsh-quoted directory for typed pane commands.
-
-	# Ghostty panes start fresh shells that don't inherit this shell's
-	# exported env, so an active account override must ride along in the
-	# typed command line instead.
-	local account_env  # Account override prefix copied into each new pane command.
-	account_env="$(_hcom_account_environment)"
-	local team_env=""  # Optional HCOM_TEAM_LABEL assignment for new panes.
-	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
-	local launch_env="${account_env}${team_env}"  # Combined environment prefix for pane commands.
-
-	local reviewer_command="${launch_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
-	local implementer_command="${launch_env}hcom-implementer $quoted_working_directory"  # Typed implementer launch command.
-	local scout_command="${launch_env}hcom-scout $quoted_working_directory"  # Typed scout launch command.
-	local team_tags  # Exact role tags for the new team scope.
-	team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1
-
 	# A terminal ID survives the agent session and lets the next launch replace
 	# only the teammate panels created by this orchestrator shell.
 	local previous_terminal_ids="${HCOM_TEAM_TERMINAL_IDS:-}"  # Prior same-shell pane IDs, if any.
@@ -165,6 +148,62 @@ _hcom_launch_team() {
 	if [[ -n "$previous_terminal_ids" ]] && [[ -n "$previous_team_tags" ]]; then
 		_hcom_stop_team_tags "$previous_team_tags"
 	fi
+
+	# A non-zero return is a tag-derivation failure (1) or the osascript exit
+	# status, propagated so the command reports the real pane-launch failure.
+	_hcom_team_create_panes "$reviewer_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" || return $?
+	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
+	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
+
+	_hcom_store_team_scope "$working_directory" "$team_label" "$team_tags" "$team_terminal_ids"
+
+	if [[ -n "$team_label" ]]; then
+		printf 'Starting hcom team %s in %s.\n' "$team_label" "$working_directory"
+	fi
+
+	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
+	# up teammates on return; its exit status is this function's result.
+	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids"
+}
+
+# Builds the typed teammate pane commands and creates the Ghostty layout.
+#
+# Returns reply=(team_tags, team_terminal_ids). A non-zero return is a
+# tag-derivation failure (1) or the osascript exit status, so the caller can
+# surface a failed pane launch.
+#
+# @param  {string}  reviewer_launcher
+#     Function that starts the reviewer role.
+# @param  {string}  working_directory
+#     Project directory for the team.
+# @param  {string}  team_label
+#     Optional label that scopes the team.
+# @param  {string}  previous_terminal_ids
+#     Prior same-shell pane IDs, passed through so the layout can replace them.
+_hcom_team_create_panes() {
+	local reviewer_launcher="$1"  # Function that starts the reviewer role.
+	local working_directory="$2"  # Project directory for the team.
+	local team_label="$3"  # Optional label that scopes the team.
+	local previous_terminal_ids="$4"  # Prior same-shell pane IDs to replace.
+
+	local quoted_working_directory="${(q)working_directory}"  # Zsh-quoted directory for typed pane commands.
+
+	# Ghostty panes start fresh shells that don't inherit this shell's
+	# exported env, so an active account override must ride along in the
+	# typed command line instead.
+	local account_env  # Account override prefix copied into each new pane command.
+	account_env="$(_hcom_account_environment)"
+
+	local team_env=""  # Optional HCOM_TEAM_LABEL assignment for new panes.
+	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
+
+	local launch_env="${account_env}${team_env}"  # Combined environment prefix for pane commands.
+	local reviewer_command="${launch_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
+	local implementer_command="${launch_env}hcom-implementer $quoted_working_directory"  # Typed implementer launch command.
+	local scout_command="${launch_env}hcom-scout $quoted_working_directory"  # Typed scout launch command.
+
+	local team_tags  # Exact role tags for the new team scope.
+	team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1
 
 	local team_terminal_ids  # Pipe-separated IDs returned for the new team panes.
 	team_terminal_ids="$(
@@ -174,30 +213,79 @@ _hcom_launch_team() {
 			"$scout_command" \
 			"$previous_terminal_ids"
 	)"
-
 	local osascript_exit_code=$?  # Result of creating and wiring the Ghostty panes.
 
 	if (( osascript_exit_code != 0 )); then
 		return "$osascript_exit_code"
 	fi
 
-	# The launching shell's stored scope, so hcom-team-stop needs no arguments
-	# there and can tell which team it is scoped to.
+	reply=("$team_tags" "$team_terminal_ids")
+}
+
+# Stores the active team scope in the launching shell.
+#
+# The launching shell keeps this scope so hcom-team-stop needs no arguments
+# there and can tell which team it is scoped to.
+#
+# @param  {string}  working_directory
+#     Project directory for the team.
+# @param  {string}  team_label
+#     Optional label that scopes the team.
+# @param  {string}  team_tags
+#     Pipe-separated exact role tags for the active scope.
+# @param  {string}  team_terminal_ids
+#     Pipe-separated Ghostty pane IDs for matching cleanup.
+_hcom_store_team_scope() {
+	local working_directory="$1"  # Project directory for the team.
+	local team_label="$2"  # Optional label that scopes the team.
+	local team_tags="$3"  # Exact role tags for the active scope.
+	local team_terminal_ids="$4"  # Ghostty pane IDs for matching cleanup.
+
 	typeset -g HCOM_ACTIVE_TEAM_DIRECTORY="$working_directory"  # Stored directory for implicit or matching stops.
 	typeset -g HCOM_ACTIVE_TEAM_LABEL="$team_label"  # Stored optional label for the active scope.
 	typeset -g HCOM_ACTIVE_TEAM_TAGS="$team_tags"  # Stored exact role tags for the active scope.
 	typeset -g HCOM_ACTIVE_TEAM_TERMINAL_IDS="$team_terminal_ids"  # Stored IDs for matching pane cleanup.
 	typeset -g HCOM_TEAM_TERMINAL_IDS="$team_terminal_ids"  # Current IDs used by same-shell relaunch cleanup.
+}
 
-	if [[ -n "$team_label" ]]; then
-		printf 'Starting hcom team %s in %s.\n' "$team_label" "$working_directory"
-	fi
+# Runs the foreground orchestrator and cleans up the team on return.
+#
+# A local INT trap lets normal exit and Ctrl-C reach the same cleanup block;
+# localtraps restores the prior INT trap on any return path. Teammate agents
+# and panes are stopped unless keep_agents is set. Returns the orchestrator's
+# exit status.
+#
+# @param  {string}  orchestrator_launcher
+#     Function that starts the orchestrator role.
+# @param  {string}  team_label
+#     Optional label passed to the orchestrator environment.
+# @param  {string}  working_directory
+#     Project directory passed to the orchestrator.
+# @param  {string}  initial_prompt
+#     Optional initial prompt for the orchestrator.
+# @param  {string}  keep_agents
+#     When 1, leaves teammate agents and panes running on return.
+# @param  {string}  team_tags
+#     Pipe-separated exact role tags, used to stop teammates.
+# @param  {string}  team_terminal_ids
+#     Pipe-separated pane IDs; the first is the orchestrator pane to refocus.
+_hcom_run_team_orchestrator() {
+	local orchestrator_launcher="$1"  # Function that starts the orchestrator role.
+	local team_label="$2"  # Optional label for the orchestrator environment.
+	local working_directory="$3"  # Project directory passed to the orchestrator.
+	local initial_prompt="$4"  # Optional initial prompt for the orchestrator.
+	local keep_agents="$5"  # When 1, cleanup leaves agents and panes running.
+	local team_tags="$6"  # Exact role tags used to stop teammates.
+	local team_terminal_ids="$7"  # Pane IDs for teammate cleanup and refocus.
 
 	local orchestrator_exit_code  # Foreground orchestrator result returned by this function.
-	# Without this, SIGINT during the foreground orchestrator call aborts this whole function,
-	# skipping the cleanup below; localtraps restores the prior INT trap on any return path.
+
+	# Without this, SIGINT during the foreground orchestrator call aborts this
+	# function before the cleanup below; localtraps restores the prior INT trap
+	# on any return path.
 	setopt localoptions localtraps
 	trap ':' INT
+
 	if HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 		orchestrator_exit_code=0
 	else
