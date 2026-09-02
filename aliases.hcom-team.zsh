@@ -410,9 +410,9 @@ hcom-team-codex() {
 # that stored state. With an explicit scope, stops only its exact tags and
 # closes panes or clears state when the canonical directory and label match the
 # launching shell's stored scope. Missing agents, panes, or stored state are
-# successful no-op cases, so repeating a stop is safe. Validation and tag
-# resolution failures return non-zero; agent and pane cleanup failures are
-# tolerated.
+# successful no-op cases, so repeating a stop is safe. Validation and
+# tag-resolution failures return non-zero, as does a failure to close panes or
+# clear the stored scope; a failed agent stop is tolerated.
 #
 # @desc  Stop the exact hcom team for a directory and optional team label
 # @cat   hcom
@@ -429,8 +429,41 @@ hcom-team-codex() {
 # @param  {string}  team_label
 #     Optional team label. Defaults to the active team's label when no scope is supplied.
 hcom-team-stop() {
-	local team_label=""  # Explicit label, or the stored label for an implicit stop.
-	local working_directory=""  # Explicit directory, or the stored/current directory.
+	# Stop scope parsed from argv; copied out of `reply` before the next helper call.
+	_hcom_parse_team_stop_args "$@" || return $?
+	local working_directory="${reply[1]}"  # Explicit directory, or empty for an implicit stop.
+	local team_label="${reply[2]}"  # Explicit label, or empty for an implicit stop.
+	local explicit_scope="${reply[3]}"  # Whether --team or a directory was supplied.
+
+	_hcom_resolve_team_stop_scope "$explicit_scope" "$working_directory" "$team_label"
+	local resolve_status=$?  # 0 proceed, 1 validation or tag failure, 2 no active team.
+
+	if (( resolve_status == 2 )); then
+		return 0
+	fi
+
+	if (( resolve_status != 0 )); then
+		return "$resolve_status"
+	fi
+
+	local team_tags="${reply[1]}"  # Exact role tags for the resolved stop scope.
+	local terminal_ids="${reply[2]}"  # Pane IDs available for matching cleanup.
+	local scope_matches_active="${reply[3]}"  # Whether the scope matches the stored team.
+
+	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" "$explicit_scope" "$scope_matches_active"
+}
+
+# Parses the hcom-team-stop argument list and validates it.
+# Sets the standard zsh `reply` array to three values in order: working
+# directory, team label, explicit-scope flag. Returns non-zero with a
+# diagnostic when an option or positional is malformed.
+#
+# @param  {string}  ...
+#     The hcom-team-stop arguments: optional --team <label> and up to one
+#     working-directory positional.
+_hcom_parse_team_stop_args() {
+	local team_label=""  # Explicit label from --team, empty otherwise.
+	local working_directory=""  # Explicit directory positional, empty otherwise.
 	local explicit_scope=0  # Whether --team or a directory was supplied, rather than using the launching shell's stored team.
 	local usage_message="hcom-team-stop: usage: hcom-team-stop [--team <label>] [working-directory]"  # Shared usage error text.
 
@@ -483,6 +516,29 @@ hcom-team-stop() {
 		return 1
 	fi
 
+	reply=("$working_directory" "$team_label" "$explicit_scope")
+}
+
+# Resolves which team a stop should act on and how far cleanup may go.
+#
+# With no explicit scope, reads the launching shell's stored team. With an
+# explicit scope, derives the exact tags and records whether that scope
+# matches the stored team, so its panes and stored state can also be cleared.
+# Sets the standard zsh `reply` array to three values in order: exact team
+# tags, pane IDs for cleanup, scope-matches-active flag. Returns 0 to
+# proceed, 1 on a validation or tag-resolution failure, or 2 when an implicit
+# stop finds no stored team (a message is printed and the caller returns 0).
+#
+# @param  {string}  explicit_scope
+#     1 when --team or a directory was supplied, 0 for an implicit stop.
+# @param  {string}  working_directory
+#     Requested project directory, or empty to use the stored or current one.
+# @param  {string}  team_label
+#     Requested team label, or empty.
+_hcom_resolve_team_stop_scope() {
+	local explicit_scope="$1"  # 1 when a scope was supplied, 0 for an implicit stop.
+	local working_directory="$2"  # Requested directory, or empty to use the stored or current one.
+	local team_label="$3"  # Requested team label, or empty.
 	local team_tags=""  # Exact tags resolved for the requested stop scope.
 	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.
 	local scope_matches_active=0  # Whether an explicit scope matches stored directory and label, so its stored state can be cleared too.
@@ -490,7 +546,7 @@ hcom-team-stop() {
 	if (( explicit_scope == 0 )); then
 		if [[ -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]]; then
 			printf 'No active hcom team to stop.\n'
-			return 0
+			return 2
 		fi
 
 		working_directory="$HCOM_ACTIVE_TEAM_DIRECTORY"
@@ -517,10 +573,51 @@ hcom-team-stop() {
 		fi
 	fi
 
+	reply=("$team_tags" "$terminal_ids" "$scope_matches_active")
+}
+
+# Stops the team's agents, closes its panes, and clears the stored scope.
+#
+# Every step runs even when an earlier one fails. The stored team scope is
+# cleared only for an implicit stop or an explicit scope that matches it.
+# Stopping agents is best-effort: `hcom kill` reports a non-zero status when
+# no agent matches the tag, which is the normal case for a repeat stop, so
+# that status is not propagated. Returns the first non-zero status from
+# closing panes or clearing scope, otherwise 0.
+#
+# @param  {string}  team_tags
+#     Pipe-separated exact role tags to stop.
+# @param  {string}  terminal_ids
+#     Pipe-separated Ghostty pane IDs to close, or empty.
+# @param  {string}  explicit_scope
+#     1 when a scope was supplied, 0 for an implicit stop.
+# @param  {string}  scope_matches_active
+#     1 when an explicit scope matches the stored team.
+_hcom_run_team_stop_cleanup() {
+	local team_tags="$1"  # Pipe-separated exact role tags to stop.
+	local terminal_ids="$2"  # Pipe-separated Ghostty pane IDs to close.
+	local explicit_scope="$3"  # 1 when a scope was supplied, 0 for an implicit stop.
+	local scope_matches_active="$4"  # Whether an explicit scope matches the stored team.
+	local cleanup_status=0  # First non-zero status from closing panes or clearing scope, returned to the caller.
+	local step_status=0  # Exit status of the cleanup step currently running.
+
+	# Best-effort: a repeat stop finds no agents and `hcom kill` returns non-zero,
+	# which must not fail an otherwise clean stop.
 	_hcom_stop_team_tags "$team_tags"
-	_hcom_close_team_terminals "$terminal_ids"
+
+	step_status=0
+	_hcom_close_team_terminals "$terminal_ids" || step_status=$?
+	if (( cleanup_status == 0 && step_status != 0 )); then
+		cleanup_status="$step_status"
+	fi
 
 	if (( explicit_scope == 0 || scope_matches_active == 1 )); then
-		_hcom_clear_team_scope
+		step_status=0
+		_hcom_clear_team_scope || step_status=$?
+		if (( cleanup_status == 0 && step_status != 0 )); then
+			cleanup_status="$step_status"
+		fi
 	fi
+
+	return "$cleanup_status"
 }
