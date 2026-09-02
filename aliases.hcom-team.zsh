@@ -24,10 +24,14 @@ _hcom_team_tags() {
 
 # Stops agents for exact team tags, ignoring agents that are already stopped.
 #
+# Returns the exit status of the last failed `hcom kill`, or 0 when every tag
+# stopped cleanly, so a partial cleanup is not reported as success.
+#
 # @param  {string}  team_tags
 #     Pipe-separated exact hcom tags to stop.
 _hcom_stop_team_tags() {
 	local team_tags="$1"  # Pipe-separated exact tags for the team to stop.
+	local kill_status=0  # Exit status of the last failed `hcom kill`.
 	local tag  # Current exact tag passed to hcom kill.
 	local -a exact_tags  # Exact tags split from the pipe-separated input.
 
@@ -35,12 +39,17 @@ _hcom_stop_team_tags() {
 
 	for tag in "${exact_tags[@]}"; do
 		if [[ -n "$tag" ]]; then
-			command hcom kill "tag:$tag" >/dev/null 2>&1 || :
+			command hcom kill "tag:$tag" >/dev/null 2>&1 || kill_status=$?
 		fi
 	done
+
+	return "$kill_status"
 }
 
 # Closes tracked Ghostty panes and optionally focuses a remaining pane.
+#
+# Returns 0 when no terminal IDs are tracked, otherwise the osascript exit
+# status so the caller can detect a failed close.
 #
 # @param  {string}  terminal_ids
 #     Pipe-separated Ghostty terminal IDs to close.
@@ -54,7 +63,7 @@ _hcom_close_team_terminals() {
 		return 0
 	fi
 
-	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" --close "$terminal_ids" "$focus_terminal_id" >/dev/null 2>&1 || :
+	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" --close "$terminal_ids" "$focus_terminal_id" >/dev/null 2>&1
 }
 
 # Clears all stored state for the active team in the launching shell.
