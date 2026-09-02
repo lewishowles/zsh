@@ -128,68 +128,17 @@ _hcom_launch_team() {
 	local orchestrator_launcher="$2"  # Launcher for the foreground orchestrator.
 	local reviewer_launcher="$3"  # Launcher for the reviewer pane.
 	shift 3
-	local launch_mode=""  # Optional resume or continue behaviour for the orchestrator.
 
-	case "${1:-}" in
-		resume|continue)
-			launch_mode="$1"
-			shift
-			;;
-	esac
-
-	local team_label=""  # Optional label parsed from the launch options.
-	local keep_agents=0  # Whether cleanup should leave agents and panes running.
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-			--team)
-				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf '%s: --team requires a label.\n' "$command_name" >&2
-					return 1
-				fi
-
-				team_label="$2"
-				shift 2
-				;;
-			--keep-agents)
-				keep_agents=1
-				shift
-				;;
-			--)
-				shift
-				break
-				;;
-			--*)
-				printf '%s: unknown option: %s\n' "$command_name" "$1" >&2
-				return 1
-				;;
-			*) break ;;
-		esac
-	done
-
-	local maximum_positionals=2  # Directory and optional prompt accepted by a fresh launch.
-	if [[ -n "$launch_mode" ]]; then
-		maximum_positionals=1
-	fi
-
-	if [[ $# -gt maximum_positionals ]]; then
-		printf '%s: usage: %s [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
-		return 1
-	fi
-
-	if [[ -n "$team_label" ]]; then
-		_hcom_validate_team_label "$team_label" "$command_name" || return 1
-	fi
-
-	local working_directory="${1:-$PWD}"  # Project directory for the team.
-	local initial_prompt="${2:-}"  # Optional prompt passed to the orchestrator.
+	# Team settings parsed from argv; copied out of `reply` before the next helper call.
+	_hcom_parse_team_args "$command_name" "$@" || return 1
+	local launch_mode="${reply[1]}"  # Optional resume or continue behaviour for the orchestrator.
+	local team_label="${reply[2]}"  # Optional label parsed from the launch options.
+	local keep_agents="${reply[3]}"  # Whether cleanup should leave agents and panes running.
+	local working_directory="${reply[4]}"  # Project directory for the team.
+	local initial_prompt="${reply[5]}"  # Optional prompt passed to the orchestrator.
 
 	if [[ -n "$launch_mode" ]]; then
 		initial_prompt="$(_hcom_team_continuation_prompt "$launch_mode")" || return 1
-	fi
-
-	if [[ ! -d "$working_directory" ]]; then
-		printf '%s: working directory not found: %s\n' "$command_name" "$working_directory" >&2
-		return 1
 	fi
 
 	local quoted_working_directory="${(q)working_directory}"  # Zsh-quoted directory for typed pane commands.
@@ -263,6 +212,82 @@ _hcom_launch_team() {
 	fi
 
 	return "$orchestrator_exit_code"
+}
+
+# Parses the hcom-team argument list and validates it.
+# Sets the standard zsh `reply` array to five values in order: launch mode,
+# team label, keep-agents flag, working directory, initial prompt. Returns
+# non-zero with a diagnostic when parsing or validation fails.
+#
+# @param  {string}  command_name
+#     Public command name used in error output.
+# @param  {string}  ...
+#     The remaining hcom-team arguments: optional resume|continue token,
+#     options, and up to two positionals.
+_hcom_parse_team_args() {
+	local command_name="$1"  # Public command name used in diagnostics.
+	shift
+	local launch_mode=""  # Optional resume or continue behaviour for the orchestrator.
+
+	case "${1:-}" in
+		resume|continue)
+			launch_mode="$1"
+			shift
+			;;
+	esac
+
+	local team_label=""  # Optional label parsed from the launch options.
+	local keep_agents=0  # Whether cleanup should leave agents and panes running.
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--team)
+				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
+					printf '%s: --team requires a label.\n' "$command_name" >&2
+					return 1
+				fi
+
+				team_label="$2"
+				shift 2
+				;;
+			--keep-agents)
+				keep_agents=1
+				shift
+				;;
+			--)
+				shift
+				break
+				;;
+			--*)
+				printf '%s: unknown option: %s\n' "$command_name" "$1" >&2
+				return 1
+				;;
+			*) break ;;
+		esac
+	done
+
+	local maximum_positionals=2  # Directory and optional prompt accepted by a fresh launch.
+	if [[ -n "$launch_mode" ]]; then
+		maximum_positionals=1
+	fi
+
+	if [[ $# -gt maximum_positionals ]]; then
+		printf '%s: usage: %s [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]\n' "$command_name" "$command_name" >&2
+		return 1
+	fi
+
+	if [[ -n "$team_label" ]]; then
+		_hcom_validate_team_label "$team_label" "$command_name" || return 1
+	fi
+
+	local working_directory="${1:-$PWD}"  # Project directory for the team.
+	local initial_prompt="${2:-}"  # Optional prompt passed to the orchestrator.
+
+	if [[ ! -d "$working_directory" ]]; then
+		printf '%s: working directory not found: %s\n' "$command_name" "$working_directory" >&2
+		return 1
+	fi
+
+	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt")
 }
 
 # @desc  Start, resume, or continue the complete hcom team
