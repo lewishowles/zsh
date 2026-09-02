@@ -96,7 +96,36 @@ _hcom_launch_role() {
 		scoped_tag="${repository_tag}-${team_label}-${tag}"
 	fi
 
-	local -a hcom_arguments
+	_hcom_role_invoke "$tool" "$scoped_tag" "$model" "$working_directory" "$role_prompt" "$initial_prompt" "$thinking_effort"
+}
+
+# Assembles the hcom argument list from the resolved role settings and launches the
+# agent with the tool-specific environment prefix.
+#
+# @param  {string}  tool
+#     Agent tool to launch, "codex" or "claude".
+# @param  {string}  scoped_tag
+#     Fully qualified hcom tag (repository, optional team label, then role).
+# @param  {string}  model
+#     Model identifier passed straight through to hcom.
+# @param  {string}  working_directory
+#     Directory the agent runs in.
+# @param  {string}  role_prompt
+#     Role instructions delivered as the agent's system prompt.
+# @param  {string}  initial_prompt
+#     Optional first message for the agent; omitted when empty.
+# @param  {string}  thinking_effort
+#     Optional reasoning effort; mapped to --effort or codex's model_reasoning_effort.
+_hcom_role_invoke() {
+	local tool="$1"  # Which agent to launch; selects the codex or claude branch.
+	local scoped_tag="$2"  # Fully qualified hcom tag for the agent.
+	local model="$3"  # Model identifier passed through to hcom.
+	local working_directory="$4"  # Directory the agent runs in.
+	local role_prompt="$5"  # Role instructions used as the system prompt.
+	local initial_prompt="$6"  # Optional first message for the agent.
+	local thinking_effort="$7"  # Optional reasoning effort for the agent.
+	local -a hcom_arguments  # Assembled command line passed to hcom.
+
 	hcom_arguments=(
 		"$tool"
 		--tag "$scoped_tag"
