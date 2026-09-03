@@ -199,8 +199,8 @@ _hcom_team_create_panes() {
 
 	local launch_env="${account_env}${team_env}"  # Combined environment prefix for pane commands.
 	local reviewer_command="${launch_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
-	local implementer_command="${launch_env}hcom-implementer $quoted_working_directory"  # Typed implementer launch command.
-	local scout_command="${launch_env}hcom-scout $quoted_working_directory"  # Typed scout launch command.
+	local implementer_command="${launch_env}hcom:implementer $quoted_working_directory"  # Typed implementer launch command.
+	local scout_command="${launch_env}hcom:scout $quoted_working_directory"  # Typed scout launch command.
 
 	local team_tags  # Exact role tags for the new team scope.
 	team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1
@@ -224,7 +224,7 @@ _hcom_team_create_panes() {
 
 # Stores the active team scope in the launching shell.
 #
-# The launching shell keeps this scope so hcom-team-stop needs no arguments
+# The launching shell keeps this scope so hcom:team:stop needs no arguments
 # there and can tell which team it is scoped to.
 #
 # @param  {string}  working_directory
@@ -302,7 +302,7 @@ _hcom_run_team_orchestrator() {
 	return "$orchestrator_exit_code"
 }
 
-# Parses the hcom-team argument list and validates it.
+# Parses the hcom:team argument list and validates it.
 # Sets the standard zsh `reply` array to five values in order: launch mode,
 # team label, keep-agents flag, working directory, initial prompt. Returns
 # non-zero with a diagnostic when parsing or validation fails.
@@ -310,7 +310,7 @@ _hcom_run_team_orchestrator() {
 # @param  {string}  command_name
 #     Public command name used in error output.
 # @param  {string}  ...
-#     The remaining hcom-team arguments: optional resume|continue token,
+#     The remaining hcom:team arguments: optional resume|continue token,
 #     options, and up to two positionals.
 _hcom_parse_team_args() {
 	local command_name="$1"  # Public command name used in diagnostics.
@@ -381,27 +381,27 @@ _hcom_parse_team_args() {
 # @desc  Start, resume, or continue the complete hcom team
 # @cat   hcom
 #
-# Usage: hcom-team [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
+# Usage: hcom:team [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
 #
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
 # @param  {string}  initial_prompt
 #     Optional orchestrator prompt for a fresh launch.
-hcom-team() {
-	_hcom_launch_team hcom-team hcom-orchestrator hcom-reviewer "$@"
+hcom:team() {
+	_hcom_launch_team hcom:team hcom:orchestrator hcom:reviewer "$@"
 }
 
 # @desc  Start, resume, or continue the complete Codex hcom team
 # @cat   hcom
 #
-# Usage: hcom-team-codex [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
+# Usage: hcom:team:codex [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
 #
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
 # @param  {string}  initial_prompt
 #     Optional orchestrator prompt for a fresh launch.
-hcom-team-codex() {
-	_hcom_launch_team hcom-team-codex hcom-orchestrator-codex hcom-reviewer-codex "$@"
+hcom:team:codex() {
+	_hcom_launch_team hcom:team:codex hcom:orchestrator:codex hcom:reviewer:codex "$@"
 }
 
 # Stops the exact hcom team for a directory and optional team label.
@@ -417,7 +417,7 @@ hcom-team-codex() {
 # @desc  Stop the exact hcom team for a directory and optional team label
 # @cat   hcom
 #
-# Usage: hcom-team-stop [--team <label>] [working-directory]
+# Usage: hcom:team:stop [--team <label>] [working-directory]
 #
 # Run with no arguments from the shell that launched the team, or with
 # --team/a directory from elsewhere. From another shell this always stops
@@ -428,7 +428,7 @@ hcom-team-codex() {
 #     Optional project directory. Defaults to the active team's directory or the current directory with an explicit scope.
 # @param  {string}  team_label
 #     Optional team label. Defaults to the active team's label when no scope is supplied.
-hcom-team-stop() {
+hcom:team:stop() {
 	# Stop scope parsed from argv; copied out of `reply` before the next helper call.
 	_hcom_parse_team_stop_args "$@" || return $?
 	local working_directory="${reply[1]}"  # Explicit directory, or empty for an implicit stop.
@@ -453,25 +453,25 @@ hcom-team-stop() {
 	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" "$explicit_scope" "$scope_matches_active"
 }
 
-# Parses the hcom-team-stop argument list and validates it.
+# Parses the hcom:team:stop argument list and validates it.
 # Sets the standard zsh `reply` array to three values in order: working
 # directory, team label, explicit-scope flag. Returns non-zero with a
 # diagnostic when an option or positional is malformed.
 #
 # @param  {string}  ...
-#     The hcom-team-stop arguments: optional --team <label> and up to one
+#     The hcom:team:stop arguments: optional --team <label> and up to one
 #     working-directory positional.
 _hcom_parse_team_stop_args() {
 	local team_label=""  # Explicit label from --team, empty otherwise.
 	local working_directory=""  # Explicit directory positional, empty otherwise.
 	local explicit_scope=0  # Whether --team or a directory was supplied, rather than using the launching shell's stored team.
-	local usage_message="hcom-team-stop: usage: hcom-team-stop [--team <label>] [working-directory]"  # Shared usage error text.
+	local usage_message="hcom:team:stop: usage: hcom:team:stop [--team <label>] [working-directory]"  # Shared usage error text.
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf 'hcom-team-stop: --team requires a label.\n' >&2
+					printf 'hcom:team:stop: --team requires a label.\n' >&2
 					return 1
 				fi
 
@@ -484,7 +484,7 @@ _hcom_parse_team_stop_args() {
 				break
 				;;
 			--*)
-				printf 'hcom-team-stop: unknown option: %s\n' "$1" >&2
+				printf 'hcom:team:stop: unknown option: %s\n' "$1" >&2
 				return 1
 				;;
 			*)
@@ -557,12 +557,12 @@ _hcom_resolve_team_stop_scope() {
 		working_directory="${working_directory:-$PWD}"
 
 		if [[ ! -d "$working_directory" ]]; then
-			printf 'hcom-team-stop: working directory not found: %s\n' "$working_directory" >&2
+			printf 'hcom:team:stop: working directory not found: %s\n' "$working_directory" >&2
 			return 1
 		fi
 
 		if [[ -n "$team_label" ]]; then
-			_hcom_validate_team_label "$team_label" hcom-team-stop || return 1
+			_hcom_validate_team_label "$team_label" hcom:team:stop || return 1
 		fi
 
 		team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1

@@ -2,7 +2,7 @@
 
 # @desc  Start the complete hcom plan review of a given task name or path in four Ghostty panes
 # @cat   hcom
-# Usage: hcom-plan <task-name>
+# Usage: hcom:plan <task-name>
 #
 # Creates this layout in the current Ghostty tab:
 #
@@ -18,9 +18,9 @@
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
-hcom-plan() {
+hcom:plan() {
 	if [[ $# -ne 1 ]]; then
-		printf 'hcom-plan: usage: hcom-plan <task-name>\n' >&2
+		printf 'hcom:plan: usage: hcom:plan <task-name>\n' >&2
 		return 1
 	fi
 
@@ -34,9 +34,9 @@ hcom-plan() {
 	local account_env  # Optional account override to include in each fresh Ghostty shell.
 	account_env="$(_hcom_account_environment)"
 
-	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-plan-codex $quoted_task_name"  # Command for the Codex planning pane.
-	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-claude"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom-scout-codex"  # Command for the Codex scout pane.
+	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:plan:codex $quoted_task_name"  # Command for the Codex planning pane.
+	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:claude"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:codex"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \
@@ -50,7 +50,7 @@ hcom-plan() {
 		return "$osascript_exit_code"
 	fi
 
-	HCOM_PLANNING_WORKFLOW=1 hcom-plan-claude "$task_name" "$planning_pair_id"
+	HCOM_PLANNING_WORKFLOW=1 hcom:plan:claude "$task_name" "$planning_pair_id"
 }
 
 # Builds the shared planning-peer independent-review initial prompt.
@@ -60,21 +60,21 @@ hcom-plan() {
 _hcom_plan_prompt() {
 	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-plan.md"  # Planning prompt template used by both peers.
 
-	_hcom_workflow_prompt hcom-plan "$prompt_file" __TASK_NAME__ "$1"
+	_hcom_workflow_prompt hcom:plan "$prompt_file" __TASK_NAME__ "$1"
 }
 
 # @desc  Start a Claude planning-peer review of a given task name or path
 # @cat   hcom
-# Usage: hcom-plan-claude <task-name> [planning-pair-id]
+# Usage: hcom:plan:claude <task-name> [planning-pair-id]
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
 # @param  {string}  planning_pair_id
 #     Optional. The ID shared with the paired Codex planning peer; when
 #     omitted, a fresh ID is generated.
-function hcom-plan-claude() {
+function hcom:plan:claude() {
 	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom-plan-claude: usage: hcom-plan-claude <task-name> [planning-pair-id]\n' >&2
+		printf 'hcom:plan:claude: usage: hcom:plan:claude <task-name> [planning-pair-id]\n' >&2
 		return 1
 	fi
 
@@ -83,7 +83,7 @@ function hcom-plan-claude() {
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
-		printf 'hcom-plan-claude: cannot launch without a readable planning prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-plan.md" >&2
+		printf 'hcom:plan:claude: cannot launch without a readable planning prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-plan.md" >&2
 		return 1
 	fi
 
@@ -99,16 +99,16 @@ function hcom-plan-claude() {
 
 # @desc  Start a Codex planning-peer review of a given task name or path
 # @cat   hcom
-# Usage: hcom-plan-codex <task-name> [planning-pair-id]
+# Usage: hcom:plan:codex <task-name> [planning-pair-id]
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
 # @param  {string}  planning_pair_id
 #     Optional. The ID shared with the paired Claude planning peer; when
 #     omitted, a fresh ID is generated.
-function hcom-plan-codex() {
+function hcom:plan:codex() {
 	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom-plan-codex: usage: hcom-plan-codex <task-name> [planning-pair-id]\n' >&2
+		printf 'hcom:plan:codex: usage: hcom:plan:codex <task-name> [planning-pair-id]\n' >&2
 		return 1
 	fi
 
@@ -117,7 +117,7 @@ function hcom-plan-codex() {
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
-		printf 'hcom-plan-codex: cannot launch without a readable planning prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-plan.md" >&2
+		printf 'hcom:plan:codex: cannot launch without a readable planning prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-plan.md" >&2
 		return 1
 	fi
 

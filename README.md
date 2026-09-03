@@ -188,7 +188,7 @@ Reports:
 | `aliases.hcom-team.zsh`    | Ghostty team layout and configured HCOM role launchers.                                                                       |
 | `aliases.hcom-learn.zsh`   | Source-learning learner and Scout launchers.                                                                                  |
 | `aliases.hcom-plan.zsh`    | HCOM plan-review launchers and planning-peer prompts.                                                                         |
-| `aliases.hcom-session.zsh` | HCOM agent resolution, reviewer restart and session resume commands.                                                          |
+| `aliases.hcom-session.zsh` | HCOM agent resolution and session resume commands.                                                                            |
 | `aliases.project.zsh`      | `dev`, `build`, `lint` and `test:*` project commands.                                                                         |
 | `aliases.packages.zsh`     | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                                 |
 | `aliases.tools.zsh`        | Tool aliases, file listings, repository helpers, SVG optimisation and agent setup commands.                                   |
@@ -272,27 +272,26 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
-| `hcom-implementer` |  | Start the Implementer hcom role |
-| `hcom-insights-review` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
-| `hcom-insights-review-claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
-| `hcom-insights-review-codex` | <report-path> [insights-review-pair-id] | Start a Codex insights-review peer review of a given report file |
-| `hcom-learn-claude` |  | Start a Claude source-learning learner and its dedicated Scout |
-| `hcom-learn-codex` |  | Start a Codex source-learning learner and its dedicated Scout |
-| `hcom-orchestrator` |  | Start the Orchestrator hcom role |
-| `hcom-orchestrator-codex` |  | Start the Codex Orchestrator hcom role |
-| `hcom-plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
-| `hcom-plan-claude` | <task-name> [planning-pair-id] | Start a Claude planning-peer review of a given task name or path |
-| `hcom-plan-codex` | <task-name> [planning-pair-id] | Start a Codex planning-peer review of a given task name or path |
-| `hcom-restart-reviewer` | <name> [initial-prompt] | Start a fresh reviewer and announce it to the project orchestrator |
-| `hcom-resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
-| `hcom-reviewer` |  | Start the Reviewer hcom role |
-| `hcom-reviewer-codex` |  | Start the Codex Reviewer hcom role |
-| `hcom-scout` |  | Start the Scout hcom role |
-| `hcom-scout-claude` |  | Start the Claude planning peer's Scout |
-| `hcom-scout-codex` |  | Start the Codex planning peer's Scout |
-| `hcom-team` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete hcom team |
-| `hcom-team-codex` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Codex hcom team |
-| `hcom-team-stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
+| `hcom:implementer` |  | Start the Implementer hcom role |
+| `hcom:insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
+| `hcom:insights:claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
+| `hcom:insights:codex` | <report-path> [insights-review-pair-id] | Start a Codex insights-review peer review of a given report file |
+| `hcom:learn:claude` |  | Start a Claude source-learning learner and its dedicated Scout |
+| `hcom:learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
+| `hcom:orchestrator` |  | Start the Orchestrator hcom role |
+| `hcom:orchestrator:codex` |  | Start the Codex Orchestrator hcom role |
+| `hcom:plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
+| `hcom:plan:claude` | <task-name> [planning-pair-id] | Start a Claude planning-peer review of a given task name or path |
+| `hcom:plan:codex` | <task-name> [planning-pair-id] | Start a Codex planning-peer review of a given task name or path |
+| `hcom:resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
+| `hcom:reviewer` |  | Start the Reviewer hcom role |
+| `hcom:reviewer:codex` |  | Start the Codex Reviewer hcom role |
+| `hcom:scout` |  | Start the Scout hcom role |
+| `hcom:scout:claude` |  | Start the Claude planning peer's Scout |
+| `hcom:scout:codex` |  | Start the Codex planning peer's Scout |
+| `hcom:team` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete hcom team |
+| `hcom:team:codex` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Codex hcom team |
+| `hcom:team:stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
 
 ### nav
 

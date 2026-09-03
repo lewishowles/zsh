@@ -172,13 +172,13 @@ _hcom_learning_launch() {
 #     Optional trusted user context describing the intended learning focus.
 # @desc  Start a Claude source-learning learner and its dedicated Scout
 # @cat   hcom
-function hcom-learn-claude() {
+function hcom:learn:claude() {
 	if (( $# < 1 || $# > 2 )); then
-		printf 'hcom-learn-claude: usage: hcom-learn-claude <source> [context]\n' >&2
+		printf 'hcom:learn:claude: usage: hcom:learn:claude <source> [context]\n' >&2
 		return 1
 	fi
 
-	_hcom_learning_launch hcom-learn-claude claude learner-claude "$1" "${2:-}"
+	_hcom_learning_launch hcom:learn:claude claude learner-claude "$1" "${2:-}"
 }
 
 # Starts a Codex source-learning learner and its dedicated Scout.
@@ -189,11 +189,11 @@ function hcom-learn-claude() {
 #     Optional trusted user context describing the intended learning focus.
 # @desc  Start a Codex source-learning learner and its dedicated Scout
 # @cat   hcom
-function hcom-learn-codex() {
+function hcom:learn:codex() {
 	if (( $# < 1 || $# > 2 )); then
-		printf 'hcom-learn-codex: usage: hcom-learn-codex <source> [context]\n' >&2
+		printf 'hcom:learn:codex: usage: hcom:learn:codex <source> [context]\n' >&2
 		return 1
 	fi
 
-	_hcom_learning_launch hcom-learn-codex codex learner-codex "$1" "${2:-}"
+	_hcom_learning_launch hcom:learn:codex codex learner-codex "$1" "${2:-}"
 }

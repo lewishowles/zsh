@@ -4,7 +4,7 @@
 
 # @desc  Start the complete hcom insights review of a given report file in four Ghostty panes
 # @cat   hcom
-# Usage: hcom-insights-review <report-path>
+# Usage: hcom:insights <report-path>
 #
 # Creates this layout in the current Ghostty tab:
 #
@@ -17,16 +17,16 @@
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
-hcom-insights-review() {
+hcom:insights() {
 	if [[ $# -ne 1 ]]; then
-		printf 'hcom-insights-review: usage: hcom-insights-review <report-path>\n' >&2
+		printf 'hcom:insights: usage: hcom:insights <report-path>\n' >&2
 		return 1
 	fi
 
 	local report_path="$1"  # Report file path passed by the caller.
 
 	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
-		printf 'hcom-insights-review: report file is missing or unreadable: %s\n' "$report_path" >&2
+		printf 'hcom:insights: report file is missing or unreadable: %s\n' "$report_path" >&2
 		return 1
 	fi
 
@@ -39,9 +39,9 @@ hcom-insights-review() {
 	local account_env
 	account_env="$(_hcom_account_environment)"
 
-	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-insights-review-codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
-	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-claude"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-scout-codex"  # Command for the Codex scout pane.
+	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
+	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:scout:claude"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:scout:codex"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \
@@ -55,7 +55,7 @@ hcom-insights-review() {
 		return "$osascript_exit_code"
 	fi
 
-	HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom-insights-review-claude "$report_path" "$insights_review_pair_id"
+	HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:insights:claude "$report_path" "$insights_review_pair_id"
 }
 
 # Builds the shared insights-review-peer independent-review initial prompt.
@@ -65,28 +65,28 @@ hcom-insights-review() {
 _hcom_insights_review_prompt() {
 	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md"  # Insights-review prompt template used by both peers.
 
-	_hcom_workflow_prompt hcom-insights-review "$prompt_file" __REPORT_PATH__ "$1"
+	_hcom_workflow_prompt hcom:insights "$prompt_file" __REPORT_PATH__ "$1"
 }
 
 # @desc  Start a Claude insights-review peer review of a given report file
 # @cat   hcom
-# Usage: hcom-insights-review-claude <report-path> [insights-review-pair-id]
+# Usage: hcom:insights:claude <report-path> [insights-review-pair-id]
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
 # @param  {string}  insights_review_pair_id
 #     Optional. The ID shared with the paired Codex insights reviewer; when
 #     omitted, a fresh ID is generated.
-function hcom-insights-review-claude() {
+function hcom:insights:claude() {
 	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom-insights-review-claude: usage: hcom-insights-review-claude <report-path> [insights-review-pair-id]\n' >&2
+		printf 'hcom:insights:claude: usage: hcom:insights:claude <report-path> [insights-review-pair-id]\n' >&2
 		return 1
 	fi
 
 	local report_path="$1"  # Report file path passed by the caller.
 
 	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
-		printf 'hcom-insights-review-claude: report file is missing or unreadable: %s\n' "$report_path" >&2
+		printf 'hcom:insights:claude: report file is missing or unreadable: %s\n' "$report_path" >&2
 		return 1
 	fi
 
@@ -94,7 +94,7 @@ function hcom-insights-review-claude() {
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_insights_review_prompt "$report_path")"; then
-		printf 'hcom-insights-review-claude: cannot launch without a readable insights-review prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md" >&2
+		printf 'hcom:insights:claude: cannot launch without a readable insights-review prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md" >&2
 		return 1
 	fi
 
@@ -110,23 +110,23 @@ function hcom-insights-review-claude() {
 
 # @desc  Start a Codex insights-review peer review of a given report file
 # @cat   hcom
-# Usage: hcom-insights-review-codex <report-path> [insights-review-pair-id]
+# Usage: hcom:insights:codex <report-path> [insights-review-pair-id]
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
 # @param  {string}  insights_review_pair_id
 #     Optional. The ID shared with the paired Claude insights reviewer; when
 #     omitted, a fresh ID is generated.
-function hcom-insights-review-codex() {
+function hcom:insights:codex() {
 	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom-insights-review-codex: usage: hcom-insights-review-codex <report-path> [insights-review-pair-id]\n' >&2
+		printf 'hcom:insights:codex: usage: hcom:insights:codex <report-path> [insights-review-pair-id]\n' >&2
 		return 1
 	fi
 
 	local report_path="$1"  # Report file path passed by the caller.
 
 	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
-		printf 'hcom-insights-review-codex: report file is missing or unreadable: %s\n' "$report_path" >&2
+		printf 'hcom:insights:codex: report file is missing or unreadable: %s\n' "$report_path" >&2
 		return 1
 	fi
 
@@ -134,7 +134,7 @@ function hcom-insights-review-codex() {
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_insights_review_prompt "$report_path")"; then
-		printf 'hcom-insights-review-codex: cannot launch without a readable insights-review prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md" >&2
+		printf 'hcom:insights:codex: cannot launch without a readable insights-review prompt. Check: %s\n' "$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md" >&2
 		return 1
 	fi
 

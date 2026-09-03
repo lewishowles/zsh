@@ -1,11 +1,11 @@
 # Shared hcom role configuration and launchers.
 
 # Provides short names for the team and shared role launchers.
-alias team="hcom-team"
-alias ho="hcom-orchestrator"
-alias hr="hcom-reviewer"
-alias hi="hcom-implementer"
-alias hs="hcom-scout"
+alias team="hcom:team"
+alias ho="hcom:orchestrator"
+alias hr="hcom:reviewer"
+alias hi="hcom:implementer"
+alias hs="hcom:scout"
 
 # Role configuration fields: tool|tag|model|role_file|thinking.
 typeset -A HCOM_ROLE_CONFIG=(
@@ -50,48 +50,48 @@ _hcom_launch_configured_role() {
 
 # @desc  Start the Orchestrator hcom role
 # @cat   hcom
-hcom-orchestrator() {
+hcom:orchestrator() {
 	_hcom_launch_configured_role orchestrator "$@"
 }
 
 # @desc  Start the Codex Orchestrator hcom role
 # @cat   hcom
-hcom-orchestrator-codex() {
+hcom:orchestrator:codex() {
 	_hcom_launch_configured_role orchestrator-codex "$@"
 }
 
 # @desc  Start the Implementer hcom role
 # @cat   hcom
-hcom-implementer() {
+hcom:implementer() {
 	_hcom_launch_configured_role implementer "$@"
 }
 
 # @desc  Start the Reviewer hcom role
 # @cat   hcom
-hcom-reviewer() {
+hcom:reviewer() {
 	_hcom_launch_configured_role reviewer "$@"
 }
 
 # @desc  Start the Codex Reviewer hcom role
 # @cat   hcom
-hcom-reviewer-codex() {
+hcom:reviewer:codex() {
 	_hcom_launch_configured_role reviewer-codex "$@"
 }
 
 # @desc  Start the Scout hcom role
 # @cat   hcom
-hcom-scout() {
+hcom:scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
 # @desc  Start the Claude planning peer's Scout
 # @cat   hcom
-hcom-scout-claude() {
+hcom:scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
 }
 
 # @desc  Start the Codex planning peer's Scout
 # @cat   hcom
-hcom-scout-codex() {
+hcom:scout:codex() {
 	_hcom_launch_configured_role scout-codex "$@"
 }
