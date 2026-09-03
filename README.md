@@ -292,6 +292,11 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:team` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete hcom team |
 | `hcom:team:codex` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Codex hcom team |
 | `hcom:team:stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
+| `hi` |  | Start the Implementer hcom role |
+| `ho` |  | Start the Orchestrator hcom role |
+| `hr` |  | Start the Reviewer hcom role |
+| `hs` |  | Start the Scout hcom role |
+| `team` |  | Start, resume, or continue the complete hcom team |
 
 ### nav
 
@@ -366,7 +371,14 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
+| `b` |  | Read files with syntax highlighting and no pager |
 | `clip` |  | Copy the output of one command (or multiple "if quoted") to clipboard. |
+| `fa` |  | Add review feedback |
+| `fc` |  | Finish the review and copy the feedback to the clipboard |
+| `la` |  | List all files in long format with Git status and icons |
+| `ll` |  | List files in long format with Git status and icons |
+| `ls` |  | List files in a compact grid |
+| `lt` |  | Show a two-level directory tree with icons |
 | `svg` |  | Optimise SVG files in ~/Downloads using SVGO |
 | `updates:check` |  | List available global updaters without starting them |
 | `updates:run` |  | Update global tools while preserving each updater's interaction |

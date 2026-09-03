@@ -23,16 +23,12 @@ _hcom_is_cvcv_name() {
 #
 # @param  {string}  raw_name
 #     The active or stopped agent name, optionally prefixed by its role.
-# @output
-#     Prints the bare name, resolved tag, and role on separate lines. Prints
-#     nothing when the stripped name is not a valid agent name.
-# @failure
-#     Returns 1 with a stderr message when the stripped name is not a valid agent
-#     name. When the name is valid but nothing matches, succeeds with an empty tag
-#     line so callers report the lookup miss themselves.
-# @side-effects
-#     Runs hcom list commands through _hcom_resolve_agent_tag without changing
-#     files or agent state.
+#
+# Prints the bare name, resolved tag, and role on separate lines. Prints nothing
+# when the stripped name is not a valid agent name. Returns 1 with a stderr
+# message for an invalid name. When a valid name has no match, it succeeds with
+# an empty tag line so callers report the lookup miss themselves. Runs hcom list
+# through _hcom_resolve_agent_tag without changing files or agent state.
 _hcom_resolve_agent() {
 	local raw_name="$1"  # Agent name supplied by the caller.
 	local name="${raw_name##*-}"  # Bare name after removing any role prefix.
@@ -61,13 +57,10 @@ _hcom_resolve_agent() {
 #     The stopped agent name or role-prefixed shorthand.
 # @param  {string}  tool_args
 #     Optional arguments passed to hcom r.
-# @output
-#     Prints the resolved agent and returns hcom r's status.
-# @failure
-#     Returns 1 when the name is malformed or when no active or recently stopped
-#     agent can be resolved.
-# @side-effects
-#     Resumes the resolved stopped agent through hcom r.
+#
+# Prints the resolved agent and returns hcom r's status. Returns 1 when the name
+# is malformed or when no active or recently stopped agent can be resolved.
+# Resumes the resolved stopped agent through hcom r.
 hcom:resume() {
 	local raw_name="$1"  # Agent name or role-prefixed shorthand.
 	shift

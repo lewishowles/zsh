@@ -1,13 +1,31 @@
 # File and directory listings.
+# @desc  List files in a compact grid
+# @cat   tools
+# @needs eza
 alias ls='eza'
+# @desc  List files in long format with Git status and icons
+# @cat   tools
+# @needs eza
 alias ll='eza --long --header --git --icons'
+# @desc  List all files in long format with Git status and icons
+# @cat   tools
+# @needs eza
 alias la='eza --long --header --git --icons --all'
+# @desc  Show a two-level directory tree with icons
+# @cat   tools
+# @needs eza
 alias lt='eza --tree --level=2 --icons'
-# Read files with syntax highlighting and paging.
+# @desc  Read files with syntax highlighting and no pager
+# @cat   tools
+# @needs bat
 alias b='bat --paging=never'
-# Add review feedback
+# @desc  Add review feedback
+# @cat   tools
+# @needs review-feedback
 alias fa="review-feedback add"
-# Copy finished review feedback
+# @desc  Finish the review and copy the feedback to the clipboard
+# @cat   tools
+# @needs review-feedback
 alias fc="review-feedback finish --copy"
 
 # @desc  Optimise SVG files in ~/Downloads using SVGO

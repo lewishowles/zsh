@@ -1,10 +1,20 @@
 # Shared hcom role configuration and launchers.
 
 # Provides short names for the team and shared role launchers.
+# @desc  Start, resume, or continue the complete hcom team
+# @cat   hcom
 alias team="hcom:team"
+# @desc  Start the Orchestrator hcom role
+# @cat   hcom
 alias ho="hcom:orchestrator"
+# @desc  Start the Reviewer hcom role
+# @cat   hcom
 alias hr="hcom:reviewer"
+# @desc  Start the Implementer hcom role
+# @cat   hcom
 alias hi="hcom:implementer"
+# @desc  Start the Scout hcom role
+# @cat   hcom
 alias hs="hcom:scout"
 
 # Role configuration fields: tool|tag|model|role_file|thinking.
