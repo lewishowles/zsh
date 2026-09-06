@@ -273,6 +273,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `hcom:implementer` |  | Start the Implementer hcom role |
+| `hcom:implementer:claude` |  | Start the Claude Implementer hcom role |
 | `hcom:insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
 | `hcom:insights:claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
 | `hcom:insights:codex` | <report-path> [insights-review-pair-id] | Start a Codex insights-review peer review of a given report file |
@@ -287,9 +288,11 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:reviewer` |  | Start the Reviewer hcom role |
 | `hcom:reviewer:codex` |  | Start the Codex Reviewer hcom role |
 | `hcom:scout` |  | Start the Scout hcom role |
-| `hcom:scout:claude` |  | Start the Claude planning peer's Scout |
-| `hcom:scout:codex` |  | Start the Codex planning peer's Scout |
+| `hcom:scout:claude` |  | Start the Claude Scout hcom role |
+| `hcom:scout:peer:claude` |  | Start the Scout for a workflow's Claude-named peer |
+| `hcom:scout:peer:codex` |  | Start the Scout for a workflow's Codex-named peer |
 | `hcom:team` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete hcom team |
+| `hcom:team:claude` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Claude hcom team |
 | `hcom:team:codex` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Codex hcom team |
 | `hcom:team:stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
 | `hi` |  | Start the Implementer hcom role |

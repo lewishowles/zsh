@@ -22,11 +22,13 @@ typeset -A HCOM_ROLE_CONFIG=(
 	orchestrator "claude|orchestrator|sonnet|orchestrator.md|high"
 	orchestrator-codex "codex|orchestrator|gpt-6-astra|orchestrator.md|medium"
 	implementer "codex|implementer|gpt-6-astra|implementer.md|low"
+	implementer-claude "claude|implementer|sonnet|implementer.md|low"
 	reviewer "claude|reviewer|sonnet|reviewer.md|high"
 	reviewer-codex "codex|reviewer|gpt-6-astra|reviewer.md|medium"
 	scout "codex|scout|gpt-5.6-luna|scout.md|medium"
-	scout-claude "codex|scout-claude|gpt-5.6-luna|scout.md|medium"
-	scout-codex "codex|scout-codex|gpt-5.6-luna|scout.md|medium"
+	scout-claude "claude|scout|haiku|scout.md|medium"
+	scout-peer-claude "codex|scout-peer-claude|gpt-5.6-luna|scout.md|medium"
+	scout-peer-codex "codex|scout-peer-codex|gpt-5.6-luna|scout.md|medium"
 	learner-claude "claude|learner-claude|opus|learner.md|high"
 	learner-codex "codex|learner-codex|gpt-6-astra|learner.md|high"
 	scout-learn-claude "codex|scout-learn-claude|gpt-5.6-luna|scout.md|medium"
@@ -76,6 +78,12 @@ hcom:implementer() {
 	_hcom_launch_configured_role implementer "$@"
 }
 
+# @desc  Start the Claude Implementer hcom role
+# @cat   hcom
+hcom:implementer:claude() {
+	_hcom_launch_configured_role implementer-claude "$@"
+}
+
 # @desc  Start the Reviewer hcom role
 # @cat   hcom
 hcom:reviewer() {
@@ -94,14 +102,20 @@ hcom:scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
-# @desc  Start the Claude planning peer's Scout
+# @desc  Start the Claude Scout hcom role
 # @cat   hcom
 hcom:scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
 }
 
-# @desc  Start the Codex planning peer's Scout
+# @desc  Start the Scout for a workflow's Claude-named peer
 # @cat   hcom
-hcom:scout:codex() {
-	_hcom_launch_configured_role scout-codex "$@"
+hcom:scout:peer:claude() {
+	_hcom_launch_configured_role scout-peer-claude "$@"
+}
+
+# @desc  Start the Scout for a workflow's Codex-named peer
+# @cat   hcom
+hcom:scout:peer:codex() {
+	_hcom_launch_configured_role scout-peer-codex "$@"
 }

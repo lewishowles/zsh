@@ -119,6 +119,10 @@ _hcom_team_continuation_prompt() {
 #     Function that starts the orchestrator role.
 # @param  {string}  reviewer_launcher
 #     Function that starts the reviewer role.
+# @param  {string}  implementer_launcher
+#     Function that starts the implementer pane.
+# @param  {string}  scout_launcher
+#     Function that starts the scout pane.
 # @param  {string}  working_directory
 #     Optional project directory. Defaults to the current directory.
 # @param  {string}  initial_prompt
@@ -127,7 +131,9 @@ _hcom_launch_team() {
 	local command_name="$1"  # Public command name used in diagnostics.
 	local orchestrator_launcher="$2"  # Launcher for the foreground orchestrator.
 	local reviewer_launcher="$3"  # Launcher for the reviewer pane.
-	shift 3
+	local implementer_launcher="$4"  # Launcher for the implementer pane.
+	local scout_launcher="$5"  # Launcher for the scout pane.
+	shift 5
 
 	# Team settings parsed from argv; copied out of `reply` before the next helper call.
 	_hcom_parse_team_args "$command_name" "$@" || return 1
@@ -151,7 +157,7 @@ _hcom_launch_team() {
 
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit
 	# status, propagated so the command reports the real pane-launch failure.
-	_hcom_team_create_panes "$reviewer_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" || return $?
+	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
@@ -174,6 +180,10 @@ _hcom_launch_team() {
 #
 # @param  {string}  reviewer_launcher
 #     Function that starts the reviewer role.
+# @param  {string}  implementer_launcher
+#     Function that starts the implementer role.
+# @param  {string}  scout_launcher
+#     Function that starts the scout role.
 # @param  {string}  working_directory
 #     Project directory for the team.
 # @param  {string}  team_label
@@ -182,9 +192,11 @@ _hcom_launch_team() {
 #     Prior same-shell pane IDs, passed through so the layout can replace them.
 _hcom_team_create_panes() {
 	local reviewer_launcher="$1"  # Function that starts the reviewer role.
-	local working_directory="$2"  # Project directory for the team.
-	local team_label="$3"  # Optional label that scopes the team.
-	local previous_terminal_ids="$4"  # Prior same-shell pane IDs to replace.
+	local implementer_launcher="$2"  # Function that starts the implementer role.
+	local scout_launcher="$3"  # Function that starts the scout role.
+	local working_directory="$4"  # Project directory for the team.
+	local team_label="$5"  # Optional label that scopes the team.
+	local previous_terminal_ids="$6"  # Prior same-shell pane IDs to replace.
 
 	local quoted_working_directory="${(q)working_directory}"  # Zsh-quoted directory for typed pane commands.
 
@@ -199,8 +211,8 @@ _hcom_team_create_panes() {
 
 	local launch_env="${account_env}${team_env}"  # Combined environment prefix for pane commands.
 	local reviewer_command="${launch_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
-	local implementer_command="${launch_env}hcom:implementer $quoted_working_directory"  # Typed implementer launch command.
-	local scout_command="${launch_env}hcom:scout $quoted_working_directory"  # Typed scout launch command.
+	local implementer_command="${launch_env}$implementer_launcher $quoted_working_directory"  # Typed implementer launch command.
+	local scout_command="${launch_env}$scout_launcher $quoted_working_directory"  # Typed scout launch command.
 
 	local team_tags  # Exact role tags for the new team scope.
 	team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1
@@ -388,7 +400,7 @@ _hcom_parse_team_args() {
 # @param  {string}  initial_prompt
 #     Optional orchestrator prompt for a fresh launch.
 hcom:team() {
-	_hcom_launch_team hcom:team hcom:orchestrator hcom:reviewer "$@"
+	_hcom_launch_team hcom:team hcom:orchestrator hcom:reviewer hcom:implementer hcom:scout "$@"
 }
 
 # @desc  Start, resume, or continue the complete Codex hcom team
@@ -401,7 +413,20 @@ hcom:team() {
 # @param  {string}  initial_prompt
 #     Optional orchestrator prompt for a fresh launch.
 hcom:team:codex() {
-	_hcom_launch_team hcom:team:codex hcom:orchestrator:codex hcom:reviewer:codex "$@"
+	_hcom_launch_team hcom:team:codex hcom:orchestrator:codex hcom:reviewer:codex hcom:implementer hcom:scout "$@"
+}
+
+# @desc  Start, resume, or continue the complete Claude hcom team
+# @cat   hcom
+#
+# Usage: hcom:team:claude [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt]
+#
+# @param  {string}  working_directory
+#     Optional project directory. Defaults to the current directory.
+# @param  {string}  initial_prompt
+#     Optional orchestrator prompt for a fresh launch.
+hcom:team:claude() {
+	_hcom_launch_team hcom:team:claude hcom:orchestrator hcom:reviewer hcom:implementer:claude hcom:scout:claude "$@"
 }
 
 # Stops the exact hcom team for a directory and optional team label.

@@ -10,7 +10,7 @@
 #   scout-claude | scout-codex
 #
 # Each planning peer routes its research through the scout in its own
-# column (`<repo>-scout-claude` / `<repo>-scout-codex`); once both peers
+# column (`<repo>-scout-peer-claude` / `<repo>-scout-peer-codex`); once both peers
 # report `Ready as written` or `Changes requested`, pick whichever one
 # found more to consolidate with `project-review-task`.
 # The two planning peers share a launch-specific tag so a consolidator can
@@ -35,8 +35,8 @@ hcom:plan() {
 	account_env="$(_hcom_account_environment)"
 
 	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:plan:codex $quoted_task_name"  # Command for the Codex planning pane.
-	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:claude"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:codex"  # Command for the Codex scout pane.
+	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:peer:claude"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:peer:codex"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \

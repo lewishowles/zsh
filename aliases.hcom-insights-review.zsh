@@ -12,7 +12,7 @@
 #   scout-claude     | scout-codex
 #
 # Each reviewer routes its research through the scout in its own column
-# (`<repo>-scout-claude` / `<repo>-scout-codex`). The two reviewers share a
+# (`<repo>-scout-peer-claude` / `<repo>-scout-peer-codex`). The two reviewers share a
 # launch-specific tag so a consolidator can match the exact pair.
 #
 # @param  {string}  report_path
@@ -40,8 +40,8 @@ hcom:insights() {
 	account_env="$(_hcom_account_environment)"
 
 	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
-	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:scout:claude"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:scout:codex"  # Command for the Codex scout pane.
+	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:scout:peer:claude"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:scout:peer:codex"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \
