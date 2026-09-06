@@ -155,9 +155,22 @@ _hcom_launch_team() {
 		_hcom_stop_team_tags "$previous_team_tags"
 	fi
 
+	# Both vars are only ever set together, by acct2 (aliases.agents.zsh), so
+	# their absence means this is a plain team eligible for auto-allocation.
+	local -a claude_accounts codex_accounts  # Per-provider heavier/lighter account pairs from the quota allocator.
+	if [[ -z "${CLAUDE_CONFIG_DIR:-}" && -z "${CODEX_HOME:-}" ]]; then
+		local claude_allocation="$(_hcom_quota_allocate claude)"  # Space-separated heavier/lighter Claude account IDs.
+		local codex_allocation="$(_hcom_quota_allocate codex)"  # Space-separated heavier/lighter Codex account IDs.
+		claude_accounts=(${=claude_allocation})
+		codex_accounts=(${=codex_allocation})
+	fi
+
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit
 	# status, propagated so the command reports the real pane-launch failure.
-	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" || return $?
+	# The lighter Claude account goes to the reviewer pane; the heavier and
+	# lighter Codex accounts go to the implementer and scout panes. The
+	# heavier Claude account is reserved below for the foreground orchestrator.
+	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" "${claude_accounts[2]:-}" "${codex_accounts[1]:-}" "${codex_accounts[2]:-}" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
@@ -169,7 +182,8 @@ _hcom_launch_team() {
 
 	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
 	# up teammates on return; its exit status is this function's result.
-	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids"
+	# It takes the heavier Claude account; the pane roles above got the lighter one.
+	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "${claude_accounts[1]:-}"
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
@@ -190,6 +204,12 @@ _hcom_launch_team() {
 #     Optional label that scopes the team.
 # @param  {string}  previous_terminal_ids
 #     Prior same-shell pane IDs, passed through so the layout can replace them.
+# @param  {string}  reviewer_account
+#     Claude account for the reviewer pane, or empty to use the calling shell's own overrides.
+# @param  {string}  implementer_account
+#     Codex account for the implementer pane, or empty to use the calling shell's own overrides.
+# @param  {string}  scout_account
+#     Codex account for the scout pane, or empty to use the calling shell's own overrides.
 _hcom_team_create_panes() {
 	local reviewer_launcher="$1"  # Function that starts the reviewer role.
 	local implementer_launcher="$2"  # Function that starts the implementer role.
@@ -197,6 +217,9 @@ _hcom_team_create_panes() {
 	local working_directory="$4"  # Project directory for the team.
 	local team_label="$5"  # Optional label that scopes the team.
 	local previous_terminal_ids="$6"  # Prior same-shell pane IDs to replace.
+	local reviewer_account="${7:-}"  # Claude account assigned to the reviewer pane.
+	local implementer_account="${8:-}"  # Codex account assigned to the implementer pane.
+	local scout_account="${9:-}"  # Codex account assigned to the scout pane.
 
 	local quoted_working_directory="${(q)working_directory}"  # Zsh-quoted directory for typed pane commands.
 
@@ -209,10 +232,24 @@ _hcom_team_create_panes() {
 	local team_env=""  # Optional HCOM_TEAM_LABEL assignment for new panes.
 	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
 
-	local launch_env="${account_env}${team_env}"  # Combined environment prefix for pane commands.
-	local reviewer_command="${launch_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
-	local implementer_command="${launch_env}$implementer_launcher $quoted_working_directory"  # Typed implementer launch command.
-	local scout_command="${launch_env}$scout_launcher $quoted_working_directory"  # Typed scout launch command.
+	local reviewer_env="$account_env"  # Reviewer pane's environment prefix, overridden below for account 2.
+	local implementer_env="$account_env"  # Implementer pane's environment prefix, overridden below for account 2.
+	local scout_env="$account_env"  # Scout pane's environment prefix, overridden below for account 2.
+	local claude_account_directory="$HOME/.claude-2"  # Config directory for the second Claude account.
+	local codex_account_directory="$HOME/.codex-2"  # Config directory for the second Codex account.
+	if [[ "$reviewer_account" == "2" ]]; then
+		reviewer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+	fi
+	if [[ "$implementer_account" == "2" ]]; then
+		implementer_env="CODEX_HOME=${(q)codex_account_directory} "
+	fi
+	if [[ "$scout_account" == "2" ]]; then
+		scout_env="CODEX_HOME=${(q)codex_account_directory} "
+	fi
+
+	local reviewer_command="${reviewer_env}${team_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
+	local implementer_command="${implementer_env}${team_env}$implementer_launcher $quoted_working_directory"  # Typed implementer launch command.
+	local scout_command="${scout_env}${team_env}$scout_launcher $quoted_working_directory"  # Typed scout launch command.
 
 	local team_tags  # Exact role tags for the new team scope.
 	team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1
@@ -281,6 +318,8 @@ _hcom_store_team_scope() {
 #     Pipe-separated exact role tags, used to stop teammates.
 # @param  {string}  team_terminal_ids
 #     Pipe-separated pane IDs; the first is the orchestrator pane to refocus.
+# @param  {string}  orchestrator_account
+#     Claude account for the foreground orchestrator, or empty to use the calling shell's own overrides.
 _hcom_run_team_orchestrator() {
 	local orchestrator_launcher="$1"  # Function that starts the orchestrator role.
 	local team_label="$2"  # Optional label for the orchestrator environment.
@@ -289,6 +328,7 @@ _hcom_run_team_orchestrator() {
 	local keep_agents="$5"  # When 1, cleanup leaves agents and panes running.
 	local team_tags="$6"  # Exact role tags used to stop teammates.
 	local team_terminal_ids="$7"  # Pane IDs for teammate cleanup and refocus.
+	local orchestrator_account="${8:-}"  # Claude account assigned to the foreground orchestrator.
 
 	local orchestrator_exit_code  # Foreground orchestrator result returned by this function.
 
@@ -298,7 +338,16 @@ _hcom_run_team_orchestrator() {
 	setopt localoptions localtraps
 	trap ':' INT
 
-	if HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+	# Branched rather than building a shared env-prefix variable so the
+	# default/skipped call never explicitly sets CLAUDE_CONFIG_DIR at all,
+	# matching acct2's pre-existing ambient-inheritance behaviour exactly.
+	if [[ "$orchestrator_account" == "2" ]]; then
+		if CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+			orchestrator_exit_code=0
+		else
+			orchestrator_exit_code=$?
+		fi
+	elif HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 		orchestrator_exit_code=0
 	else
 		orchestrator_exit_code=$?
