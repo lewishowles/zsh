@@ -30,7 +30,8 @@ _hcom_quota_claude() {
 
 # Prints account IDs for the heavier then lighter role, favouring default on ties.
 # A failed probe prints one notice and selects default for both roles. If either
-# account has less than 15% left, both roles use the healthier account.
+# account has less than 15% left or the gap exceeds 30 percentage points, both
+# roles use the healthier account.
 #
 # @param  {string}  provider
 #     claude assigns orchestrator/reviewer; codex assigns implementer/scout.
@@ -41,6 +42,8 @@ _hcom_quota_allocate() {
 	local -a headrooms  # Default and second-account percentages, in that order.
 	local heavier=default lighter=2  # Role assignments when default has more quota.
 	local weaker  # Remaining percentage of the account assigned the lighter role.
+	local stronger  # Remaining percentage of the account assigned the heavier role.
+	local gap  # Difference in remaining percentage points between the accounts.
 
 	case "$provider" in
 		claude|codex) ;;
@@ -61,13 +64,17 @@ _hcom_quota_allocate() {
 	done
 
 	weaker="${headrooms[2]}"
+	stronger="${headrooms[1]}"
 	if (( headrooms[2] > headrooms[1] )); then
 		heavier=2
 		lighter=default
 		weaker="${headrooms[1]}"
+		stronger="${headrooms[2]}"
 	fi
 
-	if (( weaker < 15 )); then
+	gap=$(( stronger - weaker ))
+
+	if (( weaker < 15 || gap > 30 )); then
 		lighter="$heavier"
 	fi
 
