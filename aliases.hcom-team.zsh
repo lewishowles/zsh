@@ -167,10 +167,10 @@ _hcom_launch_team() {
 
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit
 	# status, propagated so the command reports the real pane-launch failure.
-	# The lighter Claude account goes to the reviewer pane; the heavier and
+	# The heavier Claude account goes to the reviewer pane; the heavier and
 	# lighter Codex accounts go to the implementer and scout panes. The
-	# heavier Claude account is reserved below for the foreground orchestrator.
-	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" "${claude_accounts[2]:-}" "${codex_accounts[1]:-}" "${codex_accounts[2]:-}" || return $?
+	# lighter Claude account is reserved below for the foreground orchestrator.
+	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" "${claude_accounts[1]:-}" "${codex_accounts[1]:-}" "${codex_accounts[2]:-}" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
@@ -182,8 +182,8 @@ _hcom_launch_team() {
 
 	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
 	# up teammates on return; its exit status is this function's result.
-	# It takes the heavier Claude account; the pane roles above got the lighter one.
-	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "${claude_accounts[1]:-}"
+	# It takes the lighter Claude account; the reviewer pane above got the heavier one.
+	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "${claude_accounts[2]:-}"
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
