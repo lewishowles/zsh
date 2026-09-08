@@ -78,15 +78,17 @@ def claude_reset_epoch(reset_text):
 #
 # @param  {Path|None}  account_home
 #     Secondary account's Claude configuration directory, or None for the default
-#     account -- setting CLAUDE_CONFIG_DIR even to the default's own path breaks
-#     Claude Code's credential resolution, so the default account must inherit
-#     the ambient environment unchanged.
+#     account. The default account is probed with CLAUDE_CONFIG_DIR removed rather
+#     than set: an agent pane exports the secondary account's path, which would
+#     otherwise measure that account instead, and pointing the variable at the
+#     default's own path breaks Claude Code's credential resolution.
 def claude_usage(account_home):
-	env = (
-		os.environ
-		if account_home is None
-		else dict(os.environ, CLAUDE_CONFIG_DIR=str(account_home))
-	)
+	if account_home is None:
+		env = dict(os.environ)
+		env.pop("CLAUDE_CONFIG_DIR", None)
+	else:
+		env = dict(os.environ, CLAUDE_CONFIG_DIR=str(account_home))
+
 	try:
 		server = subprocess.Popen(  # Isolated group permits cleanup via stop_server.
 			["claude", "-p", "/usage"],
