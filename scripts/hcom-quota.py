@@ -24,6 +24,100 @@ CLAUDE_RESET_PATTERN = (
 	r"\((?P<timezone>[^)]+)\)"
 )
 
+# Longest response or stderr excerpt carried in a probe error, chosen to stay well
+# inside the single stderr banner the zsh caller prints.
+PROBE_EXCERPT_LIMIT = 320
+
+# Appended to an excerpt that was cut short, so a truncated response is not mistaken
+# for the whole of what the tool returned.
+PROBE_EXCERPT_MARKER = "..."
+
+
+# A Codex failure that carries the offending line with it.
+#
+# read_rpc sees the raw line but not the stderr needed to build the full diagnostic,
+# so it raises this and codex_usage assembles the error once the server has stopped.
+class QuotaResponseError(ValueError):
+	# @param  {str}  message
+	#     What went wrong, used as the error text.
+	# @param  {str}  response
+	#     The line that could not be used, already decoded.
+	def __init__(self, message, response):
+		super().__init__(message)
+
+		# The unusable line, read by codex_usage when it builds the probe error.
+		self.response = response
+
+
+# Reduce text to a single bounded line for inclusion in an error.
+#
+# Collapsing whitespace keeps the diagnostic on one line, and the length cap keeps a
+# long report or session transcript out of the error entirely.
+#
+# @param  {str}  text
+#     Response or stderr text to shorten.
+def excerpt(text):
+	collapsed = " ".join(text.split())
+
+	if not collapsed:
+		return "<empty>"
+
+	if len(collapsed) <= PROBE_EXCERPT_LIMIT:
+		return collapsed
+
+	return (
+		collapsed[: PROBE_EXCERPT_LIMIT - len(PROBE_EXCERPT_MARKER)]
+		+ PROBE_EXCERPT_MARKER
+	)
+
+
+# Read process output as text, tolerating bytes that are not valid UTF-8.
+#
+# A probe fails for reasons that can themselves corrupt its output, so undecodable
+# bytes are replaced rather than raising and hiding the original failure.
+#
+# @param  {object}  value
+#     Bytes, string, or None captured from a probe.
+def decode_text(value):
+	if isinstance(value, bytes):
+		return value.decode("utf-8", errors="replace")
+
+	if value is None:
+		return ""
+
+	return str(value)
+
+
+# Render a Codex response as text an excerpt can be taken from.
+#
+# @param  {object}  response
+#     Parsed response data, or the text of a line that could not be parsed.
+def response_text(response):
+	if isinstance(response, str):
+		return response
+
+	try:
+		return json.dumps(response, separators=(",", ":"))
+	except (TypeError, ValueError):
+		return str(response)
+
+
+# Build the error a failed probe raises, naming what the tool actually returned.
+#
+# Without the excerpts, a logged-out account, an empty response, and a genuine change
+# in wording all report the same sentence and cannot be told apart afterwards.
+#
+# @param  {str}  message
+#     What went wrong.
+# @param  {object}  response
+#     The response being parsed when it failed.
+# @param  {str}  stderr
+#     Anything the tool wrote to stderr.
+def probe_error(message, response, stderr):
+	return ValueError(
+		f"{message}; response: {excerpt(response)}; stderr: {excerpt(stderr)}"
+	)
+
 
 # Accept finite JSON numbers while excluding booleans.
 #
@@ -94,26 +188,30 @@ def claude_usage(account_home):
 			["claude", "-p", "/usage"],
 			stdin=subprocess.PIPE,
 			stdout=subprocess.PIPE,
-			stderr=subprocess.DEVNULL,
+			stderr=subprocess.PIPE,
 			env=env,
 			start_new_session=True,
 		)
 
 		try:
-			stdout, _ = server.communicate(
+			stdout, stderr = server.communicate(
 				timeout=20
 			)  # Bounded so a stalled probe cannot block the caller.
+			stderr_text = decode_text(stderr)  # Kept for the error if parsing fails.
+			output = stdout.decode("utf-8")  # Raw /usage report text.
+
 			if server.returncode != 0:
-				raise ValueError("Claude quota request failed")
+				raise probe_error("Claude quota request failed", output, stderr_text)
+		except UnicodeDecodeError as error:
+			raise probe_error(
+				"Claude quota response is not valid text",
+				decode_text(stdout),
+				stderr_text,
+			) from error
 		finally:
 			stop_server(server)
 	except (OSError, subprocess.SubprocessError) as error:
 		raise ValueError("Claude quota request failed or timed out") from error
-
-	try:
-		output = stdout.decode("utf-8")  # Raw /usage report text.
-	except UnicodeDecodeError as error:
-		raise ValueError("Claude quota response is not valid text") from error
 
 	quota = []  # Remaining percentage, reset epoch and window length, session then week.
 
@@ -136,15 +234,22 @@ def claude_usage(account_home):
 			)
 		)
 		if len(matches) != 1:
-			raise ValueError("Claude quota response is missing valid usage windows")
+			raise probe_error(
+				"Claude quota response is missing valid usage windows",
+				output,
+				stderr_text,
+			)
 
 		used = float(matches[0].group(1))
 		if not 0 <= used <= 100:
-			raise ValueError("Invalid usage percentage")
+			raise probe_error("Invalid usage percentage", output, stderr_text)
 
-		quota.extend(
-			(100 - used, claude_reset_epoch(matches[0].group("reset")), window_seconds)
-		)
+		try:
+			reset = claude_reset_epoch(matches[0].group("reset"))
+		except ValueError as error:
+			raise probe_error(str(error), output, stderr_text) from error
+
+		quota.extend((100 - used, reset, window_seconds))
 
 	return quota, time.time() + 180
 
@@ -160,7 +265,10 @@ def send_rpc(server, message):
 	server.stdin.flush()
 
 
-# Read the matching result within the shared deadline, skipping notifications.
+# Read the matching result within the shared deadline.
+#
+# Notifications are skipped, and a line that is not a JSON object is reported with the
+# line itself so a malformed reply can be identified afterwards.
 #
 # @param  {Popen}  server
 #     Running Codex app server with an open stdout pipe.
@@ -192,10 +300,20 @@ def read_rpc(server, request_id, deadline):
 			line, pending = pending.split(
 				b"\n", 1
 			)  # Complete message and remaining bytes.
-			message = json.loads(line)  # Response data stays inside this process.
+			line_text = decode_text(line)
+			try:
+				message = json.loads(line)  # Response data stays inside this process.
+			except ValueError as error:
+				raise QuotaResponseError("Codex returned invalid JSON", line_text) from error
+
+			if not isinstance(message, dict):
+				raise QuotaResponseError("Codex returned an invalid response", line_text)
+
 			if message.get("id") == request_id:
 				if "error" in message:
-					raise ValueError(f"Codex rejected quota request {request_id}")
+					raise QuotaResponseError(
+						f"Codex rejected quota request {request_id}", line_text
+					)
 
 				return message["result"]
 
@@ -203,6 +321,9 @@ def read_rpc(server, request_id, deadline):
 
 
 # Stop the app-server process group and reap its leader without hiding probe errors.
+#
+# Returns whatever the child wrote to stderr, for the Codex caller to include in its
+# diagnostic. The Claude caller has already drained the pipe through communicate.
 #
 # @param  {Popen}  server
 #     Child started in its own session so other Codex processes are unaffected.
@@ -224,14 +345,25 @@ def stop_server(server):
 			file=sys.stderr,
 		)
 	finally:
+		stderr = b""
+		if server.stderr is not None and server.poll() is not None:
+			try:
+				stderr = server.stderr.read1(4096)
+			except (OSError, ValueError):
+				pass
+
 		for stream in (
 			server.stdin,
 			server.stdout,
+			server.stderr,
 		):  # Close pipes on success and failure.
-			try:
-				stream.close()
-			except OSError:
-				pass
+			if stream is not None:
+				try:
+					stream.close()
+				except OSError:
+					pass
+
+	return stderr
 
 
 # Initialise Codex, read rate limits, and always stop the temporary server.
@@ -246,10 +378,13 @@ def codex_usage(account_home):
 		["codex", "app-server"],
 		stdin=subprocess.PIPE,
 		stdout=subprocess.PIPE,
-		stderr=subprocess.DEVNULL,
+		stderr=subprocess.PIPE,
 		env=environment,
 		start_new_session=True,
 	)
+
+	failure = None  # Held until stop_server has run and stderr can be read.
+	response = ""  # Stands in when the failure happened before any response arrived.
 
 	try:
 		deadline = time.monotonic() + 8  # One deadline for both RPC responses.
@@ -271,7 +406,9 @@ def codex_usage(account_home):
 		read_rpc(server, 1, deadline)
 		send_rpc(server, {"method": "initialized"})
 		send_rpc(server, {"method": "account/rateLimits/read", "id": 2})
-		limits = read_rpc(server, 2, deadline)[
+		limits_response = read_rpc(server, 2, deadline)
+		response = response_text(limits_response)
+		limits = limits_response[
 			"rateLimits"
 		]  # Current session and weekly limits.
 		quota = []  # Remaining percentage, reset epoch and window length, session then week.
@@ -298,8 +435,22 @@ def codex_usage(account_home):
 			quota.extend((100 - used, reset, duration * 60))
 
 		return quota, time.time() + 60
+	except (AttributeError, KeyError, OSError, TypeError, ValueError) as error:
+		failure = error
 	finally:
-		stop_server(server)
+		stderr = decode_text(stop_server(server))
+
+	if failure is not None:
+		response = response_text(getattr(failure, "response", response))
+		# A KeyError renders as the bare quoted key, so name the type for anything that
+		# did not arrive as a stated ValueError message.
+		detail = str(failure) or "Codex quota response is unusable"
+		message = (
+			detail
+			if isinstance(failure, ValueError)
+			else f"{type(failure).__name__}: {detail}"
+		)
+		raise probe_error(message, response, stderr) from failure
 
 
 # Reuse a saved quota summary only while its expiry is still valid.
@@ -433,7 +584,7 @@ if __name__ == "__main__":
 		main()
 	except (
 		ValueError
-	) as error:  # Validation and transport errors contain no provider response data.
+	) as error:  # Carries a bounded excerpt of the response and stderr, never credentials.
 		print(str(error), file=sys.stderr)
 		sys.exit(1)
 	except (
