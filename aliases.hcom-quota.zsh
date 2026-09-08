@@ -35,7 +35,8 @@ _hcom_quota_claude() {
 	_hcom_quota_probe claude "$1" 180
 }
 
-# Prints account IDs for the heavier then lighter role, favouring default on ties.
+# Prints the account ID for the heavier role, then the lighter one, then 1 when the provider
+# has no usable quota left. Ties favour default.
 #
 # The session window decides the ranking, because that is the quota a single sprint
 # actually draws down. Weekly pace only breaks near-ties: two accounts sitting within
@@ -48,8 +49,13 @@ _hcom_quota_claude() {
 # survivor has both session quota of its own and a weekly pace that can sustain them; two
 # nearly empty accounts keep one role each rather than both landing on one.
 #
+# The third field flags a provider whose accounts are both spent, so hcom:team can move the
+# whole team onto the other provider rather than split roles across two dead accounts.
+#
 # A failed probe still selects default for both roles, but returns 2 rather than 0, so the
-# caller can stop and ask before launching a team on that allocation.
+# caller can stop and ask before launching a team on that allocation. It reports the
+# provider as not exhausted, because a probe that did not answer says nothing about how
+# much quota is left, and guessing at empty would strand a whole team on one provider.
 #
 # @param  {string}  provider
 #     claude assigns orchestrator/reviewer; codex assigns implementer/scout.
@@ -59,6 +65,7 @@ _hcom_quota_allocate() {
 	local available  # Six-value quota line on success, or the probe diagnostic on failure.
 	local -i heavier_index=1 lighter_index=2  # Positions in the per-account arrays, default first.
 	local -i displaced_index  # Position the heavier role is moved off when that account is too close to empty.
+	local -i provider_exhausted  # 1 when both accounts are under 5% session quota, leaving the provider unusable.
 
 	local -a account_ids=(default 2)  # Account IDs in the order every per-account array uses.
 	local -a quota_values  # One account's six probe values, split for indexing.
@@ -81,7 +88,7 @@ _hcom_quota_allocate() {
 	for account in "${account_ids[@]}"; do
 		if ! available="$("_hcom_quota_$provider" "$account" 2>&1)"; then
 			printf '\n[hcom quota probe failed]\n  Provider: %s\n  Account: %s\n  Diagnostic: %s\n  Consequence: both roles land on the default account, the allocation this balancing exists to avoid.\n\n' "$provider" "$account" "${available//$'\n'/; }" >&2
-			print -r -- 'default default'
+			print -r -- 'default default 0'
 			return 2
 		fi
 
@@ -132,5 +139,9 @@ _hcom_quota_allocate() {
 		lighter_index="$heavier_index"
 	fi
 
-	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]}"
+	# Below 5% even the better account cannot carry a role to the end of a task, so the whole
+	# provider counts as spent.
+	provider_exhausted=$(( session_remaining[1] < 5 && session_remaining[2] < 5 ))
+
+	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
 }
