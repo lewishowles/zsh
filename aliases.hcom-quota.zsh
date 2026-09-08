@@ -48,7 +48,8 @@ _hcom_quota_claude() {
 # survivor has both session quota of its own and a weekly pace that can sustain them; two
 # nearly empty accounts keep one role each rather than both landing on one.
 #
-# A failed probe prints one notice and selects default for both roles.
+# A failed probe still selects default for both roles, but returns 2 rather than 0, so the
+# caller can stop and ask before launching a team on that allocation.
 #
 # @param  {string}  provider
 #     claude assigns orchestrator/reviewer; codex assigns implementer/scout.
@@ -79,9 +80,9 @@ _hcom_quota_allocate() {
 
 	for account in "${account_ids[@]}"; do
 		if ! available="$("_hcom_quota_$provider" "$account" 2>&1)"; then
-			printf 'hcom: %s account %s quota unavailable (%s); falling back to default-account behaviour.\n' "$provider" "$account" "${available//$'\n'/; }" >&2
+			printf '\n[hcom quota probe failed]\n  Provider: %s\n  Account: %s\n  Diagnostic: %s\n  Consequence: both roles land on the default account, the allocation this balancing exists to avoid.\n\n' "$provider" "$account" "${available//$'\n'/; }" >&2
 			print -r -- 'default default'
-			return 0
+			return 2
 		fi
 
 		read -rA quota_values <<< "$available"

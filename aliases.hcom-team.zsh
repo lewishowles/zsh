@@ -147,22 +147,48 @@ _hcom_launch_team() {
 		initial_prompt="$(_hcom_team_continuation_prompt "$launch_mode")" || return 1
 	fi
 
+	# Both vars are only ever set together, by acct2 (aliases.agents.zsh), so
+	# their absence means this is a plain team eligible for auto-allocation.
+	local -a claude_accounts codex_accounts  # Per-provider heavier/lighter account pairs from the quota allocator.
+	local claude_allocation codex_allocation  # Space-separated heavier/lighter account IDs.
+	local -a failed_providers  # Providers whose probe failed, so their pair is the default-account fallback rather than a measurement.
+	if [[ -z "${CLAUDE_CONFIG_DIR:-}" && -z "${CODEX_HOME:-}" ]]; then
+		if ! claude_allocation="$(_hcom_quota_allocate claude)"; then
+			failed_providers+=(claude)
+		fi
+		if ! codex_allocation="$(_hcom_quota_allocate codex)"; then
+			failed_providers+=(codex)
+		fi
+		claude_accounts=(${=claude_allocation})
+		codex_accounts=(${=codex_allocation})
+	fi
+
+	if (( ${#failed_providers} > 0 )); then
+		if [[ -t 0 ]]; then
+			local confirmation  # Whatever the user typed at the prompt; only y or yes continues.
+
+			if ! read -r "confirmation?Continue anyway? [y/N] "; then
+				printf 'hcom: team launch cancelled.\n' >&2
+				return 1
+			fi
+			case "$confirmation" in
+				[yY]|[yY][eE][sS]) ;;
+				*)
+					printf 'hcom: team launch cancelled.\n' >&2
+					return 1
+					;;
+			esac
+		else
+			printf 'hcom: quota unmeasured for %s. stdin is not a terminal, so the launch continues unconfirmed on the default account.\n' "${(j:, :)failed_providers}" >&2
+		fi
+	fi
+
 	# A terminal ID survives the agent session and lets the next launch replace
 	# only the teammate panels created by this orchestrator shell.
 	local previous_terminal_ids="${HCOM_TEAM_TERMINAL_IDS:-}"  # Prior same-shell pane IDs, if any.
 	local previous_team_tags="${HCOM_ACTIVE_TEAM_TAGS:-}"  # Prior same-shell exact tags, if any.
 	if [[ -n "$previous_terminal_ids" ]] && [[ -n "$previous_team_tags" ]]; then
 		_hcom_stop_team_tags "$previous_team_tags"
-	fi
-
-	# Both vars are only ever set together, by acct2 (aliases.agents.zsh), so
-	# their absence means this is a plain team eligible for auto-allocation.
-	local -a claude_accounts codex_accounts  # Per-provider heavier/lighter account pairs from the quota allocator.
-	if [[ -z "${CLAUDE_CONFIG_DIR:-}" && -z "${CODEX_HOME:-}" ]]; then
-		local claude_allocation="$(_hcom_quota_allocate claude)"  # Space-separated heavier/lighter Claude account IDs.
-		local codex_allocation="$(_hcom_quota_allocate codex)"  # Space-separated heavier/lighter Codex account IDs.
-		claude_accounts=(${=claude_allocation})
-		codex_accounts=(${=codex_allocation})
 	fi
 
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit
