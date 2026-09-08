@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Read account quota headroom for HCOM without exposing credentials or responses.
+# Read both quota windows per account for HCOM without exposing credentials or responses.
 
 import json
 import math
@@ -11,39 +11,70 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+# Grammar of a Claude reset phrase, such as "Sep 15 at 6:59am (Europe/London)". The
+# minutes are optional because Claude writes "2pm" for a reset falling on the hour.
+CLAUDE_RESET_PATTERN = (
+	r"(?P<month>[A-Z][a-z]{2}) (?P<day>\d{1,2}) at "
+	r"(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<period>[ap]m) "
+	r"\((?P<timezone>[^)]+)\)"
+)
 
 
 # Accept finite JSON numbers while excluding booleans.
 #
 # @param  {object}  value
-#     Percentage or timestamp read from a usage record.
+#     Percentage, reset timestamp, or window length read from a usage record.
 def is_number(value):
 	return type(value) in (int, float) and math.isfinite(value)
 
 
-# Return the lowest remaining percentage across the available windows.
+# Convert one Claude reset phrase into a Unix timestamp.
 #
-# @param  {list}  windows
-#     Used percentages, with null entries for unavailable windows.
-def headroom(windows):
-	remaining = []  # Percentages from windows the provider actually reported.
-	for used in windows:  # Percentage consumed in this window.
-		if used is None:
-			continue
+# Claude states the day and time but never the year, so the current year is tried
+# first and then the next, taking the first that is not already past. A date the
+# candidate year does not hold, such as Feb 29, is skipped rather than raising.
+#
+# @param  {str}  reset_text
+#     Reset phrase from a /usage line, such as "Sep 15 at 6:59am (Europe/London)".
+def claude_reset_epoch(reset_text):
+	match = re.fullmatch(CLAUDE_RESET_PATTERN, reset_text)
+	if match is None:
+		raise ValueError("Claude quota reset is invalid")
 
-		if not is_number(used) or not 0 <= used <= 100:
-			raise ValueError("Invalid usage percentage")
+	month = match.group("month")
+	day = match.group("day")
+	hour = match.group("hour")
+	minute = match.group("minute") or "00"
+	period = match.group("period")
+	timezone_name = match.group("timezone")
+	try:
+		timezone = ZoneInfo(timezone_name)
+		current = datetime.now(timezone)
+		for year in (current.year, current.year + 1):
+			try:
+				reset = datetime.strptime(
+					f"{month} {day} {year} {hour}:{minute}{period}",
+					"%b %d %Y %I:%M%p",
+				).replace(tzinfo=timezone)
+			except ValueError:
+				continue
+			if reset >= current:
+				return int(reset.timestamp())
+	except (ValueError, ZoneInfoNotFoundError) as error:
+		raise ValueError("Claude quota reset is invalid") from error
 
-		remaining.append(100 - used)
-
-	if not remaining:
-		raise ValueError("No usage windows available")
-
-	return min(remaining)
+	raise ValueError("Claude quota reset is invalid")
 
 
-# Run a live /usage check under one account and parse its session and week percentages.
+# Run a live /usage check under one account and report both of its quota windows.
+#
+# Returns six values, session before week: remaining percentage, reset timestamp, and
+# window length in seconds.
 #
 # @param  {Path|None}  account_home
 #     Secondary account's Claude configuration directory, or None for the default
@@ -82,19 +113,38 @@ def claude_usage(account_home):
 	except UnicodeDecodeError as error:
 		raise ValueError("Claude quota response is not valid text") from error
 
-	windows = []  # Percentages parsed from the two required usage lines.
-	for label in ("Current session", "Current week (all models)"):
-		matches = re.findall(  # Exactly one line per label is expected.
-			r"^" + re.escape(label) + r": ([0-9]+(?:\.[0-9]+)?)% used\b",
-			output,
-			re.MULTILINE,
+	quota = []  # Remaining percentage, reset epoch and window length, session then week.
+
+	# Claude never reports how long its windows run, so the two lengths are stated here.
+	# Codex reports its own and is read rather than hardcoded.
+	for label, window_seconds in (
+		("Current session", 300 * 60),
+		("Current week (all models)", 10080 * 60),
+	):
+		matches = list(
+			re.finditer(
+				r"^"
+				+ re.escape(label)
+				+ r": ([0-9]+(?:\.[0-9]+)?)% used\b.*?resets "
+				+ r"(?P<reset>"
+				+ CLAUDE_RESET_PATTERN
+				+ r")$",
+				output,
+				re.MULTILINE,
+			)
 		)
 		if len(matches) != 1:
 			raise ValueError("Claude quota response is missing valid usage windows")
 
-		windows.append(float(matches[0]))
+		used = float(matches[0].group(1))
+		if not 0 <= used <= 100:
+			raise ValueError("Invalid usage percentage")
 
-	return headroom(windows), time.time() + 180
+		quota.extend(
+			(100 - used, claude_reset_epoch(matches[0].group("reset")), window_seconds)
+		)
+
+	return quota, time.time() + 180
 
 
 # Write one request or notification as a JSON line.
@@ -222,22 +272,38 @@ def codex_usage(account_home):
 		limits = read_rpc(server, 2, deadline)[
 			"rateLimits"
 		]  # Current session and weekly limits.
-		windows = []  # Only the session and weekly windows influence allocation.
-		for name in ("primary", "secondary"):  # The provider can omit either slot.
-			window = limits.get(name)  # Null means the slot is unavailable.
-			if window is not None and window.get("windowDurationMins") in (
-				None,
-				300,
-				10080,
-			):
-				windows.append(window.get("usedPercent"))
+		quota = []  # Remaining percentage, reset epoch and window length, session then week.
 
-		return headroom(windows), time.time() + 60
+		# Codex names its windows by slot rather than by length, so each slot's stated
+		# duration is checked against the window it is being read as.
+		for name, expected_duration in (("primary", 300), ("secondary", 10080)):
+			window = limits.get(name)
+			if not isinstance(window, dict):
+				raise ValueError("Codex quota response is missing valid usage windows")
+
+			used = window.get("usedPercent")  # Percentage consumed in this window.
+			reset = window.get("resetsAt")  # Unix timestamp when the window refills.
+			duration = window.get("windowDurationMins")  # Slot identity, checked below.
+			if (
+				not is_number(used)
+				or not 0 <= used <= 100
+				or not is_number(reset)
+				or reset < 0
+				or duration != expected_duration
+			):
+				raise ValueError("Invalid Codex quota window")
+
+			quota.extend((100 - used, reset, duration * 60))
+
+		return quota, time.time() + 60
 	finally:
 		stop_server(server)
 
 
-# Reuse a numeric quota summary only while its saved expiry is still valid.
+# Reuse a saved quota summary only while its expiry is still valid.
+#
+# A summary written before this layout has no quota entry, so it fails the same way as
+# any unreadable file and a fresh probe runs instead.
 #
 # @param  {Path}  cache_file
 #     Private file for one provider and account.
@@ -246,17 +312,30 @@ def codex_usage(account_home):
 def read_cache(cache_file, ttl):
 	try:
 		with cache_file.open() as source:  # Summary contains no provider response data.
-			cached = json.load(source)  # Previously computed percentage and deadline.
+			cached = json.load(source)  # Previously computed quota and deadline.
 
-		available = cached["headroom"]  # Remaining percentage saved by this helper.
-		expires = cached["expires"]  # Already capped to the Claude source freshness.
-		if (
-			is_number(available)
-			and 0 <= available <= 100
-			and is_number(expires)
-			and 0 < expires - time.time() <= ttl
-		):
-			return available
+			quota = cached["quota"]
+			expires = cached["expires"]  # Already capped to the Claude source freshness.
+			valid_quota = type(quota) is list and len(quota) == 6  # Both windows present.
+			if valid_quota:
+				for remaining, reset, duration in (quota[:3], quota[3:]):
+					if (
+						not is_number(remaining)
+						or not 0 <= remaining <= 100
+						or not is_number(reset)
+						or reset < 0
+						or not is_number(duration)
+						or duration <= 0
+					):
+						valid_quota = False
+						break
+
+			if (
+				valid_quota
+				and is_number(expires)
+				and 0 < expires - time.time() <= ttl
+			):
+				return quota
 	except (OSError, ValueError, KeyError, TypeError):
 		pass
 
@@ -267,16 +346,16 @@ def read_cache(cache_file, ttl):
 #
 # @param  {Path}  cache_file
 #     Destination in the private cache directory.
-# @param  {float}  available
-#     Validated remaining quota percentage.
+# @param  {list}  quota
+#     Validated six-value window summary.
 # @param  {float}  expires
 #     Deadline capped by both the provider TTL and source freshness.
-def write_cache(cache_file, available, expires):
+def write_cache(cache_file, quota, expires):
 	with tempfile.NamedTemporaryFile(
 		mode="w", dir=cache_file.parent, delete=False
 	) as target:  # Owner-only replacement file.
 		try:
-			json.dump({"headroom": available, "expires": expires}, target)
+			json.dump({"quota": quota, "expires": expires}, target)
 			target.close()
 			os.replace(target.name, cache_file)
 		finally:
@@ -294,7 +373,7 @@ def terminate(signum, frame):
 	raise SystemExit(128 + signum)
 
 
-# Print one cached or fresh headroom percentage for the wrapper's account and TTL.
+# Print the cached or freshly probed session and weekly quota figures for the wrapper's account and TTL.
 def main():
 	if len(sys.argv) != 4:
 		raise ValueError("Expected provider, account and cache TTL")
@@ -327,23 +406,23 @@ def main():
 	cache_file = cache_dir / (
 		provider + "-" + account + ".json"
 	)  # Provider/account cache key.
-	available = read_cache(cache_file, ttl)  # None requests fresh provider data.
-	if available is None:
+	quota = read_cache(cache_file, ttl)  # None requests fresh provider data.
+	if quota is None:
 		home = (
 			Path.home()
 		)  # Allocation compares known accounts independently of inherited overrides.
 		if provider == "claude":
-			available, expires = claude_usage(
+			quota, expires = claude_usage(
 				None if account == "default" else home / ".claude-2"
 			)
 		else:
-			available, expires = codex_usage(
+			quota, expires = codex_usage(
 				home / (".codex" if account == "default" else ".codex-2")
 			)
 
-		write_cache(cache_file, available, min(expires, time.time() + ttl))
+		write_cache(cache_file, quota, min(expires, time.time() + ttl))
 
-	print(available)
+	print(*quota)
 
 
 if __name__ == "__main__":
