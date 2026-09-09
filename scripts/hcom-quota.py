@@ -225,10 +225,10 @@ def claude_usage(account_home):
 			re.finditer(
 				r"^"
 				+ re.escape(label)
-				+ r": ([0-9]+(?:\.[0-9]+)?)% used\b.*?resets "
+				+ r": ([0-9]+(?:\.[0-9]+)?)% used\b(?:.*?resets "
 				+ r"(?P<reset>"
 				+ CLAUDE_RESET_PATTERN
-				+ r")$",
+				+ r"))?$",
 				output,
 				re.MULTILINE,
 			)
@@ -244,10 +244,26 @@ def claude_usage(account_home):
 		if not 0 <= used <= 100:
 			raise probe_error("Invalid usage percentage", output, stderr_text)
 
-		try:
-			reset = claude_reset_epoch(matches[0].group("reset"))
-		except ValueError as error:
-			raise probe_error(str(error), output, stderr_text) from error
+		reset_text = matches[0].group("reset")  # Reset timestamp, or None when the window has not started.
+
+		# Claude leaves the reset clause off a window the user has not opened
+		# yet, so it only ever goes missing at zero usage. Any other line
+		# without one is a response shape we cannot score.
+		if reset_text is None:
+			if used != 0:
+				raise probe_error(
+					"Claude quota response is missing valid usage windows",
+					output,
+					stderr_text,
+				)
+
+			# An unopened window has its whole length still ahead of it.
+			reset = time.time() + window_seconds
+		else:
+			try:
+				reset = claude_reset_epoch(reset_text)
+			except ValueError as error:
+				raise probe_error(str(error), output, stderr_text) from error
 
 		quota.extend((100 - used, reset, window_seconds))
 
