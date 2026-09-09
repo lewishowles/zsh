@@ -107,10 +107,11 @@ _hcom_team_continuation_prompt() {
 #   reviewer     | scout
 #
 # Prints a labelled start notice when a team label is supplied and returns the
-# foreground orchestrator's exit status. Validation and pane-launch failures
-# return their own non-zero status. The function stores the new team scope,
-# replaces a previous same-shell team when both prior tags and pane IDs exist,
-# and cleans up teammate agents and panes unless --keep-agents is supplied.
+# foreground orchestrator's exit status. Validation, pane-launch, and
+# both-providers-exhausted failures return their own non-zero status. The
+# function stores the new team scope, replaces a previous same-shell team when
+# both prior tags and pane IDs exist, and cleans up teammate agents and panes
+# unless --keep-agents is supplied.
 # A local INT trap lets normal exit and Ctrl-C use the same cleanup path.
 #
 # @param  {string}  command_name
@@ -149,18 +150,118 @@ _hcom_launch_team() {
 
 	# Both vars are only ever set together, by acct2 (aliases.agents.zsh), so
 	# their absence means this is a plain team eligible for auto-allocation.
-	local -a claude_accounts codex_accounts  # Per-provider heavier/lighter account pairs from the quota allocator.
-	local claude_allocation codex_allocation  # Space-separated heavier/lighter account IDs.
+	local -a claude_accounts codex_accounts  # Per-provider heavier and lighter account, then the exhausted flag, from the quota allocator.
+	local claude_allocation codex_allocation  # Space-separated heavier account, lighter account, and exhausted flag.
 	local -a failed_providers  # Providers whose probe failed, so their pair is the default-account fallback rather than a measurement.
 	if [[ -z "${CLAUDE_CONFIG_DIR:-}" && -z "${CODEX_HOME:-}" ]]; then
-		if ! claude_allocation="$(_hcom_quota_allocate claude)"; then
-			failed_providers+=(claude)
+		case "$command_name" in
+			hcom:team)
+				if ! claude_allocation="$(_hcom_quota_allocate claude)"; then
+					failed_providers+=(claude)
+				fi
+				if ! codex_allocation="$(_hcom_quota_allocate codex)"; then
+					failed_providers+=(codex)
+				fi
+				claude_accounts=(${=claude_allocation})
+				codex_accounts=(${=codex_allocation})
+				;;
+			hcom:team:codex)
+				if ! codex_allocation="$(_hcom_quota_allocate codex)"; then
+					failed_providers+=(codex)
+				fi
+				codex_accounts=(${=codex_allocation})
+				;;
+			hcom:team:claude)
+				if ! claude_allocation="$(_hcom_quota_allocate claude)"; then
+					failed_providers+=(claude)
+				fi
+				claude_accounts=(${=claude_allocation})
+				;;
+		esac
+	fi
+
+	# Each role carries its provider alongside its account number, because the
+	# same number means a different config directory for Claude and for Codex.
+	# Only the mixed team chooses providers here; hcom:team:claude and
+	# hcom:team:codex were asked for one provider and keep it throughout, but
+	# they still take that provider's allocated pair. A provider with both
+	# accounts spent has none left for either of its two roles, so the mixed
+	# team moves all four roles to the provider that still has headroom. A
+	# single-provider team has nowhere to move, so it warns and launches.
+	local reviewer_account=""  # Account number for the reviewer pane, within its provider.
+	local implementer_account=""  # Account number for the implementer pane, within its provider.
+	local scout_account=""  # Account number for the scout pane, within its provider.
+	local orchestrator_account=""  # Account number for the foreground orchestrator, within its provider.
+	local reviewer_provider=claude  # Provider the reviewer account belongs to.
+	local implementer_provider=codex  # Provider the implementer account belongs to.
+	local scout_provider=codex  # Provider the scout account belongs to.
+	local orchestrator_provider=claude  # Provider the orchestrator account belongs to.
+	if [[ "$command_name" == hcom:team ]]; then
+		if (( claude_accounts[3] == 1 && codex_accounts[3] == 1 )); then
+			printf '%s: Claude and Codex are both exhausted; no panes launched.\n' "$command_name" >&2
+			return 1
+		elif (( codex_accounts[3] == 1 )); then
+			orchestrator_launcher=hcom:orchestrator
+			reviewer_launcher=hcom:reviewer
+			implementer_launcher=hcom:implementer:claude
+			scout_launcher=hcom:scout:claude
+			reviewer_account="${claude_accounts[1]:-}"
+			implementer_account="${claude_accounts[2]:-}"
+			scout_account="${claude_accounts[1]:-}"
+			orchestrator_account="${claude_accounts[2]:-}"
+			reviewer_provider=claude
+			implementer_provider=claude
+			scout_provider=claude
+			orchestrator_provider=claude
+		elif (( claude_accounts[3] == 1 )); then
+			orchestrator_launcher=hcom:orchestrator:codex
+			reviewer_launcher=hcom:reviewer:codex
+			implementer_launcher=hcom:implementer
+			scout_launcher=hcom:scout
+			reviewer_account="${codex_accounts[1]:-}"
+			implementer_account="${codex_accounts[2]:-}"
+			scout_account="${codex_accounts[1]:-}"
+			orchestrator_account="${codex_accounts[2]:-}"
+			reviewer_provider=codex
+			implementer_provider=codex
+			scout_provider=codex
+			orchestrator_provider=codex
+		else
+			reviewer_account="${claude_accounts[1]:-}"
+			implementer_account="${codex_accounts[1]:-}"
+			scout_account="${codex_accounts[2]:-}"
+			orchestrator_account="${claude_accounts[2]:-}"
 		fi
-		if ! codex_allocation="$(_hcom_quota_allocate codex)"; then
-			failed_providers+=(codex)
+	elif [[ "$command_name" == hcom:team:codex ]]; then
+		reviewer_account="${codex_accounts[1]:-}"
+		implementer_account="${codex_accounts[2]:-}"
+		scout_account="${codex_accounts[1]:-}"
+		orchestrator_account="${codex_accounts[2]:-}"
+		reviewer_provider=codex
+		implementer_provider=codex
+		scout_provider=codex
+		orchestrator_provider=codex
+	elif [[ "$command_name" == hcom:team:claude ]]; then
+		reviewer_account="${claude_accounts[1]:-}"
+		implementer_account="${claude_accounts[2]:-}"
+		scout_account="${claude_accounts[1]:-}"
+		orchestrator_account="${claude_accounts[2]:-}"
+		reviewer_provider=claude
+		implementer_provider=claude
+		scout_provider=claude
+		orchestrator_provider=claude
+	fi
+
+	if [[ "$command_name" == hcom:team ]]; then
+		if (( codex_accounts[3] == 1 )); then
+			printf '%s: Codex is exhausted; using the Claude team.\n' "$command_name" >&2
+		elif (( claude_accounts[3] == 1 )); then
+			printf '%s: Claude is exhausted; using the Codex team.\n' "$command_name" >&2
 		fi
-		claude_accounts=(${=claude_allocation})
-		codex_accounts=(${=codex_allocation})
+	elif [[ "$command_name" == hcom:team:codex ]] && (( codex_accounts[3] == 1 )); then
+		printf '%s: Codex is exhausted; launching anyway on its two nearly empty accounts.\n' "$command_name" >&2
+	elif [[ "$command_name" == hcom:team:claude ]] && (( claude_accounts[3] == 1 )); then
+		printf '%s: Claude is exhausted; launching anyway on its two nearly empty accounts.\n' "$command_name" >&2
 	fi
 
 	if (( ${#failed_providers} > 0 )); then
@@ -168,18 +269,18 @@ _hcom_launch_team() {
 			local confirmation  # Whatever the user typed at the prompt; only y or yes continues.
 
 			if ! read -r "confirmation?Continue anyway? [y/N] "; then
-				printf 'hcom: team launch cancelled.\n' >&2
+				printf '%s: team launch cancelled.\n' "$command_name" >&2
 				return 1
 			fi
 			case "$confirmation" in
 				[yY]|[yY][eE][sS]) ;;
 				*)
-					printf 'hcom: team launch cancelled.\n' >&2
+					printf '%s: team launch cancelled.\n' "$command_name" >&2
 					return 1
 					;;
 			esac
 		else
-			printf 'hcom: quota unmeasured for %s. stdin is not a terminal, so the launch continues unconfirmed on the default account.\n' "${(j:, :)failed_providers}" >&2
+			printf '%s: quota unmeasured for %s. stdin is not a terminal, so the launch continues unconfirmed on the default account.\n' "$command_name" "${(j:, :)failed_providers}" >&2
 		fi
 	fi
 
@@ -193,10 +294,9 @@ _hcom_launch_team() {
 
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit
 	# status, propagated so the command reports the real pane-launch failure.
-	# The heavier Claude account goes to the reviewer pane; the heavier and
-	# lighter Codex accounts go to the implementer and scout panes. The
-	# lighter Claude account is reserved below for the foreground orchestrator.
-	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" "${claude_accounts[1]:-}" "${codex_accounts[1]:-}" "${codex_accounts[2]:-}" || return $?
+	# Accounts and providers were paired to roles above; the orchestrator's own
+	# pair is passed separately below.
+	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
@@ -208,8 +308,8 @@ _hcom_launch_team() {
 
 	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
 	# up teammates on return; its exit status is this function's result.
-	# It takes the lighter Claude account; the reviewer pane above got the heavier one.
-	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "${claude_accounts[2]:-}"
+	# It takes the account and provider reserved for it above.
+	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
@@ -231,11 +331,17 @@ _hcom_launch_team() {
 # @param  {string}  previous_terminal_ids
 #     Prior same-shell pane IDs, passed through so the layout can replace them.
 # @param  {string}  reviewer_account
-#     Claude account for the reviewer pane, or empty to use the calling shell's own overrides.
+#     Account number for the reviewer pane, or empty to use the calling shell's own overrides.
 # @param  {string}  implementer_account
-#     Codex account for the implementer pane, or empty to use the calling shell's own overrides.
+#     Account number for the implementer pane, or empty to use the calling shell's own overrides.
 # @param  {string}  scout_account
-#     Codex account for the scout pane, or empty to use the calling shell's own overrides.
+#     Account number for the scout pane, or empty to use the calling shell's own overrides.
+# @param  {string}  reviewer_provider
+#     Provider the reviewer account belongs to, claude or codex. Defaults to claude.
+# @param  {string}  implementer_provider
+#     Provider the implementer account belongs to, claude or codex. Defaults to codex.
+# @param  {string}  scout_provider
+#     Provider the scout account belongs to, claude or codex. Defaults to codex.
 _hcom_team_create_panes() {
 	local reviewer_launcher="$1"  # Function that starts the reviewer role.
 	local implementer_launcher="$2"  # Function that starts the implementer role.
@@ -243,9 +349,12 @@ _hcom_team_create_panes() {
 	local working_directory="$4"  # Project directory for the team.
 	local team_label="$5"  # Optional label that scopes the team.
 	local previous_terminal_ids="$6"  # Prior same-shell pane IDs to replace.
-	local reviewer_account="${7:-}"  # Claude account assigned to the reviewer pane.
-	local implementer_account="${8:-}"  # Codex account assigned to the implementer pane.
-	local scout_account="${9:-}"  # Codex account assigned to the scout pane.
+	local reviewer_account="${7:-}"  # Account number assigned to the reviewer pane.
+	local implementer_account="${8:-}"  # Account number assigned to the implementer pane.
+	local scout_account="${9:-}"  # Account number assigned to the scout pane.
+	local reviewer_provider="${10:-claude}"  # Provider whose config directory the reviewer account names.
+	local implementer_provider="${11:-codex}"  # Provider whose config directory the implementer account names.
+	local scout_provider="${12:-codex}"  # Provider whose config directory the scout account names.
 
 	local quoted_working_directory="${(q)working_directory}"  # Zsh-quoted directory for typed pane commands.
 
@@ -264,13 +373,25 @@ _hcom_team_create_panes() {
 	local claude_account_directory="$HOME/.claude-2"  # Config directory for the second Claude account.
 	local codex_account_directory="$HOME/.codex-2"  # Config directory for the second Codex account.
 	if [[ "$reviewer_account" == "2" ]]; then
-		reviewer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+		if [[ "$reviewer_provider" == "claude" ]]; then
+			reviewer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+		else
+			reviewer_env="CODEX_HOME=${(q)codex_account_directory} "
+		fi
 	fi
 	if [[ "$implementer_account" == "2" ]]; then
-		implementer_env="CODEX_HOME=${(q)codex_account_directory} "
+		if [[ "$implementer_provider" == "claude" ]]; then
+			implementer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+		else
+			implementer_env="CODEX_HOME=${(q)codex_account_directory} "
+		fi
 	fi
 	if [[ "$scout_account" == "2" ]]; then
-		scout_env="CODEX_HOME=${(q)codex_account_directory} "
+		if [[ "$scout_provider" == "claude" ]]; then
+			scout_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+		else
+			scout_env="CODEX_HOME=${(q)codex_account_directory} "
+		fi
 	fi
 
 	local reviewer_command="${reviewer_env}${team_env}$reviewer_launcher $quoted_working_directory"  # Typed reviewer launch command.
@@ -345,7 +466,9 @@ _hcom_store_team_scope() {
 # @param  {string}  team_terminal_ids
 #     Pipe-separated pane IDs; the first is the orchestrator pane to refocus.
 # @param  {string}  orchestrator_account
-#     Claude account for the foreground orchestrator, or empty to use the calling shell's own overrides.
+#     Account number for the foreground orchestrator, or empty to use the calling shell's own overrides.
+# @param  {string}  orchestrator_provider
+#     Provider the orchestrator account belongs to, claude or codex. Defaults to claude.
 _hcom_run_team_orchestrator() {
 	local orchestrator_launcher="$1"  # Function that starts the orchestrator role.
 	local team_label="$2"  # Optional label for the orchestrator environment.
@@ -354,7 +477,8 @@ _hcom_run_team_orchestrator() {
 	local keep_agents="$5"  # When 1, cleanup leaves agents and panes running.
 	local team_tags="$6"  # Exact role tags used to stop teammates.
 	local team_terminal_ids="$7"  # Pane IDs for teammate cleanup and refocus.
-	local orchestrator_account="${8:-}"  # Claude account assigned to the foreground orchestrator.
+	local orchestrator_account="${8:-}"  # Account number assigned to the foreground orchestrator.
+	local orchestrator_provider="${9:-claude}"  # Provider whose config directory the orchestrator account names.
 
 	local orchestrator_exit_code  # Foreground orchestrator result returned by this function.
 
@@ -365,13 +489,21 @@ _hcom_run_team_orchestrator() {
 	trap ':' INT
 
 	# Branched rather than building a shared env-prefix variable so the
-	# default/skipped call never explicitly sets CLAUDE_CONFIG_DIR at all,
-	# matching acct2's pre-existing ambient-inheritance behaviour exactly.
+	# default call never sets a config directory at all, and instead inherits
+	# the calling shell's, the same way acct2 already does.
 	if [[ "$orchestrator_account" == "2" ]]; then
-		if CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
-			orchestrator_exit_code=0
+		if [[ "$orchestrator_provider" == "claude" ]]; then
+			if CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+				orchestrator_exit_code=0
+			else
+				orchestrator_exit_code=$?
+			fi
 		else
-			orchestrator_exit_code=$?
+			if CODEX_HOME="$HOME/.codex-2" HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+				orchestrator_exit_code=0
+			else
+				orchestrator_exit_code=$?
+			fi
 		fi
 	elif HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 		orchestrator_exit_code=0
