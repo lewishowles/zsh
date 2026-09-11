@@ -267,7 +267,7 @@ def claude_usage(account_home):
 
 		quota.extend((100 - used, reset, window_seconds))
 
-	return quota, time.time() + 180
+	return quota
 
 
 # Write one request or notification as a JSON line.
@@ -384,6 +384,9 @@ def stop_server(server):
 
 # Initialise Codex, read rate limits, and always stop the temporary server.
 #
+# Returns six values, session before week: remaining percentage, reset timestamp, and
+# window length in seconds.
+#
 # @param  {Path}  account_home
 #     Selected account's Codex configuration directory.
 def codex_usage(account_home):
@@ -450,7 +453,7 @@ def codex_usage(account_home):
 
 			quota.extend((100 - used, reset, duration * 60))
 
-		return quota, time.time() + 60
+		return quota
 	except (AttributeError, KeyError, OSError, TypeError, ValueError) as error:
 		failure = error
 	finally:
@@ -484,7 +487,9 @@ def read_cache(cache_file, ttl):
 			cached = json.load(source)  # Previously computed quota and deadline.
 
 			quota = cached["quota"]
-			expires = cached["expires"]  # Already capped to the Claude source freshness.
+			# Deadline from the cache lifetime in force when this was written, which
+			# may differ from the one it is checked against below.
+			expires = cached["expires"]
 			valid_quota = type(quota) is list and len(quota) == 6  # Both windows present.
 			if valid_quota:
 				for remaining, reset, duration in (quota[:3], quota[3:]):
@@ -518,7 +523,8 @@ def read_cache(cache_file, ttl):
 # @param  {list}  quota
 #     Validated six-value window summary.
 # @param  {float}  expires
-#     Deadline capped by both the provider TTL and source freshness.
+#     Moment the saved summary stops counting as current, set by the caller's cache
+#     lifetime.
 def write_cache(cache_file, quota, expires):
 	with tempfile.NamedTemporaryFile(
 		mode="w", dir=cache_file.parent, delete=False
@@ -555,7 +561,7 @@ def main():
 		raise ValueError("Unknown provider or account")
 
 	ttl = int(ttl_text)  # Cache policy chosen by the wrapper.
-	if not 0 <= ttl <= (60 if provider == "codex" else 180):
+	if not 0 <= ttl <= (300 if provider == "codex" else 600):
 		raise ValueError("Invalid quota cache lifetime")
 
 	cache_dir = Path(tempfile.gettempdir()) / (
@@ -581,15 +587,15 @@ def main():
 			Path.home()
 		)  # Allocation compares known accounts independently of inherited overrides.
 		if provider == "claude":
-			quota, expires = claude_usage(
+			quota = claude_usage(
 				None if account == "default" else home / ".claude-2"
 			)
 		else:
-			quota, expires = codex_usage(
+			quota = codex_usage(
 				home / (".codex" if account == "default" else ".codex-2")
 			)
 
-		write_cache(cache_file, quota, min(expires, time.time() + ttl))
+		write_cache(cache_file, quota, time.time() + ttl)
 
 	print(*quota)
 

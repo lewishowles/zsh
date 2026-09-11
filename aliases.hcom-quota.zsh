@@ -14,25 +14,33 @@ zmodload -F zsh/datetime p:EPOCHSECONDS
 # @param  {string}  account
 #     Account ID: default or 2, independent of inherited account overrides.
 # @param  {integer}  ttl
-#     Maximum cache lifetime in seconds, capped again by source freshness.
+#     How long a saved reading may still be used, in seconds. The script rejects a value
+#     above its per-provider ceiling (Codex 300, Claude 600).
 _hcom_quota_probe() {
 	command python3 "$ZSH_CONFIG_ROOT/scripts/hcom-quota.py" "$1" "$2" "$3"
 }
 
-# Prints one Codex account's quota windows with a 60-second cache.
+# Prints one Codex account's quota windows, reusing a cached reading for up to five minutes.
+#
+# Quota moves slowly enough that a launch a few minutes after the last one can reuse the
+# same reading, and the Codex probe is a local call that costs no quota of its own.
 #
 # @param  {string}  account
 #     Account ID: default or 2.
 _hcom_quota_codex() {
-	_hcom_quota_probe codex "$1" 60
+	_hcom_quota_probe codex "$1" 300
 }
 
-# Prints one Claude account's quota windows with a cache lasting at most 180 seconds.
+# Prints one Claude account's quota windows, reusing a cached reading for up to ten minutes.
+#
+# Reading Claude's quota means asking Claude, which spends a little of the quota being
+# measured, so this holds a reading longer than the Codex probe does. Ten minutes still
+# covers the burst of launches that starting or restarting a team produces.
 #
 # @param  {string}  account
 #     Account ID: default or 2.
 _hcom_quota_claude() {
-	_hcom_quota_probe claude "$1" 180
+	_hcom_quota_probe claude "$1" 600
 }
 
 # Prints the account ID for the heavier role, then the lighter one, then 1 when the provider
