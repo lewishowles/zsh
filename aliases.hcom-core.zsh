@@ -102,6 +102,12 @@ _hcom_launch_role() {
 # Assembles the hcom argument list from the resolved role settings and launches the
 # agent with the tool-specific environment prefix.
 #
+# A solo role runs on whichever of the two accounts has more quota headroom, the same
+# choice hcom:team makes for its orchestrator. The probe is skipped when an account is
+# already chosen: by hand or acct2 (CODEX_HOME or CLAUDE_CONFIG_DIR set), or by hcom:team,
+# which sets HCOM_ACCOUNT on every role it launches so a team's placement is never
+# second-guessed. A failed quota probe falls back to the default account and launches anyway.
+#
 # @param  {string}  tool
 #     Agent tool to launch, "codex" or "claude".
 # @param  {string}  scoped_tag
@@ -125,6 +131,7 @@ _hcom_role_invoke() {
 	local initial_prompt="$6"  # Optional first message for the agent.
 	local thinking_effort="$7"  # Optional reasoning effort for the agent.
 	local -a hcom_arguments  # Assembled command line passed to hcom.
+	local account_directory=""  # Config directory for the allocated account; empty when the default account is used.
 
 	hcom_arguments=(
 		"$tool"
@@ -147,15 +154,28 @@ _hcom_role_invoke() {
 		fi
 	fi
 
+	if [[ -z "${CODEX_HOME:-}${CLAUDE_CONFIG_DIR:-}" && -z "${HCOM_ACCOUNT+x}" ]]; then
+		account_directory="$(_hcom_quota_account_directory "$tool")"
+	fi
+
 	if [[ "$tool" = "codex" ]]; then
 		hcom_arguments+=(
 			--config 'model_verbosity="low"'
 			--config 'model_reasoning_summary="none"'
 			--config 'hide_agent_reasoning=true'
 		)
-		HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
+
+		if [[ -n "$account_directory" ]]; then
+			CODEX_HOME="$account_directory" HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
+		else
+			HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
+		fi
 	else
-		HCOM_CLAUDE_ARGS='--permission-mode auto' HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
+		if [[ -n "$account_directory" ]]; then
+			CLAUDE_CONFIG_DIR="$account_directory" HCOM_CLAUDE_ARGS='--permission-mode auto' HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
+		else
+			HCOM_CLAUDE_ARGS='--permission-mode auto' HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
+		fi
 	fi
 }
 

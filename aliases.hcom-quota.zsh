@@ -95,7 +95,7 @@ _hcom_quota_allocate() {
 
 	for account in "${account_ids[@]}"; do
 		if ! available="$("_hcom_quota_$provider" "$account" 2>&1)"; then
-			printf '\n[hcom quota probe failed]\n  Provider: %s\n  Account: %s\n  Diagnostic: %s\n  Consequence: both roles land on the default account, the allocation this balancing exists to avoid.\n\n' "$provider" "$account" "${available//$'\n'/; }" >&2
+			printf '\n[hcom quota probe failed]\n  Provider: %s\n  Account: %s\n  Diagnostic: %s\n  Consequence: every role in this launch lands on the default account, the placement this balancing exists to avoid.\n\n' "$provider" "$account" "${available//$'\n'/; }" >&2
 			print -r -- 'default default 0'
 			return 2
 		fi
@@ -152,4 +152,29 @@ _hcom_quota_allocate() {
 	provider_exhausted=$(( session_remaining[1] < 5 && session_remaining[2] < 5 ))
 
 	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
+}
+
+# Prints the config directory a solo launch should use, or nothing to stay on the default
+# account. Only the heavier role's account from _hcom_quota_allocate matters here, because a
+# solo launch is one role. A failed probe prints nothing and exits 0, so the caller launches
+# on the default account rather than stopping; the allocator's diagnostic still reaches the
+# terminal, so a single session can be moved by hand.
+#
+# @param  {string}  provider
+#     "codex" or "claude", which also picks the second-account directory.
+_hcom_quota_account_directory() {
+	local provider="$1"  # Provider whose accounts are compared.
+	local allocation  # Allocator output: heavier account, lighter account, exhausted flag.
+
+	if ! allocation="$(_hcom_quota_allocate "$provider")"; then
+		return 0
+	fi
+
+	if [[ "${allocation%% *}" == 2 ]]; then
+		if [[ "$provider" == "codex" ]]; then
+			print -r -- "$HOME/.codex-2"
+		else
+			print -r -- "$HOME/.claude-2"
+		fi
+	fi
 }

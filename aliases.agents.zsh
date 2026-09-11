@@ -25,14 +25,11 @@ codex() {
 		return
 	fi
 
-	local allocation  # Allocator output, or the default account when the probe fails.
-	local -a allocation_fields  # Allocator output split into: account for the heavier role, account for the lighter role, provider-exhausted flag.
+	local account_directory  # Config directory for the second account; empty on the default account.
+	account_directory="$(_hcom_quota_account_directory codex)"
 
-	allocation="$(_hcom_quota_allocate codex 2>/dev/null)" || allocation="default"
-	allocation_fields=("${=allocation}")
-
-	if [[ "${allocation_fields[1]}" == 2 ]]; then
-		CODEX_HOME="$HOME/.codex-2" command codex "$@"
+	if [[ -n "$account_directory" ]]; then
+		CODEX_HOME="$account_directory" command codex "$@"
 	else
 		command codex "$@"
 	fi
@@ -59,14 +56,11 @@ claude() {
 		return
 	fi
 
-	local allocation  # Allocator output, or the default account when the probe fails.
-	local -a allocation_fields  # Allocator output split into: account for the heavier role, account for the lighter role, provider-exhausted flag.
+	local account_directory  # Config directory for the second account; empty on the default account.
+	account_directory="$(_hcom_quota_account_directory claude)"
 
-	allocation="$(_hcom_quota_allocate claude 2>/dev/null)" || allocation="default"
-	allocation_fields=("${=allocation}")
-
-	if [[ "${allocation_fields[1]}" == 2 ]]; then
-		CLAUDE_CONFIG_DIR="$HOME/.claude-2" command claude --permission-mode auto "$@"
+	if [[ -n "$account_directory" ]]; then
+		CLAUDE_CONFIG_DIR="$account_directory" command claude --permission-mode auto "$@"
 	else
 		command claude --permission-mode auto "$@"
 	fi
@@ -88,7 +82,7 @@ acct2() {
 		set -- "$head" "$@"
 	fi
 
-	CLAUDE_CONFIG_DIR="$HOME/.claude-2" CODEX_HOME="$HOME/.codex-2" "$@"
+	CLAUDE_CONFIG_DIR="$HOME/.claude-2" CODEX_HOME="$HOME/.codex-2" HCOM_ACCOUNT=2 "$@"
 }
 # @desc  Open the current AGENTS.md file
 # @cat   agent

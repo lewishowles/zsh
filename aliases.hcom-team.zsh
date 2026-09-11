@@ -373,30 +373,30 @@ _hcom_team_create_panes() {
 	local team_env=""  # Optional HCOM_TEAM_LABEL assignment for new panes.
 	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
 
-	local reviewer_env="$account_env"  # Reviewer pane's environment prefix, overridden below for account 2.
-	local implementer_env="$account_env"  # Implementer pane's environment prefix, overridden below for account 2.
-	local scout_env="$account_env"  # Scout pane's environment prefix, overridden below for account 2.
+	local reviewer_env="${account_env}HCOM_ACCOUNT=${reviewer_account:-default} "  # Reviewer pane's environment prefix, overridden below for account 2.
+	local implementer_env="${account_env}HCOM_ACCOUNT=${implementer_account:-default} "  # Implementer pane's environment prefix, overridden below for account 2.
+	local scout_env="${account_env}HCOM_ACCOUNT=${scout_account:-default} "  # Scout pane's environment prefix, overridden below for account 2.
 	local claude_account_directory="$HOME/.claude-2"  # Config directory for the second Claude account.
 	local codex_account_directory="$HOME/.codex-2"  # Config directory for the second Codex account.
 	if [[ "$reviewer_account" == "2" ]]; then
 		if [[ "$reviewer_provider" == "claude" ]]; then
-			reviewer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+			reviewer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} HCOM_ACCOUNT=2 "
 		else
-			reviewer_env="CODEX_HOME=${(q)codex_account_directory} "
+			reviewer_env="CODEX_HOME=${(q)codex_account_directory} HCOM_ACCOUNT=2 "
 		fi
 	fi
 	if [[ "$implementer_account" == "2" ]]; then
 		if [[ "$implementer_provider" == "claude" ]]; then
-			implementer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+			implementer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} HCOM_ACCOUNT=2 "
 		else
-			implementer_env="CODEX_HOME=${(q)codex_account_directory} "
+			implementer_env="CODEX_HOME=${(q)codex_account_directory} HCOM_ACCOUNT=2 "
 		fi
 	fi
 	if [[ "$scout_account" == "2" ]]; then
 		if [[ "$scout_provider" == "claude" ]]; then
-			scout_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} "
+			scout_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} HCOM_ACCOUNT=2 "
 		else
-			scout_env="CODEX_HOME=${(q)codex_account_directory} "
+			scout_env="CODEX_HOME=${(q)codex_account_directory} HCOM_ACCOUNT=2 "
 		fi
 	fi
 
@@ -499,19 +499,19 @@ _hcom_run_team_orchestrator() {
 	# the calling shell's, the same way acct2 already does.
 	if [[ "$orchestrator_account" == "2" ]]; then
 		if [[ "$orchestrator_provider" == "claude" ]]; then
-			if CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+			if CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_ACCOUNT=2 HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 				orchestrator_exit_code=0
 			else
 				orchestrator_exit_code=$?
 			fi
 		else
-			if CODEX_HOME="$HOME/.codex-2" HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+			if CODEX_HOME="$HOME/.codex-2" HCOM_ACCOUNT=2 HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 				orchestrator_exit_code=0
 			else
 				orchestrator_exit_code=$?
 			fi
 		fi
-	elif HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
+	elif HCOM_ACCOUNT=default HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
 		orchestrator_exit_code=0
 	else
 		orchestrator_exit_code=$?

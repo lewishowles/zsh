@@ -4,16 +4,16 @@
 # @desc  Start, resume, or continue the complete hcom team
 # @cat   hcom
 alias team="hcom:team"
-# @desc  Start the Orchestrator hcom role
+# @desc  Start the Orchestrator hcom role on the account with more quota headroom
 # @cat   hcom
 alias ho="hcom:orchestrator"
-# @desc  Start the Reviewer hcom role
+# @desc  Start the Reviewer hcom role on the account with more quota headroom
 # @cat   hcom
 alias hr="hcom:reviewer"
-# @desc  Start the Implementer hcom role
+# @desc  Start the Implementer hcom role on the account with more quota headroom
 # @cat   hcom
 alias hi="hcom:implementer"
-# @desc  Start the Scout hcom role
+# @desc  Start the Scout hcom role on the account with more quota headroom
 # @cat   hcom
 alias hs="hcom:scout"
 
@@ -60,61 +60,61 @@ _hcom_launch_configured_role() {
 		--initial-prompt "${2:-}"
 }
 
-# @desc  Start the Orchestrator hcom role
+# @desc  Start the Orchestrator hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:orchestrator() {
 	_hcom_launch_configured_role orchestrator "$@"
 }
 
-# @desc  Start the Codex Orchestrator hcom role
+# @desc  Start the Codex Orchestrator hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:orchestrator:codex() {
 	_hcom_launch_configured_role orchestrator-codex "$@"
 }
 
-# @desc  Start the Implementer hcom role
+# @desc  Start the Implementer hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:implementer() {
 	_hcom_launch_configured_role implementer "$@"
 }
 
-# @desc  Start the Claude Implementer hcom role
+# @desc  Start the Claude Implementer hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:implementer:claude() {
 	_hcom_launch_configured_role implementer-claude "$@"
 }
 
-# @desc  Start the Reviewer hcom role
+# @desc  Start the Reviewer hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:reviewer() {
 	_hcom_launch_configured_role reviewer "$@"
 }
 
-# @desc  Start the Codex Reviewer hcom role
+# @desc  Start the Codex Reviewer hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:reviewer:codex() {
 	_hcom_launch_configured_role reviewer-codex "$@"
 }
 
-# @desc  Start the Scout hcom role
+# @desc  Start the Scout hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
-# @desc  Start the Claude Scout hcom role
+# @desc  Start the Claude Scout hcom role on the account with more quota headroom
 # @cat   hcom
 hcom:scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
 }
 
-# @desc  Start the Scout for a workflow's Claude-named peer
+# @desc  Start the Scout for a workflow's Claude-named peer on the account with more quota headroom
 # @cat   hcom
 hcom:scout:peer:claude() {
 	_hcom_launch_configured_role scout-peer-claude "$@"
 }
 
-# @desc  Start the Scout for a workflow's Codex-named peer
+# @desc  Start the Scout for a workflow's Codex-named peer on the account with more quota headroom
 # @cat   hcom
 hcom:scout:peer:codex() {
 	_hcom_launch_configured_role scout-peer-codex "$@"
