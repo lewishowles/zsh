@@ -6,18 +6,77 @@ export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
 export VISUAL="zed --wait"
 export EDITOR="$VISUAL"
 
-# @desc  Run Codex with shared configuration defaults
+# @desc  Run Codex on the account with more quota headroom
 # @cat   agent
-alias codex="codex"
-# @desc  Run claude with auto-mode
+#
+# Runs Codex on whichever of the two accounts has more quota headroom, matching what
+# hcom:team gives its orchestrator. A session with a single role is doing the orchestrator's
+# job, which is the heavier of the two roles the allocator assigns.
+#
+# An account already chosen by hand, through acct2 or an inherited CODEX_HOME, is left
+# alone. A failed quota probe falls back to the default account and launches anyway, because
+# stopping a single session to ask would cost more than the imbalance it avoids.
+#
+# @param  {string}  arguments
+#     Optional arguments forwarded to Codex.
+codex() {
+	if [[ -n "${CODEX_HOME:-}" ]]; then
+		command codex "$@"
+		return
+	fi
+
+	local allocation  # Allocator output, or the default account when the probe fails.
+	local -a allocation_fields  # Allocator output split into: account for the heavier role, account for the lighter role, provider-exhausted flag.
+
+	allocation="$(_hcom_quota_allocate codex 2>/dev/null)" || allocation="default"
+	allocation_fields=("${=allocation}")
+
+	if [[ "${allocation_fields[1]}" == 2 ]]; then
+		CODEX_HOME="$HOME/.codex-2" command codex "$@"
+	else
+		command codex "$@"
+	fi
+}
+# @desc  Run Claude in auto-mode on the account with more quota headroom
 # @cat   agent
-alias claude="claude --permission-mode auto"
+#
+# Runs Claude in auto-mode on whichever of the two accounts has more quota headroom, matching
+# what hcom:team gives its orchestrator. A session with a single role is doing the
+# orchestrator's job, which is the heavier of the two roles the allocator assigns.
+#
+# An account already chosen by hand, through acct2 or an inherited CLAUDE_CONFIG_DIR, is left
+# alone. A failed quota probe falls back to the default account and launches anyway, because
+# stopping a single session to ask would cost more than the imbalance it avoids.
+#
+# Reading Claude's quota costs a small Claude call, so the probe's cached reading does most of
+# the work here.
+#
+# @param  {string}  arguments
+#     Optional arguments forwarded to Claude.
+claude() {
+	if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+		command claude --permission-mode auto "$@"
+		return
+	fi
+
+	local allocation  # Allocator output, or the default account when the probe fails.
+	local -a allocation_fields  # Allocator output split into: account for the heavier role, account for the lighter role, provider-exhausted flag.
+
+	allocation="$(_hcom_quota_allocate claude 2>/dev/null)" || allocation="default"
+	allocation_fields=("${=allocation}")
+
+	if [[ "${allocation_fields[1]}" == 2 ]]; then
+		CLAUDE_CONFIG_DIR="$HOME/.claude-2" command claude --permission-mode auto "$@"
+	else
+		command claude --permission-mode auto "$@"
+	fi
+}
 # @desc  Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 team)
 # @cat   agent
 acct2() {
 	# "$@" bypasses alias expansion (aliases only expand in command
 	# position while a line is parsed), so short aliases like `team` or
-	# `claude` would otherwise silently fall through or drop their flags.
+	# `ho` would otherwise silently fall through or drop their flags.
 	# Expand one level of alias manually before dispatching.
 	local head="$1"
 	shift
