@@ -196,6 +196,12 @@ _hcom_launch_team() {
 	local implementer_provider=codex  # Provider the implementer account belongs to.
 	local scout_provider=codex  # Provider the scout account belongs to.
 	local orchestrator_provider=claude  # Provider the orchestrator account belongs to.
+	# The orchestrator costs the most of the four roles: it runs in the foreground for a
+	# whole session and keeps accumulating context, while the reviewer reads one bounded
+	# diff at a time. So the orchestrator takes the account with more headroom and the
+	# reviewer takes the lighter one, in every branch below. When one provider carries all
+	# four roles, the scout shares the orchestrator's account and the implementer the
+	# reviewer's, so the two costliest roles never share one.
 	if [[ "$command_name" == hcom:team ]]; then
 		if (( claude_accounts[3] == 1 && codex_accounts[3] == 1 )); then
 			printf '%s: Claude and Codex are both exhausted; no panes launched.\n' "$command_name" >&2
@@ -205,10 +211,10 @@ _hcom_launch_team() {
 			reviewer_launcher=hcom:reviewer
 			implementer_launcher=hcom:implementer:claude
 			scout_launcher=hcom:scout:claude
-			reviewer_account="${claude_accounts[1]:-}"
+			reviewer_account="${claude_accounts[2]:-}"
 			implementer_account="${claude_accounts[2]:-}"
 			scout_account="${claude_accounts[1]:-}"
-			orchestrator_account="${claude_accounts[2]:-}"
+			orchestrator_account="${claude_accounts[1]:-}"
 			reviewer_provider=claude
 			implementer_provider=claude
 			scout_provider=claude
@@ -218,34 +224,34 @@ _hcom_launch_team() {
 			reviewer_launcher=hcom:reviewer:codex
 			implementer_launcher=hcom:implementer
 			scout_launcher=hcom:scout
-			reviewer_account="${codex_accounts[1]:-}"
+			reviewer_account="${codex_accounts[2]:-}"
 			implementer_account="${codex_accounts[2]:-}"
 			scout_account="${codex_accounts[1]:-}"
-			orchestrator_account="${codex_accounts[2]:-}"
+			orchestrator_account="${codex_accounts[1]:-}"
 			reviewer_provider=codex
 			implementer_provider=codex
 			scout_provider=codex
 			orchestrator_provider=codex
 		else
-			reviewer_account="${claude_accounts[1]:-}"
+			reviewer_account="${claude_accounts[2]:-}"
 			implementer_account="${codex_accounts[1]:-}"
 			scout_account="${codex_accounts[2]:-}"
-			orchestrator_account="${claude_accounts[2]:-}"
+			orchestrator_account="${claude_accounts[1]:-}"
 		fi
 	elif [[ "$command_name" == hcom:team:codex ]]; then
-		reviewer_account="${codex_accounts[1]:-}"
+		reviewer_account="${codex_accounts[2]:-}"
 		implementer_account="${codex_accounts[2]:-}"
 		scout_account="${codex_accounts[1]:-}"
-		orchestrator_account="${codex_accounts[2]:-}"
+		orchestrator_account="${codex_accounts[1]:-}"
 		reviewer_provider=codex
 		implementer_provider=codex
 		scout_provider=codex
 		orchestrator_provider=codex
 	elif [[ "$command_name" == hcom:team:claude ]]; then
-		reviewer_account="${claude_accounts[1]:-}"
+		reviewer_account="${claude_accounts[2]:-}"
 		implementer_account="${claude_accounts[2]:-}"
 		scout_account="${claude_accounts[1]:-}"
-		orchestrator_account="${claude_accounts[2]:-}"
+		orchestrator_account="${claude_accounts[1]:-}"
 		reviewer_provider=claude
 		implementer_provider=claude
 		scout_provider=claude
