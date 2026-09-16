@@ -84,6 +84,26 @@ acct2() {
 
 	CLAUDE_CONFIG_DIR="$HOME/.claude-2" CODEX_HOME="$HOME/.codex-2" HCOM_ACCOUNT=2 "$@"
 }
+
+# @desc  Run any command under the default Claude/Codex account (e.g. acct1 claude, acct1 team)
+# @cat   agent
+#
+# Naming the default account's directories stops the launchers from picking an account by
+# quota headroom, the same way acct2 does for the second account.
+acct1() {
+	# Expand one level of alias by hand, for the same reason as acct2.
+	local head="$1"
+	shift
+	if (( ${+aliases[$head]} )); then
+		local -a expanded
+		expanded=("${(z)aliases[$head]}")
+		set -- "${expanded[@]}" "$@"
+	else
+		set -- "$head" "$@"
+	fi
+
+	CLAUDE_CONFIG_DIR="$HOME/.claude" CODEX_HOME="$HOME/.codex" HCOM_ACCOUNT=default "$@"
+}
 # @desc  Open the current AGENTS.md file
 # @cat   agent
 alias agents="zed AGENTS.md"

@@ -73,3 +73,6 @@ done
 if (( $+commands[starship] )); then
 	eval "$(starship init zsh)"
 fi
+
+# bun completions
+[ -s "/Users/lewis/.bun/_bun" ] && source "/Users/lewis/.bun/_bun"
