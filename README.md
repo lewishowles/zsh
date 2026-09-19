@@ -292,15 +292,15 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom |
 | `hcom:scout:peer:claude` |  | Start the Scout for a workflow's Claude-named peer on the account with more quota headroom |
 | `hcom:scout:peer:codex` |  | Start the Scout for a workflow's Codex-named peer on the account with more quota headroom |
-| `hcom:team` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete hcom team |
-| `hcom:team:claude` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Claude hcom team |
-| `hcom:team:codex` | [resume|continue] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, or continue the complete Codex hcom team |
+| `hcom:team` | [resume|continue|handover] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, continue, or hand over the complete hcom team |
+| `hcom:team:claude` | [resume|continue|handover] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, continue, or hand over the complete Claude hcom team |
+| `hcom:team:codex` | [resume|continue|handover] [--team <label>] [--keep-agents] [working-directory] [initial-prompt] | Start, resume, continue, or hand over the complete Codex hcom team |
 | `hcom:team:stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom |
 | `hr` |  | Start the Reviewer hcom role on the account with more quota headroom |
 | `hs` |  | Start the Scout hcom role on the account with more quota headroom |
-| `team` |  | Start, resume, or continue the complete hcom team |
+| `team` |  | Start, resume, continue, or hand over the complete hcom team |
 
 ### nav
 
@@ -319,7 +319,9 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `goto:lint` |  | Open the central linting project |
 | `goto:sketch` |  | Open the Sketch plugins root |
 | `goto:testing` |  | Open the testing helper library project |
+| `goto:timer` |  | Open the Lew Timer macOS app project |
 | `goto:tools` |  | Open the dev tools project |
+| `goto:usage` |  | Open the Lew Usage macOS app project |
 | `goto:zsh` |  | Open the ZSH config repo |
 
 ### package

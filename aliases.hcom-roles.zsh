@@ -1,7 +1,7 @@
 # Shared hcom role configuration and launchers.
 
 # Provides short names for the team and shared role launchers.
-# @desc  Start, resume, or continue the complete hcom team
+# @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 alias team="hcom:team"
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom
