@@ -295,7 +295,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:team` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] | Start, resume, continue, or hand over the complete hcom team |
 | `hcom:team:claude` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] | Start, resume, continue, or hand over the complete Claude hcom team |
 | `hcom:team:codex` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] | Start, resume, continue, or hand over the complete Codex hcom team |
-| `hcom:team:stop` | [--team <label>] [working-directory] | Stop the exact hcom team for a directory and optional team label |
+| `hcom:team:stop` | [--team <label>] [--dir <path>] | Stop the exact hcom team for a directory and optional team label |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom |
 | `hr` |  | Start the Reviewer hcom role on the account with more quota headroom |

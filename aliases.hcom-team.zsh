@@ -689,15 +689,15 @@ hcom:team:claude() {
 # @desc  Stop the exact hcom team for a directory and optional team label
 # @cat   hcom
 #
-# Usage: hcom:team:stop [--team <label>] [working-directory]
+# Usage: hcom:team:stop [--team <label>] [--dir <path>]
 #
 # Run with no arguments from the shell that launched the team, or with
-# --team/a directory from elsewhere. From another shell this always stops
+# --team and/or --dir from elsewhere. From another shell this always stops
 # the team's agents, but can only close its Ghostty panes when that scope
 # matches the launching shell's own stored team.
 #
 # @param  {string}  working_directory
-#     Optional project directory. Defaults to the active team's directory or the current directory with an explicit scope.
+#     Optional project directory from --dir. Defaults to the active team's directory or the current directory with an explicit scope.
 # @param  {string}  team_label
 #     Optional team label. Defaults to the active team's label when no scope is supplied.
 hcom:team:stop() {
@@ -731,16 +731,25 @@ hcom:team:stop() {
 # diagnostic when an option or positional is malformed.
 #
 # @param  {string}  ...
-#     The hcom:team:stop arguments: optional --team <label> and up to one
-#     working-directory positional.
+#     The hcom:team:stop arguments: optional --team <label> and --dir <path>.
 _hcom_parse_team_stop_args() {
 	local team_label=""  # Explicit label from --team, empty otherwise.
-	local working_directory=""  # Explicit directory positional, empty otherwise.
+	local working_directory=""  # Explicit directory from --dir, empty otherwise.
 	local explicit_scope=0  # Whether --team or a directory was supplied, rather than using the launching shell's stored team.
-	local usage_message="hcom:team:stop: usage: hcom:team:stop [--team <label>] [working-directory]"  # Shared usage error text.
+	local usage_message="hcom:team:stop: usage: hcom:team:stop [--team <label>] [--dir <path>]"  # Shared usage error text.
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
+			--dir)
+				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
+					printf 'hcom:team:stop: --dir requires a directory.\n' >&2
+					return 1
+				fi
+
+				working_directory="$2"
+				explicit_scope=1
+				shift 2
+				;;
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
 					printf 'hcom:team:stop: --team requires a label.\n' >&2
@@ -759,29 +768,9 @@ _hcom_parse_team_stop_args() {
 				printf 'hcom:team:stop: unknown option: %s\n' "$1" >&2
 				return 1
 				;;
-			*)
-				if [[ -n "$working_directory" ]]; then
-					printf '%s\n' "$usage_message" >&2
-					return 1
-				fi
-
-				working_directory="$1"
-				explicit_scope=1
-				shift
-				;;
+			*) break ;;
 		esac
 	done
-
-	if [[ $# -gt 0 ]]; then
-		if [[ -n "$working_directory" ]]; then
-			printf '%s\n' "$usage_message" >&2
-			return 1
-		fi
-
-		working_directory="$1"
-		explicit_scope=1
-		shift
-	fi
 
 	if [[ $# -gt 0 ]]; then
 		printf '%s\n' "$usage_message" >&2
