@@ -292,9 +292,9 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom |
 | `hcom:scout:peer:claude` |  | Start the Scout for a workflow's Claude-named peer on the account with more quota headroom |
 | `hcom:scout:peer:codex` |  | Start the Scout for a workflow's Codex-named peer on the account with more quota headroom |
-| `hcom:team` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] | Start, resume, continue, or hand over the complete hcom team |
-| `hcom:team:claude` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] | Start, resume, continue, or hand over the complete Claude hcom team |
-| `hcom:team:codex` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] | Start, resume, continue, or hand over the complete Codex hcom team |
+| `hcom:team` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete hcom team |
+| `hcom:team:claude` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Claude hcom team |
+| `hcom:team:codex` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |
 | `hcom:team:stop` | [--team <label>] [--dir <path>] | Stop the exact hcom team for a directory and optional team label |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom |

@@ -160,7 +160,17 @@ _hcom_launch_team() {
 	local keep_agents="${reply[3]}"  # Whether cleanup should leave agents and panes running.
 	local working_directory="${reply[4]}"  # Project directory for the team.
 	local initial_prompt="${reply[5]}"  # Optional prompt passed to the orchestrator.
+	local skip_confirmation="${reply[6]}"  # Whether to start a continuation without prompting.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
+
+	if [[ "$launch_mode" == continue ]]; then
+		_hcom_preview_team_continuation "$team_scope_directory" "$skip_confirmation"
+		case "$?" in
+			0) ;;
+			2) return 0 ;;
+			*) return 1 ;;
+		esac
+	fi
 
 	if [[ -n "$launch_mode" ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
@@ -341,6 +351,105 @@ _hcom_launch_team() {
 	# up teammates on return; its exit status is this function's result.
 	# It takes the account and provider reserved for it above.
 	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
+}
+
+# Shows the next progress chunk and confirms a team continuation before launch.
+#
+# Returns 0 when the continuation may start, 1 when progress cannot be previewed
+# or confirmation cannot be requested, and 2 when the user declines to start.
+#
+# @param  {string}  working_directory
+#     Directory where the team's progress records are read.
+# @param  {integer}  skip_confirmation
+#     1 to start without prompting, or 0 to ask before starting.
+_hcom_preview_team_continuation() {
+	local working_directory="$1"  # Directory where progress next must run.
+	local skip_confirmation="$2"  # Whether to skip the interactive prompt.
+	local project_directory="${working_directory%/}"  # Directory without a trailing slash for fallback naming.
+	local project_name="${project_directory##*/}"  # Fallback project name for an unavailable progress response.
+	local progress_json  # JSON returned by progress next.
+	local progress_project_name  # Project name from the progress response, when it has one.
+	local task_title  # Title of the current progress task.
+	local chunk_title  # Title of the next progress chunk.
+	local chunk_id  # Identifier of the next progress chunk.
+	local description  # Description of the next progress chunk.
+	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} - 2 : 78 ))  # Fold width that keeps lines readable, after the two-space indent.
+	local confirmation=""  # Single key entered at the start prompt.
+
+	if [[ -z "$project_name" ]]; then
+		project_name="$working_directory"
+	fi
+
+	if ! command -v jq >/dev/null 2>&1; then
+		printf 'hcom: jq is required to preview the next team chunk.\n' >&2
+		return 1
+	fi
+
+	if ! progress_json="$(cd "$working_directory" && progress next --json 2>/dev/null)"; then
+		printf 'hcom: progress next failed in %s.\n' "$working_directory" >&2
+		return 1
+	fi
+
+	progress_project_name="$(jq -r '.data.project.name // empty' 2>/dev/null <<<"$progress_json")"
+	if [[ -n "$progress_project_name" ]]; then
+		project_name="$progress_project_name"
+	fi
+
+	if ! jq -e '.ok == true and .data.chunk != null' >/dev/null 2>&1 <<<"$progress_json"; then
+		printf 'Nothing to continue in %s.\n' "$project_name" >&2
+		return 1
+	fi
+
+	task_title="$(jq -r '.data.task.title // ""' <<<"$progress_json")"
+	chunk_title="$(jq -r '.data.chunk.title // ""' <<<"$progress_json")"
+	chunk_id="$(jq -r '.data.chunk.id // ""' <<<"$progress_json")"
+	description="$(jq -r '.data.chunk.description // ""' <<<"$progress_json")"
+
+	if (( wrap_width < 1 )); then
+		wrap_width=1
+	fi
+
+	print
+	cli_style_span "$task_title" --weight bold
+	if [[ -n "$chunk_id" ]]; then
+		printf '→ %s  ' "$chunk_title"
+		cli_style_span "$chunk_id" muted
+	else
+		printf '→ %s\n' "$chunk_title"
+	fi
+
+	if [[ -n "$description" ]]; then
+		print
+		printf '%s\n' "$description" | fold -s -w "$wrap_width" | sed 's/^/  /'
+	fi
+
+	print
+
+	if (( ! skip_confirmation )); then
+		if [[ ! -t 0 ]]; then
+			printf 'hcom: cannot ask for confirmation because stdin is not a terminal; use --yes.\n' >&2
+			return 1
+		fi
+
+		if ! read -r -k 1 "confirmation?Start a team on this? [Y/n] "; then
+			print
+			print -r -- 'Not started.'
+			return 2
+		fi
+
+		# Enter already moves to a new line; any other key leaves the cursor after it.
+		if [[ "$confirmation" != $'\n' ]]; then
+			print
+		fi
+
+		case "$confirmation" in
+			$'\n'|[yY]) ;;
+			*)
+				print -r -- 'Not started.'
+				return 2
+				;;
+		esac
+	fi
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
@@ -558,9 +667,10 @@ _hcom_run_team_orchestrator() {
 }
 
 # Parses the hcom:team argument list and validates it.
-# Sets the standard zsh `reply` array to five values in order: launch mode,
-# team label, keep-agents flag, working directory, initial prompt. Returns
-# non-zero with a diagnostic when parsing or validation fails.
+# Sets the standard zsh `reply` array to six values in order: launch mode,
+# team label, keep-agents flag, working directory, initial prompt, and the
+# skip-confirmation flag. Returns non-zero with a diagnostic when parsing or
+# validation fails.
 #
 # @param  {string}  command_name
 #     Public command name used in error output.
@@ -585,6 +695,7 @@ _hcom_parse_team_args() {
 
 	local team_label=""  # Optional label parsed from the launch options.
 	local keep_agents=0  # Whether cleanup should leave agents and panes running.
+	local skip_confirmation=0  # Whether to start a continuation without prompting.
 	local working_directory=""  # Explicit project directory for the team.
 	local initial_prompt=""  # The --message text, used as the first prompt or appended to a mode's instruction.
 	while [[ $# -gt 0 ]]; do
@@ -620,6 +731,10 @@ _hcom_parse_team_args() {
 				keep_agents=1
 				shift
 				;;
+			-y|--yes)
+				skip_confirmation=1
+				shift
+				;;
 			--)
 				shift
 				break
@@ -633,7 +748,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		printf '%s: usage: %s [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents]\n' "$command_name" "$command_name" >&2
+		printf '%s: usage: %s [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]\n' "$command_name" "$command_name" >&2
 		return 1
 	fi
 
@@ -646,13 +761,13 @@ _hcom_parse_team_args() {
 		return 1
 	fi
 
-	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt")
+	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt" "$skip_confirmation")
 }
 
 # @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 #
-# Usage: hcom:team [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents]
+# Usage: hcom:team [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 hcom:team() {
 	_hcom_launch_team hcom:team hcom:orchestrator hcom:reviewer hcom:implementer hcom:scout "$@"
@@ -661,7 +776,7 @@ hcom:team() {
 # @desc  Start, resume, continue, or hand over the complete Codex hcom team
 # @cat   hcom
 #
-# Usage: hcom:team:codex [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents]
+# Usage: hcom:team:codex [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 hcom:team:codex() {
 	_hcom_launch_team hcom:team:codex hcom:orchestrator:codex hcom:reviewer:codex hcom:implementer hcom:scout "$@"
@@ -670,7 +785,7 @@ hcom:team:codex() {
 # @desc  Start, resume, continue, or hand over the complete Claude hcom team
 # @cat   hcom
 #
-# Usage: hcom:team:claude [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents]
+# Usage: hcom:team:claude [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 hcom:team:claude() {
 	_hcom_launch_team hcom:team:claude hcom:orchestrator hcom:reviewer hcom:implementer:claude hcom:scout:claude "$@"
