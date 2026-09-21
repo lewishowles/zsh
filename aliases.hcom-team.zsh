@@ -83,8 +83,12 @@ _hcom_clear_team_scope() {
 # @param  {string}  launch_mode
 #     Controls whether the orchestrator resumes a handoff, selects the next work,
 #     or picks up from messages the human copied to the clipboard.
+# @param  {integer}  task_needs_start
+#     1 when the selected task is still ready, so the continue prompt also asks the
+#     orchestrator to start it and review its chunks before any implementation.
 _hcom_team_continuation_prompt() {
 	local launch_mode="$1"  # Continuation mode that determines where the orchestrator starts from.
+	local task_needs_start="${2:-0}"  # Whether the selected task has not started yet.
 
 	case "$launch_mode" in
 		resume)
@@ -92,6 +96,9 @@ _hcom_team_continuation_prompt() {
 			;;
 		continue)
 			print -r -- "Use the \`project-continue\` skill to retrieve the current progress records and continue with the next ready work."
+			if (( task_needs_start )); then
+				print -r -- "Start the selected task. If it has no chunks, plan them with the \`project-plan-task\` skill. Review all its chunks, planned or existing, with the \`project-review-task\` skill and fix any that fail. Present the chunk plan to the human for approval before dispatching implementation."
+			fi
 			;;
 		handover)
 			local clipboard_contents="$(pbpaste)"  # Messages copied from the stopped team's session.
@@ -162,6 +169,7 @@ _hcom_launch_team() {
 	local initial_prompt="${reply[5]}"  # Optional prompt passed to the orchestrator.
 	local skip_confirmation="${reply[6]}"  # Whether to start a continuation without prompting.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
+	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
 
 	if [[ "$launch_mode" == continue ]]; then
 		_hcom_preview_team_continuation "$team_scope_directory" "$skip_confirmation"
@@ -170,11 +178,12 @@ _hcom_launch_team() {
 			2) return 0 ;;
 			*) return 1 ;;
 		esac
+		continuation_task_needs_start="${reply[1]:-0}"
 	fi
 
 	if [[ -n "$launch_mode" ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
-		continuation_prompt="$(_hcom_team_continuation_prompt "$launch_mode")" || return 1
+		continuation_prompt="$(_hcom_team_continuation_prompt "$launch_mode" "$continuation_task_needs_start")" || return 1
 
 		if [[ -n "$initial_prompt" ]]; then
 			initial_prompt="${continuation_prompt}"$'\n\n'"Note from the human:"$'\n'"${initial_prompt}"
@@ -353,10 +362,12 @@ _hcom_launch_team() {
 	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
-# Shows the next progress chunk and confirms a team continuation before launch.
+# Shows the next progress task or chunk and confirms a team continuation before launch.
 #
 # Returns 0 when the continuation may start, 1 when progress cannot be previewed
 # or confirmation cannot be requested, and 2 when the user declines to start.
+# On success, sets reply=(task_needs_start) so the launch prompt can ask the
+# orchestrator to start the task and review its chunks first.
 #
 # @param  {string}  working_directory
 #     Directory where the team's progress records are read.
@@ -370,9 +381,14 @@ _hcom_preview_team_continuation() {
 	local progress_json  # JSON returned by progress next.
 	local progress_project_name  # Project name from the progress response, when it has one.
 	local task_title  # Title of the current progress task.
+	local task_id  # Identifier of the current progress task.
+	local task_status  # Status of the current progress task.
+	local task_needs_start=0  # Whether the current task is ready and has not started yet.
+	local task_has_no_chunks=0  # Whether progress selected the task without a chunk to work on.
+	local no_chunk_message  # Explains why the preview shows the task without a chunk.
 	local chunk_title  # Title of the next progress chunk.
 	local chunk_id  # Identifier of the next progress chunk.
-	local description  # Description of the next progress chunk.
+	local description  # Description of the task or chunk being previewed.
 	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} - 2 : 78 ))  # Fold width that keeps lines readable, after the two-space indent.
 	local confirmation=""  # Single key entered at the start prompt.
 
@@ -381,7 +397,7 @@ _hcom_preview_team_continuation() {
 	fi
 
 	if ! command -v jq >/dev/null 2>&1; then
-		printf 'hcom: jq is required to preview the next team chunk.\n' >&2
+		printf 'hcom: jq is required to preview the next team task or chunk.\n' >&2
 		return 1
 	fi
 
@@ -395,15 +411,30 @@ _hcom_preview_team_continuation() {
 		project_name="$progress_project_name"
 	fi
 
-	if ! jq -e '.ok == true and .data.chunk != null' >/dev/null 2>&1 <<<"$progress_json"; then
+	if ! jq -e '.ok == true and .data.task != null' >/dev/null 2>&1 <<<"$progress_json"; then
 		printf 'Nothing to continue in %s.\n' "$project_name" >&2
 		return 1
 	fi
 
 	task_title="$(jq -r '.data.task.title // ""' <<<"$progress_json")"
-	chunk_title="$(jq -r '.data.chunk.title // ""' <<<"$progress_json")"
-	chunk_id="$(jq -r '.data.chunk.id // ""' <<<"$progress_json")"
-	description="$(jq -r '.data.chunk.description // ""' <<<"$progress_json")"
+	task_id="$(jq -r '.data.task.id // ""' <<<"$progress_json")"
+	task_status="$(jq -r '.data.task.status // ""' <<<"$progress_json")"
+	if [[ "$task_status" == ready ]]; then
+		task_needs_start=1
+	fi
+	if jq -e '.data.chunk == null' >/dev/null 2>&1 <<<"$progress_json"; then
+		task_has_no_chunks=1
+		description="$(jq -r '.data.task.overview // ""' <<<"$progress_json")"
+		if jq -e '(.data.task.chunks // []) | length == 0' >/dev/null 2>&1 <<<"$progress_json"; then
+			no_chunk_message='Chunks have not been planned yet.'
+		else
+			no_chunk_message='No chunk is ready to start.'
+		fi
+	else
+		chunk_title="$(jq -r '.data.chunk.title // ""' <<<"$progress_json")"
+		chunk_id="$(jq -r '.data.chunk.id // ""' <<<"$progress_json")"
+		description="$(jq -r '.data.chunk.description // ""' <<<"$progress_json")"
+	fi
 
 	if (( wrap_width < 1 )); then
 		wrap_width=1
@@ -411,11 +442,18 @@ _hcom_preview_team_continuation() {
 
 	print
 	cli_style_span "$task_title" --weight bold
-	if [[ -n "$chunk_id" ]]; then
-		printf '→ %s  ' "$chunk_title"
-		cli_style_span "$chunk_id" muted
+	if (( task_has_no_chunks )); then
+		if [[ -n "$task_id" ]]; then
+			cli_style_span "$task_id" muted
+		fi
+		print -r -- "$no_chunk_message"
 	else
-		printf '→ %s\n' "$chunk_title"
+		if [[ -n "$chunk_id" ]]; then
+			printf '→ %s  ' "$chunk_title"
+			cli_style_span "$chunk_id" muted
+		else
+			printf '→ %s\n' "$chunk_title"
+		fi
 	fi
 
 	if [[ -n "$description" ]]; then
@@ -450,6 +488,8 @@ _hcom_preview_team_continuation() {
 				;;
 		esac
 	fi
+
+	reply=("$task_needs_start")
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
