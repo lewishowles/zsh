@@ -385,10 +385,13 @@ _hcom_preview_team_continuation() {
 	local task_status  # Status of the current progress task.
 	local task_needs_start=0  # Whether the current task is ready and has not started yet.
 	local task_has_no_chunks=0  # Whether progress selected the task without a chunk to work on.
+	local chunk_needs_start=0  # Whether the previewed chunk has not been started yet.
+	local pending_chunk  # The first chunk still waiting to start, used when progress has no active chunk.
 	local no_chunk_message  # Explains why the preview shows the task without a chunk.
 	local chunk_title  # Title of the next progress chunk.
 	local chunk_id  # Identifier of the next progress chunk.
 	local description  # Description of the task or chunk being previewed.
+	local chunk_label=""  # Marks a chunk that this team will start, rather than one already under way.
 	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} - 2 : 78 ))  # Fold width that keeps lines readable, after the two-space indent.
 	local confirmation=""  # Single key entered at the start prompt.
 
@@ -423,12 +426,20 @@ _hcom_preview_team_continuation() {
 		task_needs_start=1
 	fi
 	if jq -e '.data.chunk == null' >/dev/null 2>&1 <<<"$progress_json"; then
-		task_has_no_chunks=1
-		description="$(jq -r '.data.task.overview // ""' <<<"$progress_json")"
-		if jq -e '(.data.task.chunks // []) | length == 0' >/dev/null 2>&1 <<<"$progress_json"; then
-			no_chunk_message='Chunks have not been planned yet.'
+		pending_chunk="$(jq -c '(.data.task.chunks // []) | map(select(.status == "pending")) | sort_by(.position) | .[0]' <<<"$progress_json")"
+		if [[ -n "$pending_chunk" && "$pending_chunk" != null ]]; then
+			chunk_needs_start=1
+			chunk_title="$(jq -r '.title // ""' <<<"$pending_chunk")"
+			chunk_id="$(jq -r '.id // ""' <<<"$pending_chunk")"
+			description="$(jq -r '.description // ""' <<<"$pending_chunk")"
 		else
-			no_chunk_message='No chunk is ready to start.'
+			task_has_no_chunks=1
+			description="$(jq -r '.data.task.overview // ""' <<<"$progress_json")"
+			if jq -e '(.data.task.chunks // []) | length == 0' >/dev/null 2>&1 <<<"$progress_json"; then
+				no_chunk_message='Chunks have not been planned yet.'
+			else
+				no_chunk_message='No chunk is ready to start.'
+			fi
 		fi
 	else
 		chunk_title="$(jq -r '.data.chunk.title // ""' <<<"$progress_json")"
@@ -438,6 +449,9 @@ _hcom_preview_team_continuation() {
 
 	if (( wrap_width < 1 )); then
 		wrap_width=1
+	fi
+	if (( chunk_needs_start )); then
+		chunk_label='Will start: '
 	fi
 
 	print
@@ -449,10 +463,10 @@ _hcom_preview_team_continuation() {
 		print -r -- "$no_chunk_message"
 	else
 		if [[ -n "$chunk_id" ]]; then
-			printf '→ %s  ' "$chunk_title"
+			printf '→ %s%s  ' "$chunk_label" "$chunk_title"
 			cli_style_span "$chunk_id" muted
 		else
-			printf '→ %s\n' "$chunk_title"
+			printf '→ %s%s\n' "$chunk_label" "$chunk_title"
 		fi
 	fi
 
