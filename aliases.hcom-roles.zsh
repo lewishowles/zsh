@@ -21,7 +21,7 @@ alias hs="hcom:scout"
 typeset -A HCOM_ROLE_CONFIG=(
 	orchestrator "claude|orchestrator|opus|orchestrator.md|low"
 	orchestrator-codex "codex|orchestrator|gpt-6-astra|orchestrator.md|low"
-	implementer "codex|implementer|gpt-5.6-luna|implementer.md|xhigh"
+	implementer "codex|implementer|gpt-5.6-terra|implementer.md|high"
 	implementer-claude "claude|implementer|sonnet|implementer.md|medium"
 	reviewer "claude|reviewer|opus|reviewer.md|low"
 	reviewer-codex "codex|reviewer|gpt-6-astra|reviewer.md|low"
