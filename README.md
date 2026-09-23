@@ -361,6 +361,14 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `repo:open` |  | Open the main GitHub page for a repo |
 | `repo:root` |  | Jump to the current Git repository root |
 
+### system
+
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `processes:runaway` |  | Report processes with high average CPU use over a minimum age |
+| `processes:watch-install` |  | Install a 15-minute notification watch for runaway processes |
+| `processes:watch-uninstall` |  | Remove the runaway-process notification watch |
+
 ### test
 
 | Command | Parameters | Description |
