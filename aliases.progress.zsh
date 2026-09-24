@@ -6,58 +6,22 @@ alias releases="progress release list"
 alias tasks="progress task list"
 # @desc  Show details for the given task, or the selected next task if omitted
 # @cat   progress
-task() {
-	local task_id="$1"  # Task whose details should be shown.
-
-	if [[ -z "$task_id" ]]; then
-		if ! task_id="$(_progress_next_id task)"; then
-			return 1
-		fi
-	fi
-
-	progress task get "$task_id"
-}
+alias task="progress task get"
 # @desc  Clean completed tasks and releases
 # @cat   progress
 alias clean="progress task clean"
 
-# @desc  List all chunks for the given task, or the selected next task if omitted
+# @desc  List chunks for the selected next task, or for another task with --task ID
 # @cat   progress
-chunks() {
-	local task_id="$1"  # Task whose chunks should be listed.
-
-	if [[ -z "$task_id" ]]; then
-		if ! task_id="$(_progress_next_id task)"; then
-			return 1
-		fi
-	fi
-
-	progress chunk list --task "$task_id"
-}
+alias chunks="progress chunk list"
 
 # @desc  Show details for the given chunk, or the selected next chunk if omitted
 # @cat   progress
-chunk() {
-	local chunk_id="$1"  # Chunk whose details should be shown.
-
-	if [[ -z "$chunk_id" ]]; then
-		if ! chunk_id="$(_progress_next_id chunk)"; then
-			return 1
-		fi
-	fi
-
-	progress chunk get "$chunk_id"
-}
+alias chunk="progress chunk get"
 
 # @desc  Complete the given task or chunk, depending on ID format
 # @cat   progress
-completed() {
-	case "$1" in
-		tsk_*) progress task complete "$1" ;;
-		chk_*) progress chunk complete "$1" ;;
-		*) print -u2 "Unknown progress ID: $1"; return 1 ;;
-	esac
-}
+alias completed="progress complete";
 
 # Summarise each progress-bound project: current task, commit-plan progress, and what's next.
 progress:check() {
@@ -250,28 +214,4 @@ _progress_json_ok() {
 	fi
 
 	jq -e '.ok == true' <<< "$json" >/dev/null 2>&1
-}
-
-# Print the selected task or chunk ID from `progress next`.
-#
-# @param  {string}  record_name
-#     Progress record name to resolve from the response.
-_progress_next_id() {
-	local record_name="$1"  # Progress record name to resolve.
-	local next_json  # JSON response from progress.
-	local record_id  # Selected record ID.
-
-	if ! next_json="$(progress next --json 2>/dev/null)" || ! _progress_json_ok "$next_json"; then
-		print -u2 "Could not determine the next ${record_name}."
-		return 1
-	fi
-
-	record_id="$(jq -r --arg record_name "$record_name" '.data[$record_name].id // empty' <<< "$next_json")"
-
-	if [[ -z "$record_id" ]]; then
-		print -u2 "No next ${record_name} is selected."
-		return 1
-	fi
-
-	printf '%s\n' "$record_id"
 }
