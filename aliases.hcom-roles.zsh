@@ -19,13 +19,13 @@ alias hs="hcom:scout"
 
 # Role configuration fields: tool|tag|model|role_file|thinking.
 typeset -A HCOM_ROLE_CONFIG=(
-	orchestrator "claude|orchestrator|opus|orchestrator.md|low"
-	implementer "codex|implementer|gpt-6-sol|implementer.md|low"
-	reviewer "claude|reviewer|opus|reviewer.md|low"
+	orchestrator "claude|orchestrator|opus|orchestrator.md|medium"
+	implementer "codex|implementer|gpt-6-sol|implementer.md|medium"
+	reviewer "claude|reviewer|opus|reviewer.md|medium"
 	scout "codex|scout|gpt-6-luna|scout.md|medium"
 
-	orchestrator-codex "codex|orchestrator|gpt-6-astra|orchestrator.md|low"
-	reviewer-codex "codex|reviewer|gpt-6-astra|reviewer.md|low"
+	orchestrator-codex "codex|orchestrator|gpt-6-astra|orchestrator.md|medium"
+	reviewer-codex "codex|reviewer|gpt-6-astra|reviewer.md|medium"
 
 	implementer-claude "claude|implementer|sonnet|implementer.md|medium"
 	scout-claude "claude|scout|haiku|scout.md|medium"
