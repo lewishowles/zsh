@@ -104,6 +104,95 @@ acct1() {
 
 	CLAUDE_CONFIG_DIR="$HOME/.claude" CODEX_HOME="$HOME/.codex" HCOM_ACCOUNT=default "$@"
 }
+
+# @desc  Start the Claude and Codex usage windows on both accounts
+# @cat   agent
+# @needs gtimeout
+#
+# Sends "good morning" to Claude and Codex on both accounts at the same time, so each
+# account's 5-hour usage window starts now. Prints one success or failure line per account
+# and tool, and returns non-zero if any of them failed.
+#
+# A call that takes longer than two minutes is stopped and reported as timed out. Pressing
+# Ctrl-C stops every call that is still running.
+morning() {
+	if ! command -v gtimeout >/dev/null 2>&1; then
+		printf 'morning: gtimeout is required (install Homebrew coreutils).\n' >&2
+		return 1
+	fi
+
+	# gtimeout can only run programs, not shell functions, so each call starts a fresh zsh
+	# that loads this file to get acct1, acct2 and the claude and codex wrappers.
+	local source_file="$ZSH_CONFIG_ROOT/aliases.agents.zsh"
+	local result_dir  # Temporary directory holding each call's error output.
+	result_dir="$(mktemp -d)" || return 1
+	local -a account_names=(acct1 acct1 acct2 acct2)  # The account for each call.
+	local -a tool_names=(claude codex claude codex)  # The tool for each call.
+	local -a process_ids  # Calls still running, which are stopped if morning exits early.
+	local -a exit_codes  # The exit code of each call.
+	local -i index  # The call being started, waited for, or reported.
+	local -i failed=0  # 1 when any call failed.
+	# The last non-empty line of a failed call's error output. Codex prints a banner there
+	# first, so the error comes last.
+	local error_line
+
+	# Turning off job control keeps the "[1] 12345" and "done" job notices out of the output.
+	setopt localoptions localtraps nomonitor
+	trap 'return 130' INT TERM
+
+	{
+		for index in {1..4}; do
+			if [[ "$tool_names[index]" == claude ]]; then
+				gtimeout --kill-after=10s 120s zsh -fc 'source "$1"; shift; "$@"' morning "$source_file" \
+					"$account_names[index]" claude -p 'good morning. Reply briefly without using tools.' --model haiku \
+					>/dev/null 2>"$result_dir/$index.err" &
+			else
+				gtimeout --kill-after=10s 120s zsh -fc 'source "$1"; shift; "$@"' morning "$source_file" \
+					"$account_names[index]" codex exec --model gpt-5.6-luna \
+					--skip-git-repo-check --sandbox read-only \
+					'good morning. Reply briefly without using tools.' \
+					>/dev/null 2>"$result_dir/$index.err" &
+			fi
+			process_ids[index]="$!"
+		done
+
+		for index in {1..4}; do
+			wait "$process_ids[index]"
+			exit_codes[index]=$?
+
+			# A finished call's process ID can be reused by an unrelated process, so the
+			# cleanup must not signal it.
+			process_ids[index]=
+		done
+
+		for index in {1..4}; do
+			if (( exit_codes[index] == 0 )); then
+				printf '%s %s: success\n' "$account_names[index]" "$tool_names[index]"
+				continue
+			fi
+
+			failed=1
+			# gtimeout exits 124 when it stops a call and 137 when it has to kill one.
+			if (( exit_codes[index] == 124 || exit_codes[index] == 137 )); then
+				printf '%s %s: failed (timed out)\n' "$account_names[index]" "$tool_names[index]"
+				continue
+			fi
+
+			error_line="$(grep -v '^[[:space:]]*$' "$result_dir/$index.err" | tail -n 1)"
+			if [[ -n "$error_line" ]]; then
+				printf '%s %s: failed (exit %s: %s)\n' "$account_names[index]" "$tool_names[index]" "$exit_codes[index]" "$error_line"
+			else
+				printf '%s %s: failed (exit %s)\n' "$account_names[index]" "$tool_names[index]" "$exit_codes[index]"
+			fi
+		done
+
+		return "$failed"
+	} always {
+		kill $process_ids 2>/dev/null
+		wait $process_ids 2>/dev/null
+		rm -rf -- "$result_dir"
+	}
+}
 # @desc  Open the current AGENTS.md file
 # @cat   agent
 alias agents="zed AGENTS.md"

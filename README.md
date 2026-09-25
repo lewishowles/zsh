@@ -224,6 +224,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `agents` |  | Open the current AGENTS.md file |
 | `claude` |  | Run Claude in auto-mode on the account with more quota headroom |
 | `codex` |  | Run Codex on the account with more quota headroom |
+| `morning` |  | Start the Claude and Codex usage windows on both accounts |
 
 ### agents
 
