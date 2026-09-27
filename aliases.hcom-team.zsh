@@ -385,15 +385,14 @@ _hcom_preview_team_continuation() {
 	local task_status  # Status of the current progress task.
 	local task_needs_start=0  # Whether the current task is ready and has not started yet.
 	local task_has_no_chunks=0  # Whether progress selected the task without a chunk to work on.
-	local chunk_needs_start=0  # Whether the previewed chunk has not been started yet.
 	local pending_chunk  # The first chunk still waiting to start, used when progress has no active chunk.
 	local no_chunk_message  # Explains why the preview shows the task without a chunk.
 	local chunk_title  # Title of the next progress chunk.
 	local chunk_id  # Identifier of the next progress chunk.
 	local description  # Description of the task or chunk being previewed.
-	local chunk_label=""  # Marks a chunk that this team will start, rather than one already under way.
-	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} - 2 : 78 ))  # Fold width that keeps lines readable, after the two-space indent.
+	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the description readable on wide terminals.
 	local confirmation=""  # Single key entered at the start prompt.
+	local answer_hint="[Y/n]"  # The key hint at the end of the start prompt.
 
 	if [[ -z "$project_name" ]]; then
 		project_name="$working_directory"
@@ -428,7 +427,6 @@ _hcom_preview_team_continuation() {
 	if jq -e '.data.chunk == null' >/dev/null 2>&1 <<<"$progress_json"; then
 		pending_chunk="$(jq -c '(.data.task.chunks // []) | map(select(.status == "pending")) | sort_by(.position) | .[0]' <<<"$progress_json")"
 		if [[ -n "$pending_chunk" && "$pending_chunk" != null ]]; then
-			chunk_needs_start=1
 			chunk_title="$(jq -r '.title // ""' <<<"$pending_chunk")"
 			chunk_id="$(jq -r '.id // ""' <<<"$pending_chunk")"
 			description="$(jq -r '.description // ""' <<<"$pending_chunk")"
@@ -450,29 +448,27 @@ _hcom_preview_team_continuation() {
 	if (( wrap_width < 1 )); then
 		wrap_width=1
 	fi
-	if (( chunk_needs_start )); then
-		chunk_label='Will start: '
-	fi
 
+	# The chunk is what the team will work on, so it gets the colour. Without
+	# one, the task takes its place and the missing-chunk message stands out.
 	print
-	cli_style_span "$task_title" --weight bold
 	if (( task_has_no_chunks )); then
+		cli_style_span "$task_title" info
 		if [[ -n "$task_id" ]]; then
-			cli_style_span "$task_id" muted
+			cli_style_span "$task_id" muted --weight normal
 		fi
-		print -r -- "$no_chunk_message"
+		cli_style_span "$no_chunk_message" warning
 	else
+		cli_style_span "$task_title" muted --weight normal
+		cli_style_span "$chunk_title" info
 		if [[ -n "$chunk_id" ]]; then
-			printf '→ %s%s  ' "$chunk_label" "$chunk_title"
-			cli_style_span "$chunk_id" muted
-		else
-			printf '→ %s%s\n' "$chunk_label" "$chunk_title"
+			cli_style_span "$chunk_id" muted --weight normal
 		fi
 	fi
 
 	if [[ -n "$description" ]]; then
 		print
-		printf '%s\n' "$description" | fold -s -w "$wrap_width" | sed 's/^/  /'
+		cli_style_span "$(printf '%s\n' "$description" | fold -s -w "$wrap_width")" muted --weight normal
 	fi
 
 	print
@@ -483,7 +479,13 @@ _hcom_preview_team_continuation() {
 			return 1
 		fi
 
-		if ! read -r -k 1 "confirmation?Start a team on this? [Y/n] "; then
+		# The prompt is passed to read as a string, and cli-style drops colour
+		# from captured output unless it is told the terminal can show it.
+		if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+			answer_hint="$(FORCE_COLOR=1 cli_style_span "$answer_hint" info)"
+		fi
+
+		if ! read -r -k 1 "confirmation?Start this task? ${answer_hint} "; then
 			print
 			print -r -- 'Not started.'
 			return 2
