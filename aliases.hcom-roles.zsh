@@ -32,6 +32,8 @@ typeset -A HCOM_ROLE_CONFIG=(
 
 	scout-peer-claude "codex|scout-peer-claude|gpt-6-luna|scout.md|medium"
 	scout-peer-codex "codex|scout-peer-codex|gpt-6-luna|scout.md|medium"
+	scout-review-claude "codex|scout-review-claude|gpt-6-luna|scout.md|medium"
+	scout-review-codex "codex|scout-review-codex|gpt-6-luna|scout.md|medium"
 
 	learner-claude "claude|learner-claude|opus|learner.md|medium"
 	scout-learn-claude "codex|scout-learn-claude|gpt-6-luna|scout.md|medium"
