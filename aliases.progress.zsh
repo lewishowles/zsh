@@ -9,7 +9,7 @@ alias tasks="progress task list"
 alias task="progress task get"
 # @desc  Clean completed tasks and releases
 # @cat   progress
-alias clean="progress task clean"
+alias clean="progress task clean --force"
 
 # @desc  List chunks for the selected next task, or for another task with --task ID
 # @cat   progress
