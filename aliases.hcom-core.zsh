@@ -121,7 +121,7 @@ _hcom_launch_role() {
 # @param  {string}  initial_prompt
 #     Optional first message for the agent; omitted when empty.
 # @param  {string}  thinking_effort
-#     Optional reasoning effort; mapped to --effort or codex's model_reasoning_effort.
+#     Optional reasoning effort passed to Claude; Codex uses its global default.
 _hcom_role_invoke() {
 	local tool="$1"  # Which agent to launch; selects the codex or claude branch.
 	local scoped_tag="$2"  # Fully qualified hcom tag for the agent.
@@ -146,12 +146,8 @@ _hcom_role_invoke() {
 
 	[[ -n "$initial_prompt" ]] && hcom_arguments+=(--hcom-prompt "$initial_prompt")
 
-	if [[ -n "$thinking_effort" ]]; then
-		if [[ "$tool" = "codex" ]]; then
-			hcom_arguments+=(--config "model_reasoning_effort=\"$thinking_effort\"")
-		else
-			hcom_arguments+=(--effort "$thinking_effort")
-		fi
+	if [[ -n "$thinking_effort" && "$tool" != "codex" ]]; then
+		hcom_arguments+=(--effort "$thinking_effort")
 	fi
 
 	if [[ -z "${CODEX_HOME:-}${CLAUDE_CONFIG_DIR:-}" && -z "${HCOM_ACCOUNT+x}" ]]; then
@@ -159,12 +155,6 @@ _hcom_role_invoke() {
 	fi
 
 	if [[ "$tool" = "codex" ]]; then
-		hcom_arguments+=(
-			--config 'model_verbosity="low"'
-			--config 'model_reasoning_summary="none"'
-			--config 'hide_agent_reasoning=true'
-		)
-
 		if [[ -n "$account_directory" ]]; then
 			CODEX_HOME="$account_directory" HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
 		else
