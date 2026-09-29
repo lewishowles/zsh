@@ -349,6 +349,8 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `chunks` |  | List chunks for the selected next task, or for another task with --task ID |
 | `clean` |  | Clean completed tasks and releases |
 | `completed` |  | Complete the given task or chunk, depending on ID format |
+| `inbox` |  | Show the progress inbox messages |
+| `inbox:add` |  | Add a new message to the progress inbox |
 | `progress:check` |  | Summarise progress across all known projects |
 | `releases` |  | List all releases for the current project |
 | `task` |  | Show details for the given task, or the selected next task if omitted |
