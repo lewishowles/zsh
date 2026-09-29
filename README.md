@@ -232,7 +232,6 @@ The pre-commit hook regenerates the command table automatically before each comm
 | --- | --- | --- |
 | `agents:setup` |  | Set up agent files (Claude + Codex) for the current project |
 | `agents:setup:global` |  | Set up agent files (Claude + Codex) globally, for both accounts |
-| `agents:usage` |  | Inspect agent token usage |
 | `agents:workspace` |  | Initialise WORKSPACE.md for the current project |
 | `agents:workspace:force` |  | Force-regenerate WORKSPACE.md for the current project |
 
