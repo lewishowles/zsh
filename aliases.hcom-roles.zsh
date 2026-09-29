@@ -4,6 +4,15 @@
 # @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 alias team="hcom:team"
+# @desc  Continue a complete hcom team with the next task
+# @cat   hcom
+alias continue="hcom:team continue"
+# @desc  Resume a complete hcom team from the stored handoff
+# @cat   hcom
+alias resume="hcom:team resume"
+# @desc  Resume a complete hcom team from the clipboard handoff
+# @cat   hcom
+alias handoff="hcom:team handoff"
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom
 # @cat   hcom
 alias ho="hcom:orchestrator"

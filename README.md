@@ -273,6 +273,8 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
+| `continue` |  | Continue a complete hcom team with the next task |
+| `handoff` |  | Resume a complete hcom team from the clipboard handoff |
 | `hcom:implementer` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `hcom:implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom |
 | `hcom:insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
@@ -300,6 +302,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom |
 | `hr` |  | Start the Reviewer hcom role on the account with more quota headroom |
 | `hs` |  | Start the Scout hcom role on the account with more quota headroom |
+| `resume` |  | Resume a complete hcom team from the stored handoff |
 | `team` |  | Start, resume, continue, or hand over the complete hcom team |
 
 ### nav
