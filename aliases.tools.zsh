@@ -110,9 +110,14 @@ function repo:root() {
 # @desc  Copy the output of one command (or multiple "if quoted") to clipboard.
 # @cat   tools
 function clip() {
+	# Some tools, such as Vitest, keep colour on even when piped. The terminal
+	# still shows the colour, but the clipboard copy has the colour codes
+	# removed so it pastes as plain text.
+	local strip_colour=$'s/\x1b\\[[0-9;]*[A-Za-z]//g'
+
 	if (( $# )); then
-		eval "$*" 2>&1 | tee >(pbcopy)
+		eval "$*" 2>&1 | tee >(sed -E "$strip_colour" | pbcopy)
 	else
-		tee >(pbcopy)
+		tee >(sed -E "$strip_colour" | pbcopy)
 	fi
 }

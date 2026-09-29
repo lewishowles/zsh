@@ -124,7 +124,7 @@ function hcom:plan:codex() {
 	_hcom_launch_role \
 		--tool codex \
 		--tag "$planning_peer_tag" \
-		--model gpt-5.6-sol \
+		--model gpt-6-astra \
 		--role-file planning-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \

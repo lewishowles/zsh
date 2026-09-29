@@ -141,7 +141,7 @@ function hcom:insights:codex() {
 	_hcom_launch_role \
 		--tool codex \
 		--tag "$insights_review_peer_tag" \
-		--model gpt-5.6-sol \
+		--model gpt-6-astra \
 		--role-file insights-review-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \

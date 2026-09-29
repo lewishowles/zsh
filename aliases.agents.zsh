@@ -148,7 +148,7 @@ morning() {
 					>/dev/null 2>"$result_dir/$index.err" &
 			else
 				gtimeout --kill-after=10s 120s zsh -fc 'source "$1"; shift; "$@"' morning "$source_file" \
-					"$account_names[index]" codex exec --model gpt-5.6-luna \
+					"$account_names[index]" codex exec --model gpt-6-luna \
 					--skip-git-repo-check --sandbox read-only \
 					'good morning. Reply briefly without using tools.' \
 					>/dev/null 2>"$result_dir/$index.err" &
