@@ -86,13 +86,16 @@ _hcom_clear_team_scope() {
 # @param  {integer}  task_needs_start
 #     1 when the selected task is still ready, so the continue prompt also asks the
 #     orchestrator to start it and review its chunks before any implementation.
+# @param  {string}  resume_task_id
+#     The task whose saved handoff the resume prompt points the orchestrator at.
 _hcom_team_continuation_prompt() {
 	local launch_mode="$1"  # Continuation mode that determines where the orchestrator starts from.
 	local task_needs_start="${2:-0}"  # Whether the selected task has not started yet.
+	local resume_task_id="${3:-}"  # Task whose handoff a resumed team reads.
 
 	case "$launch_mode" in
 		resume)
-			print -r -- "Retrieve the full handoff with \`progress context get --json\`, then resume the interrupted work from that handoff. Do not select a new task."
+			print -r -- "Retrieve the full handoff with \`progress context get --task ${resume_task_id} --json\`, then resume the interrupted work on that task from that handoff. Do not select a new task."
 			;;
 		continue)
 			print -r -- "Use the \`project-continue\` skill to retrieve the current progress records and continue with the next ready work."
@@ -168,8 +171,10 @@ _hcom_launch_team() {
 	local working_directory="${reply[4]}"  # Project directory for the team.
 	local initial_prompt="${reply[5]}"  # Optional prompt passed to the orchestrator.
 	local skip_confirmation="${reply[6]}"  # Whether to start a continuation without prompting.
+	local requested_task_id="${reply[7]}"  # Task named with --task, or empty to find the in-progress task.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
+	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
 
 	if [[ "$launch_mode" == continue ]]; then
 		_hcom_preview_team_continuation "$team_scope_directory" "$skip_confirmation"
@@ -181,9 +186,14 @@ _hcom_launch_team() {
 		continuation_task_needs_start="${reply[1]:-0}"
 	fi
 
+	if [[ "$launch_mode" == resume ]]; then
+		_hcom_select_resume_task "$team_scope_directory" "$requested_task_id" || return 1
+		resume_task_id="${reply[1]}"
+	fi
+
 	if [[ -n "$launch_mode" ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
-		continuation_prompt="$(_hcom_team_continuation_prompt "$launch_mode" "$continuation_task_needs_start")" || return 1
+		continuation_prompt="$(_hcom_team_continuation_prompt "$launch_mode" "$continuation_task_needs_start" "$resume_task_id")" || return 1
 
 		if [[ -n "$initial_prompt" ]]; then
 			initial_prompt="${continuation_prompt}"$'\n\n'"Note from the human:"$'\n'"${initial_prompt}"
@@ -508,6 +518,87 @@ _hcom_preview_team_continuation() {
 	reply=("$task_needs_start")
 }
 
+# Chooses the task a resumed team picks up and shows its saved handoff.
+#
+# Uses the requested task when one is given. Otherwise uses the project's only
+# in-progress task, and lists the candidates instead of guessing when there are
+# none or several. Returns 1 before any panes launch when the task cannot be
+# found or has no saved handoff. On success, sets reply=(task_id).
+#
+# @param  {string}  working_directory
+#     Directory where the team's progress records are read.
+# @param  {string}  requested_task_id
+#     The task named with --task, or empty to find the in-progress task.
+_hcom_select_resume_task() {
+	local working_directory="$1"  # Directory where progress commands must run.
+	local task_id="$2"  # Task whose handoff the team resumes.
+	local tasks_json  # In-progress tasks returned by progress task list.
+	local task_count  # Number of in-progress tasks in the project.
+	local context_json  # Handoff returned by progress context get.
+	local current_goal  # The goal recorded in the handoff.
+	local next_step  # The next step recorded in the handoff.
+	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the next step readable on wide terminals.
+
+	if ! command -v jq >/dev/null 2>&1; then
+		printf 'hcom: jq is required to find the task to resume.\n' >&2
+		return 1
+	fi
+
+	if [[ -z "$task_id" ]]; then
+		if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --json 2>/dev/null)"; then
+			printf 'hcom: progress task list failed in %s.\n' "$working_directory" >&2
+			return 1
+		fi
+
+		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
+		if (( task_count == 0 )); then
+			printf 'hcom: no task is in progress, so there is no handoff to resume. Use continue to start the next task.\n' >&2
+			return 1
+		fi
+
+		if (( task_count > 1 )); then
+			printf 'hcom: %s tasks are in progress; choose one with --task:\n' "$task_count" >&2
+			jq -r '.data.items[] | "  \(.id)  \(.title)"' <<<"$tasks_json" >&2
+			return 1
+		fi
+
+		task_id="$(jq -r '.data.items[0].id' <<<"$tasks_json")"
+	fi
+
+	if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
+		|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
+		printf 'hcom: could not read the handoff for task %s.\n' "$task_id" >&2
+		return 1
+	fi
+
+	if ! jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
+		printf 'hcom: task %s has no saved handoff to resume.\n' "$task_id" >&2
+		return 1
+	fi
+
+	current_goal="$(jq -r '.data.current_goal // ""' <<<"$context_json")"
+	next_step="$(jq -r '.data.next_step // ""' <<<"$context_json")"
+
+	if (( wrap_width < 1 )); then
+		wrap_width=1
+	fi
+
+	print
+	if [[ -n "$current_goal" ]]; then
+		cli_style_span "$(printf '%s\n' "$current_goal" | fold -s -w "$wrap_width")" info
+	fi
+	cli_style_span "$task_id" muted --weight normal
+
+	if [[ -n "$next_step" ]]; then
+		print
+		cli_style_span "$(printf 'Next: %s\n' "$next_step" | fold -s -w "$wrap_width")" muted --weight normal
+	fi
+
+	print
+
+	reply=("$task_id")
+}
+
 # Builds the typed teammate pane commands and creates the Ghostty layout.
 #
 # Returns reply=(team_tags, team_terminal_ids). A non-zero return is a
@@ -723,9 +814,9 @@ _hcom_run_team_orchestrator() {
 }
 
 # Parses the hcom:team argument list and validates it.
-# Sets the standard zsh `reply` array to six values in order: launch mode,
-# team label, keep-agents flag, working directory, initial prompt, and the
-# skip-confirmation flag. Returns non-zero with a diagnostic when parsing or
+# Sets the standard zsh `reply` array to seven values in order: launch mode,
+# team label, keep-agents flag, working directory, initial prompt, the
+# skip-confirmation flag, and the requested task. Returns non-zero with a diagnostic when parsing or
 # validation fails.
 #
 # @param  {string}  command_name
@@ -754,6 +845,7 @@ _hcom_parse_team_args() {
 	local skip_confirmation=0  # Whether to start a continuation without prompting.
 	local working_directory=""  # Explicit project directory for the team.
 	local initial_prompt=""  # The --message text, used as the first prompt or appended to a mode's instruction.
+	local task_id=""  # The --task identifier of the task whose handoff a resumed team reads.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--dir)
@@ -783,6 +875,15 @@ _hcom_parse_team_args() {
 				team_label="$2"
 				shift 2
 				;;
+			--task)
+				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
+					printf '%s: --task requires a task ID.\n' "$command_name" >&2
+					return 1
+				fi
+
+				task_id="$2"
+				shift 2
+				;;
 			--keep-agents)
 				keep_agents=1
 				shift
@@ -804,7 +905,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		printf '%s: usage: %s [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]\n' "$command_name" "$command_name" >&2
+		printf '%s: usage: %s [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]\n' "$command_name" "$command_name" >&2
 		return 1
 	fi
 
@@ -812,18 +913,23 @@ _hcom_parse_team_args() {
 		_hcom_validate_team_label "$team_label" "$command_name" || return 1
 	fi
 
+	if [[ -n "$task_id" ]] && [[ "$launch_mode" != resume ]]; then
+		printf '%s: --task only works with resume.\n' "$command_name" >&2
+		return 1
+	fi
+
 	if [[ -n "$working_directory" ]] && [[ ! -d "$working_directory" ]]; then
 		printf '%s: working directory not found: %s\n' "$command_name" "$working_directory" >&2
 		return 1
 	fi
 
-	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt" "$skip_confirmation")
+	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
 }
 
 # @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 #
-# Usage: hcom:team [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: hcom:team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 hcom:team() {
 	_hcom_launch_team hcom:team hcom:orchestrator hcom:reviewer hcom:implementer hcom:scout "$@"
@@ -832,7 +938,7 @@ hcom:team() {
 # @desc  Start, resume, continue, or hand over the complete Codex hcom team
 # @cat   hcom
 #
-# Usage: hcom:team:codex [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: hcom:team:codex [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 hcom:team:codex() {
 	_hcom_launch_team hcom:team:codex hcom:orchestrator:codex hcom:reviewer:codex hcom:implementer hcom:scout "$@"
@@ -841,7 +947,7 @@ hcom:team:codex() {
 # @desc  Start, resume, continue, or hand over the complete Claude hcom team
 # @cat   hcom
 #
-# Usage: hcom:team:claude [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: hcom:team:claude [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 hcom:team:claude() {
 	_hcom_launch_team hcom:team:claude hcom:orchestrator hcom:reviewer hcom:implementer:claude hcom:scout:claude "$@"

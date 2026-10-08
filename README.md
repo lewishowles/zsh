@@ -280,8 +280,6 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
 | `hcom:insights:claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
 | `hcom:insights:codex` | <report-path> [insights-review-pair-id] | Start a Codex insights-review peer review of a given report file |
-| `hcom:learn:claude` |  | Start a Claude source-learning learner and its dedicated Scout |
-| `hcom:learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
 | `hcom:orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom |
 | `hcom:orchestrator:codex` |  | Start the Codex Orchestrator hcom role on the account with more quota headroom |
 | `hcom:plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
@@ -294,14 +292,16 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom |
 | `hcom:scout:peer:claude` |  | Start the Scout for a workflow's Claude-named peer on the account with more quota headroom |
 | `hcom:scout:peer:codex` |  | Start the Scout for a workflow's Codex-named peer on the account with more quota headroom |
-| `hcom:team` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete hcom team |
-| `hcom:team:claude` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Claude hcom team |
-| `hcom:team:codex` | [resume|continue|handover|handoff] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |
+| `hcom:team` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete hcom team |
+| `hcom:team:claude` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Claude hcom team |
+| `hcom:team:codex` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |
 | `hcom:team:stop` | [--team <label>] [--dir <path>] | Stop the exact hcom team for a directory and optional team label |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom |
 | `hr` |  | Start the Reviewer hcom role on the account with more quota headroom |
 | `hs` |  | Start the Scout hcom role on the account with more quota headroom |
+| `learn:claude` |  | Start a Claude source-learning learner and its dedicated Scout |
+| `learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
 | `resume` |  | Resume a complete hcom team from the stored handoff |
 | `team` |  | Start, resume, continue, or hand over the complete hcom team |
 
