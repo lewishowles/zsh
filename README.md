@@ -395,6 +395,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `clip` |  | Copy the output of one command (or multiple "if quoted") to clipboard. |
 | `fa` |  | Add review feedback |
 | `fc` |  | Finish the review and copy the feedback to the clipboard |
+| `form` |  | Convert the clipboard form shorthand into finished form code. |
 | `la` |  | List all files in long format with Git status and icons |
 | `ll` |  | List files in long format with Git status and icons |
 | `ls` |  | List files in a compact grid |

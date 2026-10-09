@@ -27,6 +27,9 @@ alias fa="review-feedback add"
 # @cat   tools
 # @needs review-feedback
 alias fc="review-feedback finish --copy"
+# @desc  Convert the clipboard form shorthand into finished form code.
+# @cat   tools
+alias form="pbpaste | node ~/Dev/Repositories/Packages/components/bin/cli.js form"
 
 # @desc  Optimise SVG files in ~/Downloads using SVGO
 # @cat   tools
