@@ -42,26 +42,31 @@ _hcom_account_environment() {
 # Deliver the role prompt through each tool's native mechanism instead: claude's
 # `--append-system-prompt`, codex's `HCOM_CODEX_SYSTEM_PROMPT` env var.
 #
+# Repeat `--role-file` to give the role several prompt files. Their text is
+# combined in the order given, separated by blank lines.
+#
 # Usage:
 #   _hcom_launch_role \
 #     --tool claude \
 #     --tag orchestrator \
 #     --model sonnet \
 #     --role-file orchestrator.md \
+#     [--role-file learner.md ...] \
 #     [--working-dir /path] \
 #     [--initial-prompt "..."] \
 #     [--thinking medium]
 _hcom_launch_role() {
-	local tool="" tag="" model="" role_file=""
+	local tool="" tag="" model=""
 	local working_directory="$PWD" initial_prompt="" thinking_effort=""
 	local team_label="${HCOM_TEAM_LABEL:-}"
+	local -a role_files  # Role prompt files to combine, in the order given.
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--tool) tool="$2"; shift 2 ;;
 			--tag) tag="$2"; shift 2 ;;
 			--model) model="$2"; shift 2 ;;
-			--role-file) role_file="$2"; shift 2 ;;
+			--role-file) role_files+=("$2"); shift 2 ;;
 			--working-dir) working_directory="$2"; shift 2 ;;
 			--initial-prompt) initial_prompt="$2"; shift 2 ;;
 			--thinking) thinking_effort="$2"; shift 2 ;;
@@ -70,7 +75,7 @@ _hcom_launch_role() {
 	done
 
 	# Validate required parameters
-	if [[ -z "$tool" ]] || [[ -z "$tag" ]] || [[ -z "$model" ]] || [[ -z "$role_file" ]]; then
+	if [[ -z "$tool" ]] || [[ -z "$tag" ]] || [[ -z "$model" ]] || [[ -z "${role_files[1]}" ]]; then
 		printf 'hcom: missing required parameters\n' >&2
 		return 1
 	fi
@@ -80,13 +85,19 @@ _hcom_launch_role() {
 		return 1
 	fi
 
-	local role_path="$HCOM_ROLE_DIR/$role_file"
-	if [[ ! -f "$role_path" ]]; then
-		printf 'hcom: role prompt not found: %s\n' "$role_path" >&2
-		return 1
-	fi
+	local -a role_prompts  # The text of each role file, in the order given.
+	local role_file role_path  # The role file being read and its full path.
+	for role_file in "${role_files[@]}"; do
+		role_path="$HCOM_ROLE_DIR/$role_file"
+		if [[ ! -f "$role_path" ]]; then
+			printf 'hcom: role prompt not found: %s\n' "$role_path" >&2
+			return 1
+		fi
 
-	local role_prompt="$(<"$role_path")"
+		role_prompts+=("$(<"$role_path")")
+	done
+
+	local role_prompt="${(pj:\n\n:)role_prompts}"  # The role files' text, separated by blank lines.
 	local repository_tag scoped_tag
 	repository_tag="$(_hcom_scoped_tag "$working_directory")" || return 1
 	scoped_tag="${repository_tag}-${tag}"

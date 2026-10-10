@@ -27,6 +27,7 @@ alias hi="hcom:implementer"
 alias hs="hcom:scout"
 
 # Role configuration fields: tool|tag|model|role_file|thinking.
+# role_file may list several files, separated by commas with no spaces.
 typeset -A HCOM_ROLE_CONFIG=(
 	orchestrator "claude|orchestrator|opus|orchestrator.md|medium"
 	implementer "codex|implementer|gpt-6-sol|implementer.md|medium"
@@ -66,11 +67,17 @@ _hcom_launch_configured_role() {
 	local -a role_config
 	role_config=("${(@s:|:)HCOM_ROLE_CONFIG[$role]}")
 
+	local -a role_file_arguments  # One --role-file option for each configured role file.
+	local role_file  # The configured role file being added.
+	for role_file in "${(@s:,:)role_config[4]}"; do
+		role_file_arguments+=(--role-file "$role_file")
+	done
+
 	_hcom_launch_role \
 		--tool "${role_config[1]}" \
 		--tag "${role_config[2]}" \
 		--model "${role_config[3]}" \
-		--role-file "${role_config[4]}" \
+		"${role_file_arguments[@]}" \
 		--thinking "${role_config[5]}" \
 		--working-dir "${1:-$PWD}" \
 		--initial-prompt "${2:-}"
