@@ -331,6 +331,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
+| `package:latest` | <package-name> | Show the latest published npm version of a package |
 | `package:link` | <library-name> | Symlink a local @lewishowles package into this project |
 | `package:reinstall` | <library-name> | Wipe and reinstall a @lewishowles package from the registry |
 | `package:relink` | <library-name> | Unlink then re-link a local @lewishowles package |

@@ -46,6 +46,36 @@ function package:link() {
 	bun link "@lewishowles/$library"
 }
 
+# Print the latest version of a package published on npm.
+# A bare name is looked up as an @lewishowles package first, then as a public
+# package, so `package:latest components` and `package:latest vue` both work.
+#
+# @param  {string}  package
+#     Package name, either bare (e.g. "components") or scoped (e.g. "@vue/test-utils").
+# @desc  Show the latest published npm version of a package
+# @cat   package
+# Usage: package:latest <package-name>
+# @needs npm
+function package:latest() {
+	local package_name=$1
+
+	if [[ -z "$package_name" ]]; then
+		printf 'Usage: package:latest <package-name>\n' >&2
+		return 1
+	fi
+
+	if ! command -v npm &>/dev/null; then
+		printf 'npm is not installed or not on PATH\n' >&2
+		return 1
+	fi
+
+	if [[ "$package_name" != @* ]] && npm view "@lewishowles/$package_name" version 2>/dev/null; then
+		return 0
+	fi
+
+	npm view "$package_name" version
+}
+
 # Undo a previous `package:link` and restore the registry version.
 # Removes the symlink via `bun unlink`, clears bun's cache to avoid stale
 # tarballs, then installs the registry release.
