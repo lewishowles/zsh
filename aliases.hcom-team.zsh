@@ -59,6 +59,68 @@ _hcom_read_task_team() {
 	reply=("$project_slug" "$task_slug" "$task_status")
 }
 
+# Checks a Progress worktree response for a task and sets reply to the
+# checkout's folder when that folder exists.
+#
+# Returns 0 on success. Returns 2 when Progress has no checkout for the task,
+# with Progress's message in reply, so the caller decides whether that is an
+# error. Returns 1 after printing an error for any other Progress failure or
+# when the recorded folder is missing from disk.
+#
+# @param  {string}  checkout_json
+#     Response from Progress worktree get or ensure.
+# @param  {string}  task_id
+#     Task whose checkout the response describes.
+_hcom_check_checkout_response() {
+	local checkout_json="$1"  # Progress response to validate.
+	local task_id="$2"  # Expected task ID in a successful response.
+	local checkout_message  # Error message returned by Progress.
+	local checkout_path  # Existing managed checkout path.
+
+	if jq -e '.ok == false and .error.code == "not-found"' >/dev/null 2>&1 <<<"$checkout_json"; then
+		reply=("$(jq -r '.error.message // "managed checkout not found."' <<<"$checkout_json")")
+		return 2
+	fi
+
+	if ! jq -e --arg task_id "$task_id" '.ok == true and .data.task_id == $task_id and (.data.path | type == "string") and (.data.path | startswith("/"))' >/dev/null 2>&1 <<<"$checkout_json"; then
+		checkout_message="$(jq -r '.error.message // empty' <<<"$checkout_json" 2>/dev/null)"
+		printf 'hcom: %s\n' "${checkout_message:-could not resolve the managed checkout.}" >&2
+		return 1
+	fi
+
+	checkout_path="$(jq -r '.data.path' <<<"$checkout_json")"
+	if [[ ! -d "$checkout_path" ]]; then
+		printf 'hcom: managed checkout not found: %s\n' "$checkout_path" >&2
+		return 1
+	fi
+
+	reply=("$checkout_path")
+}
+
+# Looks up the checkout Progress has recorded for a task and sets reply to its
+# folder, or to an empty string when the task has no checkout yet.
+#
+# Returns 1 after printing an error when Progress fails or the recorded folder
+# is missing, so the launch stops instead of using the wrong folder.
+#
+# @param  {string}  original_directory
+#     Checkout whose Progress project owns the task.
+# @param  {string}  task_id
+#     Task whose checkout may already exist.
+_hcom_get_launch_checkout() {
+	local original_directory="$1"  # Checkout used for the Progress lookup.
+	local task_id="$2"  # Task whose recorded checkout is requested.
+	local checkout_json  # Response from Progress worktree get.
+
+	checkout_json="$(cd "$original_directory" && progress worktree get "$task_id" --json 2>/dev/null)"
+	_hcom_check_checkout_response "$checkout_json" "$task_id"
+	case "$?" in
+		0) ;;
+		2) reply=("") ;;
+		*) return 1 ;;
+	esac
+}
+
 # Refuses a task team when any of its exact role tags is held by a live peer.
 #
 # @param  {string}  team_tags
@@ -264,42 +326,101 @@ _hcom_launch_team() {
 	local skip_confirmation="${reply[6]}"  # Whether to start a continuation without prompting.
 	local requested_task_id="${reply[7]}"  # Task named with --task, or empty to find the in-progress task.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
-	local task_project_tag=""  # Stable project prefix used only by task teams.
+	local team_project_tag=""  # Address prefix for every role: the project name for a named task's team, or the original checkout's name for the root team.
 	local task_team_tags=""  # Exact role tags checked before pane creation.
 	local requested_task_status=""  # Progress status of the explicitly selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
+	local continuation_task_id=""  # Task selected by the default continuation preview.
 	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
+	local ensure_task_id=""  # Ready task that needs a managed checkout created.
+	local git_changes  # Git's short status for a ready default task.
+	local checkout_json  # Progress response when creating a managed checkout.
 
 	if [[ -n "$requested_task_id" ]]; then
 		_hcom_read_task_team "$team_scope_directory" "$requested_task_id" || return 1
-		task_project_tag="${reply[1]}"
+		team_project_tag="${reply[1]}"
 		team_label="${reply[2]}"
 		requested_task_status="${reply[3]}"
-		task_team_tags="$(HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
+		task_team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
 		_hcom_refuse_live_team "$task_team_tags" || return 1
 		if [[ "$launch_mode" == continue ]]; then
 			if [[ "$requested_task_status" != ready && "$requested_task_status" != in-progress ]]; then
 				printf '%s: task %s has status %s; only ready or in-progress tasks can continue.\n' "$command_name" "$requested_task_id" "${requested_task_status:-none}" >&2
 				return 1
 			fi
-			printf '%s: continuing a named task is not available yet: %s\n' "$command_name" "$requested_task_id" >&2
-			return 1
 		fi
 	fi
 
 	if [[ "$launch_mode" == continue ]]; then
-		_hcom_preview_team_continuation "$team_scope_directory" "$skip_confirmation"
+		_hcom_preview_team_continuation "$team_scope_directory" "$skip_confirmation" "$requested_task_id"
 		case "$?" in
 			0) ;;
 			2) return 0 ;;
 			*) return 1 ;;
 		esac
 		continuation_task_needs_start="${reply[1]:-0}"
+		continuation_task_id="${reply[2]:-}"
+		if [[ -n "$requested_task_id" ]]; then
+			_hcom_get_launch_checkout "$team_scope_directory" "$requested_task_id" || return 1
+			if [[ -n "${reply[1]}" ]]; then
+				working_directory="${reply[1]}"
+			elif (( continuation_task_needs_start )); then
+				ensure_task_id="$requested_task_id"
+			else
+				# A started task without its own checkout keeps its work in the original
+				# checkout. A new checkout starts from the last commit and would miss
+				# uncommitted work, so point the user back to the original checkout.
+				printf '%s: task %s has no managed checkout, so its work is in the original checkout.\n' "$command_name" "$requested_task_id" >&2
+				printf '%s: if it is the root team'"'"'s task, carry on with that team; otherwise run resume --task %s there once no other team is working in it.\n' "$command_name" "$requested_task_id" >&2
+				return 1
+			fi
+		elif (( continuation_task_needs_start )); then
+			if ! git_changes="$(git -C "$team_scope_directory" status --short)"; then
+				printf '%s: could not check Git status in %s.\n' "$command_name" "$team_scope_directory" >&2
+				return 1
+			fi
+			# Uncommitted changes in the original checkout may belong to another
+			# team, so a ready task gets its own checkout. That checkout starts from
+			# the last commit and leaves the changes where they are.
+			if [[ -n "$git_changes" ]]; then
+				ensure_task_id="$continuation_task_id"
+			fi
+		else
+			# A started default task stays in the original checkout unless it
+			# already has its own.
+			_hcom_get_launch_checkout "$team_scope_directory" "$continuation_task_id" || return 1
+			if [[ -n "${reply[1]}" ]]; then
+				working_directory="${reply[1]}"
+			fi
+		fi
 	fi
 
 	if [[ "$launch_mode" == resume ]]; then
 		_hcom_select_resume_task "$team_scope_directory" "$requested_task_id" || return 1
 		resume_task_id="${reply[1]}"
+		# A task started in the original checkout has no recorded checkout, so it resumes there.
+		_hcom_get_launch_checkout "$team_scope_directory" "$resume_task_id" || return 1
+		if [[ -n "${reply[1]}" ]]; then
+			working_directory="${reply[1]}"
+		fi
+	fi
+
+	if [[ -z "$requested_task_id" ]]; then
+		# Name the root team's roles after the original checkout, even when they launch in a task checkout.
+		team_project_tag="$(_hcom_scoped_tag "$team_scope_directory")" || return 1
+	fi
+
+	if [[ -n "$ensure_task_id" ]]; then
+		checkout_json="$(cd "$team_scope_directory" && progress worktree ensure "$ensure_task_id" --json 2>/dev/null)"
+		_hcom_check_checkout_response "$checkout_json" "$ensure_task_id"
+		case "$?" in
+			0) working_directory="${reply[1]}" ;;
+			2)
+				printf 'hcom: %s\n' "${reply[1]}" >&2
+				return 1
+				;;
+			*) return 1 ;;
+		esac
 	fi
 
 	if [[ -n "$launch_mode" ]]; then
@@ -469,7 +590,7 @@ _hcom_launch_team() {
 	# status, propagated so the command reports the real pane-launch failure.
 	# Accounts and providers were paired to roles above; the orchestrator's own
 	# pair is passed separately below.
-	HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" || return $?
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
@@ -482,26 +603,33 @@ _hcom_launch_team() {
 	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
 	# up teammates on return; its exit status is this function's result.
 	# It takes the account and provider reserved for it above.
-	HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
-# Shows the next progress task or chunk and confirms a team continuation before launch.
+# Shows the task and chunk a team will continue and asks the user to confirm
+# before launch. Previews the named task when one is given, otherwise the
+# project's next task.
 #
 # Returns 0 when the continuation may start, 1 when progress cannot be previewed
 # or confirmation cannot be requested, and 2 when the user declines to start.
-# On success, sets reply=(task_needs_start) so the launch prompt can ask the
-# orchestrator to start the task and review its chunks first.
+# On success, sets reply=(task_needs_start task_id task_status). The launcher
+# uses them to ask the orchestrator to start a ready task and review its chunks
+# first, and to pick the task's checkout.
 #
 # @param  {string}  working_directory
 #     Directory where the team's progress records are read.
 # @param  {integer}  skip_confirmation
 #     1 to start without prompting, or 0 to ask before starting.
+# @param  {string}  selected_task_id
+#     Optional named task to preview instead of the default next task.
 _hcom_preview_team_continuation() {
 	local working_directory="$1"  # Directory where progress next must run.
 	local skip_confirmation="$2"  # Whether to skip the interactive prompt.
+	local selected_task_id="${3:-}"  # Named task whose own record is previewed.
 	local project_directory="${working_directory%/}"  # Directory without a trailing slash for fallback naming.
 	local project_name="${project_directory##*/}"  # Fallback project name for an unavailable progress response.
-	local progress_json  # JSON returned by progress next.
+	local progress_json  # The previewed task, its project, and its active chunk, shaped like progress next output.
+	local task_json  # The named task's own record, read only when a task is named.
 	local progress_project_name  # Project name from the progress response, when it has one.
 	local task_title  # Title of the current progress task.
 	local task_id  # Identifier of the current progress task.
@@ -526,9 +654,21 @@ _hcom_preview_team_continuation() {
 		return 1
 	fi
 
-	if ! progress_json="$(cd "$working_directory" && progress next --json 2>/dev/null)"; then
-		printf 'hcom: progress next failed in %s.\n' "$working_directory" >&2
-		return 1
+	if [[ -n "$selected_task_id" ]]; then
+		if ! task_json="$(cd "$working_directory" && progress task get "$selected_task_id" --json 2>/dev/null)" \
+			|| ! jq -e --arg task_id "$selected_task_id" '.ok == true and .data.id == $task_id' >/dev/null 2>&1 <<<"$task_json"; then
+			printf 'hcom: could not preview task %s in %s.\n' "$selected_task_id" "$working_directory" >&2
+			return 1
+		fi
+
+		# Reshape the task record like progress next output so the preview below
+		# reads both the same way.
+		progress_json="$(jq -c '{ok, data: {project: .data.project, task: .data, chunk: ((.data.chunks // []) | map(select(.status == "active")) | .[0] // null)}}' <<<"$task_json")" || return 1
+	else
+		if ! progress_json="$(cd "$working_directory" && progress next --json 2>/dev/null)"; then
+			printf 'hcom: progress next failed in %s.\n' "$working_directory" >&2
+			return 1
+		fi
 	fi
 
 	progress_project_name="$(jq -r '.data.project.name // empty' 2>/dev/null <<<"$progress_json")"
@@ -580,9 +720,16 @@ _hcom_preview_team_continuation() {
 		if [[ -n "$task_id" ]]; then
 			cli_style_span "$task_id" muted --weight normal
 		fi
+		if [[ -n "$selected_task_id" ]]; then
+			cli_style_span "Status: $task_status" muted --weight normal
+		fi
 		cli_style_span "$no_chunk_message" warning
 	else
 		cli_style_span "$task_title" muted --weight normal
+		if [[ -n "$selected_task_id" ]]; then
+			cli_style_span "$task_id" muted --weight normal
+			cli_style_span "Status: $task_status" muted --weight normal
+		fi
 		cli_style_span "$chunk_title" info
 		if [[ -n "$chunk_id" ]]; then
 			cli_style_span "$chunk_id" muted --weight normal
@@ -628,7 +775,7 @@ _hcom_preview_team_continuation() {
 		esac
 	fi
 
-	reply=("$task_needs_start")
+	reply=("$task_needs_start" "$task_id" "$task_status")
 }
 
 # Chooses the task a resumed team picks up and shows its saved handoff.
@@ -1221,7 +1368,7 @@ _hcom_resolve_team_stop_scope() {
 	local working_directory="$2"  # Requested directory, or empty to use the stored or current one.
 	local team_label="$3"  # Requested team label, or empty.
 	local task_id="${4:-}"  # Optional task ID for derived tags.
-	local task_project_tag=""  # Stable project prefix for a task team.
+	local team_project_tag=""  # Project slug for a task team, or empty for an ordinary team.
 	local team_tags=""  # Exact tags resolved for the requested stop scope.
 	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.
 	local scope_matches_active=0  # Whether an explicit scope matches stored directory and label, so its stored state can be cleared too.
@@ -1250,10 +1397,10 @@ _hcom_resolve_team_stop_scope() {
 
 		if [[ -n "$task_id" ]]; then
 			_hcom_read_task_team "$working_directory" "$task_id" || return 1
-			task_project_tag="${reply[1]}"
+			team_project_tag="${reply[1]}"
 			team_label="${reply[2]}"
 		fi
-		team_tags="$(HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_tags "$working_directory" "$team_label")" || return 1
+		team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$working_directory" "$team_label")" || return 1
 
 		if [[ -n "${HCOM_ACTIVE_TEAM_DIRECTORY:-}" ]] && [[ "${working_directory:A}" = "${HCOM_ACTIVE_TEAM_DIRECTORY:A}" ]] && [[ "$team_label" = "${HCOM_ACTIVE_TEAM_LABEL:-}" ]]; then
 			scope_matches_active=1

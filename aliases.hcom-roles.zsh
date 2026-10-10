@@ -4,7 +4,7 @@
 # @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 alias team="hcom:team"
-# @desc  Continue a complete hcom team with the next task
+# @desc  Continue a complete hcom team with the next task or --task TASK_ID
 # @cat   hcom
 alias continue="hcom:team continue"
 # @desc  Resume a complete hcom team from the stored handoff

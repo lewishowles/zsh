@@ -273,7 +273,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
-| `continue` |  | Continue a complete hcom team with the next task |
+| `continue` |  | Continue a complete hcom team with the next task or --task TASK_ID |
 | `handoff` |  | Resume a complete hcom team from the clipboard handoff |
 | `hcom:implementer` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `hcom:implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom |
