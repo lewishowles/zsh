@@ -234,6 +234,15 @@ def claude_usage(account_home):
 			)
 		)
 		if len(matches) != 1:
+			# A signed-out account answers /usage with a cost summary instead of its
+			# windows, so name the fix rather than echoing that summary.
+			if claude_signed_out(env):
+				login_command = "claude auth login"  # Sign-in command for this account.
+				if account_home is not None:
+					login_command = f"CLAUDE_CONFIG_DIR={account_home} {login_command}"
+
+				raise ValueError(f"Claude account is signed out; sign in with: {login_command}")
+
 			raise probe_error(
 				"Claude quota response is missing valid usage windows",
 				output,
@@ -268,6 +277,28 @@ def claude_usage(account_home):
 		quota.extend((100 - used, reset, window_seconds))
 
 	return quota
+
+
+# Report whether Claude Code says the account is signed out. Returns False when the
+# status check itself fails, so the caller falls back to its usual error.
+#
+# @param  {dict}  env
+#     Environment that selects the account, as used for the /usage probe.
+def claude_signed_out(env):
+	try:
+		result = subprocess.run(
+			["claude", "auth", "status", "--json"],
+			stdin=subprocess.DEVNULL,
+			capture_output=True,
+			env=env,
+			timeout=10,
+		)
+		status = json.loads(result.stdout)
+	except (OSError, subprocess.SubprocessError, ValueError):
+		return False
+
+	# Claude exits non-zero when signed out, so the JSON is read whatever the exit code.
+	return isinstance(status, dict) and status.get("loggedIn") is False
 
 
 # Write one request or notification as a JSON line.
