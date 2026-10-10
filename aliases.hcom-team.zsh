@@ -22,19 +22,20 @@ _hcom_team_tags() {
 	print -r -- "$tag_prefix-orchestrator|$tag_prefix-reviewer|$tag_prefix-implementer|$tag_prefix-scout"
 }
 
-# Sets `reply` to the project slug and task slug that name a task team, so its
-# tags stay the same in any checkout. Fails when Progress cannot read the task or
-# a slug holds anything other than lowercase letters, digits, and inner hyphens.
+# Reads the task's team address and status into `reply`. The slugs keep a task
+# team's tags the same in any checkout. Fails when Progress cannot read the task
+# or a slug holds anything other than lowercase letters, digits, and inner
+# hyphens.
 #
 # @param  {string}  working_directory
 #     Checkout containing the project's Progress records.
 # @param  {string}  task_id
 #     Task whose team address is needed.
-_hcom_task_team_address() {
+_hcom_read_task_team() {
 	local working_directory="$1"  # Checkout used for the task lookup.
 	local task_id="$2"  # Exact task ID used to find the Progress record.
 	local task_json  # Selected task and its project record from Progress.
-	local project_slug task_slug  # Human-readable slugs forming the team address.
+	local project_slug task_slug task_status  # Slugs for the team address, and the task's Progress status.
 	local -a slugs slug_names  # Values and names checked against the tag-safe slug rule.
 	local index  # Position of the slug being validated.
 
@@ -45,6 +46,7 @@ _hcom_task_team_address() {
 
 	project_slug="$(jq -r '.data.project.slug' <<<"$task_json")"
 	task_slug="$(jq -r '.data.slug' <<<"$task_json")"
+	task_status="$(jq -r '.data.status // ""' <<<"$task_json")"
 	slugs=("$project_slug" "$task_slug")
 	slug_names=(project task)
 	for index in 1 2; do
@@ -54,7 +56,7 @@ _hcom_task_team_address() {
 		fi
 	done
 
-	reply=("$project_slug" "$task_slug")
+	reply=("$project_slug" "$task_slug" "$task_status")
 }
 
 # Refuses a task team when any of its exact role tags is held by a live peer.
@@ -138,7 +140,8 @@ _hcom_clear_team_scope() {
 	unset HCOM_ACTIVE_TEAM_TASK_ID
 }
 
-# Returns the orchestrator prompt for a team continuation mode.
+# Returns the orchestrator prompt for a team continuation mode. Fails when a
+# named continuation cannot list the project's in-progress tasks.
 #
 # @param  {string}  launch_mode
 #     Controls whether the orchestrator resumes a handoff, selects the next work,
@@ -148,19 +151,47 @@ _hcom_clear_team_scope() {
 #     orchestrator to start it and review its chunks before any implementation.
 # @param  {string}  resume_task_id
 #     The task whose saved handoff the resume prompt points the orchestrator at.
+# @param  {string}  selected_task_id
+#     The task named with --task, which the prompt puts ahead of `progress next`.
+# @param  {string}  working_directory
+#     The checkout whose Progress project lists the other in-progress tasks.
 _hcom_team_continuation_prompt() {
 	local launch_mode="$1"  # Continuation mode that determines where the orchestrator starts from.
 	local task_needs_start="${2:-0}"  # Whether the selected task has not started yet.
 	local resume_task_id="${3:-}"  # Task whose handoff a resumed team reads.
+	local selected_task_id="${4:-}"  # Explicit task that takes precedence over progress next.
+	local working_directory="${5:-$PWD}"  # Checkout used to list the project's in-progress tasks.
+	local tasks_json  # In-progress task records in the selected project.
+	local other_task_ids  # Comma-separated IDs of the other in-progress tasks.
 
 	case "$launch_mode" in
 		resume)
 			print -r -- "Retrieve the full handoff with \`progress context get --task ${resume_task_id} --json\`, then resume the interrupted work on that task from that handoff. Do not select a new task."
 			;;
 		continue)
-			print -r -- "Use the \`project-continue\` skill to retrieve the current progress records and continue with the next ready work."
-			if (( task_needs_start )); then
-				print -r -- "Start the selected task. If it has no chunks, plan them with the \`project-plan-task\` skill. Review all its chunks, planned or existing, with the \`project-review-task\` skill and fix any that fail. Present the chunk plan to the human for approval before dispatching implementation."
+			if [[ -n "$selected_task_id" ]]; then
+				if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --all --json 2>/dev/null)" \
+					|| ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
+					printf 'hcom: could not list in-progress tasks in %s.\n' "$working_directory" >&2
+					return 1
+				fi
+
+				other_task_ids="$(jq -r --arg task_id "$selected_task_id" '[.data.items[].id | select(. != $task_id)] | join(", ")' <<<"$tasks_json")" || return 1
+				print -r -- "Continue task ${selected_task_id}. This selected task takes precedence over bare \`progress next\`. Use the \`project-continue\` skill to read its task and chunk records."
+				if [[ -n "$other_task_ids" ]]; then
+					print -r -- "Other in-progress task IDs: ${other_task_ids}."
+				else
+					print -r -- 'No other tasks are in progress.'
+				fi
+				if (( task_needs_start )); then
+					print -r -- "After your own clean-tree check, start task ${selected_task_id} with \`progress task start ${selected_task_id} --secondary\` if another task is in progress; otherwise start it with \`progress task start ${selected_task_id}\`."
+					print -r -- "If it has no chunks, plan them with the \`project-plan-task\` skill. Review all its chunks with the \`project-review-task\` skill and fix any that fail. Present the chunk plan to the human for approval before dispatching implementation."
+				fi
+			else
+				print -r -- "Use the \`project-continue\` skill to retrieve the current progress records and continue with the next ready work."
+				if (( task_needs_start )); then
+					print -r -- "Start the selected task. If it has no chunks, plan them with the \`project-plan-task\` skill. Review all its chunks, planned or existing, with the \`project-review-task\` skill and fix any that fail. Present the chunk plan to the human for approval before dispatching implementation."
+				fi
 			fi
 			;;
 		handover)
@@ -235,16 +266,22 @@ _hcom_launch_team() {
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local task_project_tag=""  # Stable project prefix used only by task teams.
 	local task_team_tags=""  # Exact role tags checked before pane creation.
+	local requested_task_status=""  # Progress status of the explicitly selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
 	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
 
 	if [[ -n "$requested_task_id" ]]; then
-		_hcom_task_team_address "$team_scope_directory" "$requested_task_id" || return 1
+		_hcom_read_task_team "$team_scope_directory" "$requested_task_id" || return 1
 		task_project_tag="${reply[1]}"
 		team_label="${reply[2]}"
+		requested_task_status="${reply[3]}"
 		task_team_tags="$(HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
 		_hcom_refuse_live_team "$task_team_tags" || return 1
 		if [[ "$launch_mode" == continue ]]; then
+			if [[ "$requested_task_status" != ready && "$requested_task_status" != in-progress ]]; then
+				printf '%s: task %s has status %s; only ready or in-progress tasks can continue.\n' "$command_name" "$requested_task_id" "${requested_task_status:-none}" >&2
+				return 1
+			fi
 			printf '%s: continuing a named task is not available yet: %s\n' "$command_name" "$requested_task_id" >&2
 			return 1
 		fi
@@ -267,7 +304,7 @@ _hcom_launch_team() {
 
 	if [[ -n "$launch_mode" ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
-		continuation_prompt="$(_hcom_team_continuation_prompt "$launch_mode" "$continuation_task_needs_start" "$resume_task_id")" || return 1
+		continuation_prompt="$(_hcom_team_continuation_prompt "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$requested_task_id" "$team_scope_directory")" || return 1
 
 		if [[ -n "$initial_prompt" ]]; then
 			initial_prompt="${continuation_prompt}"$'\n\n'"Note from the human:"$'\n'"${initial_prompt}"
@@ -1212,7 +1249,7 @@ _hcom_resolve_team_stop_scope() {
 		fi
 
 		if [[ -n "$task_id" ]]; then
-			_hcom_task_team_address "$working_directory" "$task_id" || return 1
+			_hcom_read_task_team "$working_directory" "$task_id" || return 1
 			task_project_tag="${reply[1]}"
 			team_label="${reply[2]}"
 		fi

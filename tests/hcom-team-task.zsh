@@ -1,6 +1,7 @@
 #!/usr/bin/env zsh
-# Checks task addresses, duplicate and unknown-task refusal, named-continue
-# refusal, relaunch replacement, task-team isolation, and stop targeting.
+# Checks task addresses, duplicate and unknown-task refusal, named-task
+# eligibility and prompts, relaunch replacement, task-team isolation, and stop
+# targeting.
 
 setopt errexit nounset pipefail
 
@@ -18,18 +19,26 @@ fail() {
 	exit 1
 }
 
-# Supplies readable Progress slugs without consulting the real project.
+# Supplies task records and active-task IDs without consulting the real project.
 cat > "$fixture_dir/bin/progress" <<'STUB'
 #!/usr/bin/env zsh
+if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress && "$5" == --all && "$6" == --json ]]; then
+	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B"},{"id":"tsk_a_B"}]}}'
+	exit 0
+fi
 [[ "$1" == task && "$2" == get && "$4" == --json ]] || exit 1
+task_status=ready
 case "$3" in
 	tsk_A_B) task_slug=continue-parallel-task-teams ;;
-	tsk_a_B) task_slug=another-task ;;
+	tsk_a_B) task_slug=another-task; task_status=in-progress ;;
 	tsk_A-B) task_slug=third-task ;;
 	tsk_bad_slug) task_slug='Bad_Task' ;;
+	tsk_blocked) task_slug=blocked-task; task_status=blocked ;;
+	tsk_needs_decision) task_slug=decision-task; task_status=needs-decision ;;
+	tsk_done) task_slug=finished-task; task_status=done ;;
 	*) print -r -- '{"ok":false}'; exit 1 ;;
 esac
-print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"slug\":\"$task_slug\",\"project\":{\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
+print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"project\":{\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
 STUB
 
 # Supplies only the fixture's live HCOM agent records.
@@ -58,26 +67,26 @@ fi
 _hcom_parse_team_args hcom:team continue --yes || fail 'plain continue parses'
 [[ -z "${reply[2]}" && -z "${reply[7]}" ]] || fail 'plain continue retains root scope'
 
-_hcom_task_team_address "$fixture_dir/project" tsk_A_B || fail 'task address derives'
+_hcom_read_task_team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
 project_tag="${reply[1]}"  # Stable project slug for comparisons.
 team_label="${reply[2]}"  # Readable task slug for stop targeting.
 [[ "$project_tag" == zsh-config && "$team_label" == continue-parallel-task-teams ]] || fail 'task address is not the Progress slugs'
 [[ "$project_tag$team_label" != *[^a-z0-9-]* ]] || fail 'task address has unsafe characters'
-_hcom_task_team_address "$fixture_dir/worktree" tsk_A_B || fail 'worktree address derives'
+_hcom_read_task_team "$fixture_dir/worktree" tsk_A_B || fail 'worktree address derives'
 [[ "${reply[1]}" == "$project_tag" && "${reply[2]}" == "$team_label" ]] || fail 'worktree changes the address'
-_hcom_task_team_address "$fixture_dir/project" tsk_a_B || fail 'case-distinct address derives'
+_hcom_read_task_team "$fixture_dir/project" tsk_a_B || fail 'case-distinct address derives'
 [[ "${reply[2]}" != "$team_label" ]] || fail 'case-distinct tasks collide'
-_hcom_task_team_address "$fixture_dir/project" tsk_A-B || fail 'separator-distinct address derives'
+_hcom_read_task_team "$fixture_dir/project" tsk_A-B || fail 'separator-distinct address derives'
 [[ "${reply[2]}" != "$team_label" ]] || fail 'separator-distinct tasks collide'
 error_file="$fixture_dir/error"  # Captured refusal text for exact preflight checks.
-if _hcom_task_team_address "$fixture_dir/project" tsk_unknown 2>"$error_file"; then
+if _hcom_read_task_team "$fixture_dir/project" tsk_unknown 2>"$error_file"; then
 	fail 'unknown task ID resolved'
 fi
 [[ "$(<"$error_file")" == "hcom: could not read task tsk_unknown in $fixture_dir/project." ]] || fail 'unknown task read error was misleading'
-if _hcom_task_team_address "$fixture_dir/project" tsk_bad_slug 2>/dev/null; then
+if _hcom_read_task_team "$fixture_dir/project" tsk_bad_slug 2>/dev/null; then
 	fail 'invalid task slug was rewritten or accepted'
 fi
-if HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_task_team_address "$fixture_dir/project" tsk_A_B 2>/dev/null; then
+if HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_read_task_team "$fixture_dir/project" tsk_A_B 2>/dev/null; then
 	fail 'invalid project slug was rewritten or accepted'
 fi
 
@@ -104,6 +113,32 @@ if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task
 	fail 'named continue reached launch'
 fi
 [[ "$(<"$error_file")" == 'hcom:team:codex: continuing a named task is not available yet: tsk_A_B' ]] || fail 'named continue refusal text'
+expected_task_status=''  # Progress status expected in each eligibility refusal.
+for task_id in tsk_blocked tsk_needs_decision tsk_done; do
+	case "$task_id" in
+		tsk_blocked) expected_task_status=blocked ;;
+		tsk_needs_decision) expected_task_status=needs-decision ;;
+		tsk_done) expected_task_status=done ;;
+	esac
+	if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task "$task_id" --yes 2>"$error_file"; then
+		fail "$task_id launched"
+	fi
+	[[ "$(<"$error_file")" == "hcom:team:codex: task $task_id has status $expected_task_status; only ready or in-progress tasks can continue." ]] || fail "$task_id eligibility refusal text"
+done
+
+plain_prompt="$(_hcom_team_continuation_prompt continue 0)"  # Prompt used by ordinary continue.
+[[ "$plain_prompt" == 'Use the `project-continue` skill to retrieve the current progress records and continue with the next ready work.' ]] || fail 'plain continue prompt changed'
+plain_ready_prompt="$(_hcom_team_continuation_prompt continue 1)"  # Prompt used by a ready default task.
+[[ "$plain_ready_prompt" == *'Start the selected task. If it has no chunks, plan them with the `project-plan-task` skill.'* ]] || fail 'plain ready prompt changed'
+# Prompt for a ready task chosen by ID.
+named_prompt="$(_hcom_team_continuation_prompt continue 1 '' tsk_A_B "$fixture_dir/project")" || fail 'named ready prompt builds'
+[[ "$named_prompt" == *'Continue task tsk_A_B. This selected task takes precedence over bare `progress next`.'* ]] || fail 'named prompt does not select the task'
+[[ "$named_prompt" == *'Other in-progress task IDs: tsk_a_B.'* ]] || fail 'named prompt omits another active task'
+[[ "$named_prompt" == *'progress task start tsk_A_B --secondary'* && "$named_prompt" == *'clean-tree check'* ]] || fail 'named ready prompt omits safe secondary start'
+[[ "$named_prompt" != *'Other in-progress task IDs: tsk_A_B'* ]] || fail 'named prompt lists its own task as another'
+# Prompt for an in-progress task chosen by ID.
+named_started_prompt="$(_hcom_team_continuation_prompt continue 0 '' tsk_a_B "$fixture_dir/project")" || fail 'named in-progress prompt builds'
+[[ "$named_started_prompt" == *'Other in-progress task IDs: tsk_A_B.'* && "$named_started_prompt" != *'progress task start'* ]] || fail 'named in-progress prompt restarts the task'
 _hcom_parse_team_stop_args --task tsk_A_B --dir "$fixture_dir/worktree" || fail 'stop --task parses'
 _hcom_resolve_team_stop_scope "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
 [[ "${reply[1]}" == "$team_tags" ]] || fail 'stop targets different tags'
@@ -178,4 +213,7 @@ stopped_team_tags=''
 _hcom_launch_team hcom:team:codex unused unused unused unused resume --task tsk_A_B || fail 'resume task team'
 [[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A_B ]] || fail 'task team replaced prior ordinary team'
 
-print -r -- 'PASS: task address, duplicate and unknown-task refusal, named-continue refusal, relaunch replacement, task-team isolation, and stop targeting'
+_hcom_launch_team hcom:team:codex unused unused unused unused resume --task tsk_blocked || fail 'resume blocked task team'
+[[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_blocked ]] || fail 'blocked task team did not retain its task ID'
+
+print -r -- 'PASS: task address, duplicate and unknown-task refusal, named-task eligibility and prompts, relaunch replacement, task-team isolation, and stop targeting'
