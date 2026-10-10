@@ -46,16 +46,19 @@ _hcom_quota_claude() {
 # Prints the account ID for the heavier role, then the lighter one, then 1 when the provider
 # has no usable quota left. Ties favour default.
 #
-# The session window decides the ranking, because that is the quota a single sprint
-# actually draws down. Weekly pace only breaks near-ties: two accounts sitting within
-# 20 points of each other on session quota are interchangeable for the sprint, so the
-# one with quota to burn before its weekly reset takes the heavier role.
+# Each account is ranked by its usable quota: its session window left, capped by its
+# weekly window left, because an account with an empty week cannot run however fresh its
+# session is. The session window usually decides, as that is the quota a single sprint
+# draws down. Weekly pace only breaks near-ties: two accounts within 20 points of each
+# other on usable quota are interchangeable for the sprint, so the one with quota to burn
+# before its weekly reset takes the heavier role.
 #
-# An account with under 15% of its session window left is likely to run dry part-way
-# through a task, so it does not take the heavier role while the other account can hold
-# it. Both roles land on one account only when the other is that close to empty and the
-# survivor has both session quota of its own and a weekly pace that can sustain them; two
-# nearly empty accounts keep one role each rather than both landing on one.
+# An account with under 15% usable quota is likely to run dry part-way through a task, so
+# it does not take the heavier role while the other account can hold it. Both roles land
+# on one account when the other is that close to empty and the survivor has both usable
+# quota of its own and a weekly pace that can sustain them, or when the other account has
+# nothing left at all. Otherwise two nearly empty accounts keep one role each rather than
+# both landing on one.
 #
 # The third field flags a provider whose accounts are both spent, so hcom:team can move the
 # whole team onto the other provider rather than split roles across two dead accounts.
@@ -73,17 +76,17 @@ _hcom_quota_allocate() {
 	local available  # Six-value quota line on success, or the probe diagnostic on failure.
 	local -i heavier_index=1 lighter_index=2  # Positions in the per-account arrays, default first.
 	local -i displaced_index  # Position the heavier role is moved off when that account is too close to empty.
-	local -i provider_exhausted  # 1 when both accounts are under 5% session quota, leaving the provider unusable.
+	local -i provider_exhausted  # 1 when both accounts have under 5% usable quota, leaving the provider unusable.
 
 	local -a account_ids=(default 2)  # Account IDs in the order every per-account array uses.
 	local -a quota_values  # One account's six probe values, split for indexing.
-	local -a session_remaining  # Percentage of each account's session window left.
+	local -a usable_remaining  # Percentage each account can still spend: the lower of its session and weekly figures.
 	local -a weekly_remaining  # Percentage of each account's weekly window left.
 	local -a weekly_reset  # Unix timestamp each account's weekly window refills at.
 	local -a weekly_window  # Length of each account's weekly window in seconds.
 
 	local -a pace  # How far ahead of its weekly reset each account is running.
-	local -F session_gap  # Percentage points separating how much session quota each account has left.
+	local -F usable_gap  # Percentage points separating how much usable quota each account has left.
 
 	case "$provider" in
 		claude|codex) ;;
@@ -101,7 +104,9 @@ _hcom_quota_allocate() {
 		fi
 
 		read -rA quota_values <<< "$available"
-		session_remaining+=("${quota_values[1]}")
+		# An empty weekly window stops an account whatever its session window says, so
+		# the account can only spend the smaller of the two.
+		usable_remaining+=("$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))")
 		weekly_remaining+=("${quota_values[4]}")
 		weekly_reset+=("${quota_values[5]}")
 		weekly_window+=("${quota_values[6]}")
@@ -114,14 +119,14 @@ _hcom_quota_allocate() {
 	pace[1]=$(( (weekly_remaining[1] / 100.0) / ((weekly_reset[1] - EPOCHSECONDS > 1 ? weekly_reset[1] - EPOCHSECONDS : 1) / (weekly_window[1] * 1.0)) ))
 	pace[2]=$(( (weekly_remaining[2] / 100.0) / ((weekly_reset[2] - EPOCHSECONDS > 1 ? weekly_reset[2] - EPOCHSECONDS : 1) / (weekly_window[2] * 1.0)) ))
 
-	if (( session_remaining[2] > session_remaining[1] )); then
+	if (( usable_remaining[2] > usable_remaining[1] )); then
 		heavier_index=2
 		lighter_index=1
 	fi
 
-	session_gap=$(( session_remaining[1] > session_remaining[2] ? session_remaining[1] - session_remaining[2] : session_remaining[2] - session_remaining[1] ))
+	usable_gap=$(( usable_remaining[1] > usable_remaining[2] ? usable_remaining[1] - usable_remaining[2] : usable_remaining[2] - usable_remaining[1] ))
 
-	if (( session_gap <= 20 )); then
+	if (( usable_gap <= 20 )); then
 		if (( pace[2] > pace[1] )); then
 			heavier_index=2
 			lighter_index=1
@@ -131,25 +136,35 @@ _hcom_quota_allocate() {
 		fi
 	fi
 
-	# Under 15% of a five-hour window is likely to run out part-way through a task, so hand
+	# Under 15% usable quota is likely to run out part-way through a task, so hand
 	# the heavier role to the other account whenever that account can still carry it.
-	if (( session_remaining[heavier_index] < 15 && session_remaining[lighter_index] >= 15 )); then
+	if (( usable_remaining[heavier_index] < 15 && usable_remaining[lighter_index] >= 15 )); then
 		displaced_index=$heavier_index
 		heavier_index=$lighter_index
 		lighter_index=$displaced_index
 	fi
 
-	# Taking on a second role needs session quota to spend it from and a weekly pace to
+	# Taking on a second role needs usable quota to spend it from and a weekly pace to
 	# sustain it. A pace under 0.25 means the account holds less than a quarter of the weekly
 	# quota its remaining time calls for, so it cannot carry both roles even when the other
-	# account is spent.
-	if (( session_remaining[lighter_index] < 15 && session_remaining[heavier_index] >= 15 && pace[heavier_index] >= 0.25 )); then
+	# account is nearly spent.
+	if (( usable_remaining[lighter_index] < 15 && usable_remaining[heavier_index] >= 15 && pace[heavier_index] >= 0.25 )); then
 		lighter_index="$heavier_index"
+	fi
+
+	# A role on an account with nothing left fails as soon as it starts, so when only one
+	# account has any quota at all, both roles go to it however little that is.
+	if (( usable_remaining[1] <= 0 && usable_remaining[2] > 0 )); then
+		heavier_index=2
+		lighter_index=2
+	elif (( usable_remaining[2] <= 0 && usable_remaining[1] > 0 )); then
+		heavier_index=1
+		lighter_index=1
 	fi
 
 	# Below 5% even the better account cannot carry a role to the end of a task, so the whole
 	# provider counts as spent.
-	provider_exhausted=$(( session_remaining[1] < 5 && session_remaining[2] < 5 ))
+	provider_exhausted=$(( usable_remaining[1] < 5 && usable_remaining[2] < 5 ))
 
 	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
 }
