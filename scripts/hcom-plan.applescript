@@ -1,7 +1,7 @@
 
 -- Creates the four-pane plan-review layout and starts the supplied scout commands.
 -- @param arguments
---     Four values: the Codex planning command, both scout commands, and their shared pair ID.
+--     Three values: the Codex planning command and both scout commands.
 on run arguments
 	-- Codex planning command to type into the right-hand planning pane.
 	set planCodexCommand to item 1 of arguments
@@ -9,10 +9,6 @@ on run arguments
 	set scoutClaudeCommand to item 2 of arguments
 	-- Codex scout command to type into the lower-right scout pane.
 	set scoutCodexCommand to item 3 of arguments
-	-- Pair ID appended to the Codex planning command for shared tag matching.
-	set planningPairId to item 4 of arguments
-	-- Shell-quoted pair ID safe to append to the typed command.
-	set planningPairArgument to quoted form of planningPairId
 
 	tell application "Ghostty"
 		activate
@@ -38,7 +34,7 @@ on run arguments
 		perform action "resize_split:down,150" on planClaudeTerminal
 		perform action "resize_split:down,150" on planCodexTerminal
 
-		my runCommand(planCodexTerminal, planCodexCommand & " " & planningPairArgument)
+		my runCommand(planCodexTerminal, planCodexCommand)
 		my runCommand(scoutClaudeTerminal, scoutClaudeCommand)
 		my runCommand(scoutCodexTerminal, scoutCodexCommand)
 

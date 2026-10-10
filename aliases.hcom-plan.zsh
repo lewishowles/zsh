@@ -10,11 +10,11 @@
 #   scout-claude | scout-codex
 #
 # Each planning peer routes its research through the scout in its own
-# column (`<repo>-scout-peer-claude` / `<repo>-scout-peer-codex`); once both peers
+# column (`<repo>-plan-claude-scout` / `<repo>-plan-codex-scout`); once both peers
 # report `Ready as written` or `Changes requested`, pick whichever one
 # found more to consolidate with `project-review-task`.
-# The two planning peers share a launch-specific tag so a consolidator can
-# match the exact pair.
+# Both panes in a column share a team label (plan-claude or plan-codex), so
+# each planning peer's team-send reaches only its own scout.
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
@@ -26,7 +26,6 @@ hcom:plan() {
 
 	local task_name="$1"  # Task name or path passed to both planning peers.
 	local quoted_task_name="${(q)task_name}"  # Shell-quoted task name for the typed launch command.
-	local planning_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"  # ID shared by the planning-peer tags.
 
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
@@ -35,14 +34,13 @@ hcom:plan() {
 	account_env="$(_hcom_account_environment)"
 
 	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:plan:codex $quoted_task_name"  # Command for the Codex planning pane.
-	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:peer:claude"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 hcom:scout:peer:codex"  # Command for the Codex scout pane.
+	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=plan-claude hcom:scout"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=plan-codex hcom:scout"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \
 		"$scout_claude_command" \
-		"$scout_codex_command" \
-		"$planning_pair_id"
+		"$scout_codex_command"
 
 	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
 
@@ -50,7 +48,7 @@ hcom:plan() {
 		return "$osascript_exit_code"
 	fi
 
-	HCOM_PLANNING_WORKFLOW=1 hcom:plan:claude "$task_name" "$planning_pair_id"
+	HCOM_PLANNING_WORKFLOW=1 hcom:plan:claude "$task_name"
 }
 
 # Builds the shared planning-peer independent-review initial prompt.
@@ -65,21 +63,17 @@ _hcom_plan_prompt() {
 
 # @desc  Start a Claude planning-peer review of a given task name or path
 # @cat   hcom
-# Usage: hcom:plan:claude <task-name> [planning-pair-id]
+# Usage: hcom:plan:claude <task-name>
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
-# @param  {string}  planning_pair_id
-#     Optional. The ID shared with the paired Codex planning peer; when
-#     omitted, a fresh ID is generated.
 function hcom:plan:claude() {
-	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom:plan:claude: usage: hcom:plan:claude <task-name> [planning-pair-id]\n' >&2
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom:plan:claude: usage: hcom:plan:claude <task-name>\n' >&2
 		return 1
 	fi
 
 	local task_name="$1"  # Task name or path passed to the planning peer.
-	local planning_peer_tag="$(_hcom_workflow_peer_tag planning-peer "${2:-}")"  # Tag shared with the paired planning peer.
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
@@ -87,10 +81,11 @@ function hcom:plan:claude() {
 		return 1
 	fi
 
-	_hcom_launch_role \
+	HCOM_TEAM_LABEL=plan-claude _hcom_launch_role \
 		--tool claude \
-		--tag "$planning_peer_tag" \
+		--tag orchestrator \
 		--model opus \
+		--role-file orchestrator.md \
 		--role-file planning-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
@@ -99,21 +94,17 @@ function hcom:plan:claude() {
 
 # @desc  Start a Codex planning-peer review of a given task name or path
 # @cat   hcom
-# Usage: hcom:plan:codex <task-name> [planning-pair-id]
+# Usage: hcom:plan:codex <task-name>
 #
 # @param  {string}  task_name
 #     The task name or path to resolve for independent review.
-# @param  {string}  planning_pair_id
-#     Optional. The ID shared with the paired Claude planning peer; when
-#     omitted, a fresh ID is generated.
 function hcom:plan:codex() {
-	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom:plan:codex: usage: hcom:plan:codex <task-name> [planning-pair-id]\n' >&2
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom:plan:codex: usage: hcom:plan:codex <task-name>\n' >&2
 		return 1
 	fi
 
 	local task_name="$1"  # Task name or path passed to the planning peer.
-	local planning_peer_tag="$(_hcom_workflow_peer_tag planning-peer "${2:-}")"  # Tag shared with the paired planning peer.
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_plan_prompt "$task_name")"; then
@@ -121,10 +112,11 @@ function hcom:plan:codex() {
 		return 1
 	fi
 
-	_hcom_launch_role \
+	HCOM_TEAM_LABEL=plan-codex _hcom_launch_role \
 		--tool codex \
-		--tag "$planning_peer_tag" \
+		--tag orchestrator \
 		--model gpt-6-astra \
+		--role-file orchestrator.md \
 		--role-file planning-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \

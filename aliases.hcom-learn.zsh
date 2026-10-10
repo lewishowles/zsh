@@ -1,18 +1,5 @@
 # hcom source-learning launchers.
 
-# Launches the source-learning Scout for the given provider in its configured role.
-#
-# @param  {string}  provider
-#     "claude" or "codex"; selects which configured Scout role to launch.
-# @param  {string}  working_directory
-#     Directory the Scout starts in, shared with the paired learner.
-_hcom_launch_learning_scout() {
-	local provider="$1"  # "claude" or "codex", selects the Scout role to launch.
-	shift
-
-	_hcom_launch_configured_role "scout-learn-${provider}" "$@"
-}
-
 # Builds the paired Scout's tag and the learner's initial source-learning prompt.
 # Sets the standard zsh `reply` array to the Scout tag then the prompt, since this
 # macOS zsh has no nameref option for returning multiple values.
@@ -20,14 +7,14 @@ _hcom_launch_learning_scout() {
 # @param  {string}  command_name
 #     The calling command, used in error output.
 # @param  {string}  provider
-#     "claude" or "codex", used to select the matching learner/Scout tags.
+#     "claude" or "codex", used to label the learner and Scout pair.
 # @param  {string}  source_input
 #     The raw URL or pasted text to route to the learner and Scout.
 # @param  {string}  context
 #     Optional trusted user context describing the intended learning focus.
 _hcom_learning_context() {
 	local command_name="$1"  # Calling command, used in error output.
-	local provider="$2"  # Learner and Scout provider name.
+	local provider="$2"  # Learner and Scout pair label suffix.
 	local source_input="$3"  # URL or pasted source material for the learning task.
 	local context="$4"  # Optional trusted user context for the learning task.
 	local role_file  # Role prompt file currently being checked.
@@ -36,7 +23,7 @@ _hcom_learning_context() {
 	local learner_prompt  # Initial instructions sent to the learner.
 	local -a learner_prompt_lines  # Lines assembled into the learner's prompt.
 
-	for role_file in learner.md scout.md; do
+	for role_file in orchestrator.md learner.md scout.md; do
 		if [[ ! -f "$HCOM_ROLE_DIR/$role_file" ]]; then
 			printf '%s: role prompt not found: %s\n' "$command_name" "$HCOM_ROLE_DIR/$role_file" >&2
 			return 1
@@ -44,10 +31,10 @@ _hcom_learning_context() {
 	done
 
 	repository_tag="$(_hcom_scoped_tag "$PWD")" || return 1
-	scout_tag="$(_hcom_workflow_peer_tag "${repository_tag}-scout-learn" "$provider")"
+	scout_tag="${repository_tag}-learn-${provider}-scout"
 	learner_prompt_lines=(
 		"Use project-learn-from-source to analyse the source below."
-		"Your matching Scout is @${scout_tag}-. Send it one bounded, batched request through HCOM, including the source."
+		"Send your Scout one bounded, batched request through team-send, including the source."
 	)
 
 	if [[ -n "$context" ]]; then
@@ -75,7 +62,7 @@ _hcom_learning_context() {
 # @param  {string}  command_name
 #     Public command name, used in the layout-failure error message.
 # @param  {string}  provider
-#     "claude" or "codex", passed through to the Scout launcher.
+#     "claude" or "codex", used to give the Scout the learner's team label.
 # @param  {string}  working_directory
 #     Directory shared by the learner and its Scout.
 _hcom_learning_open_scout() {
@@ -86,7 +73,7 @@ _hcom_learning_open_scout() {
 	local scout_command  # Full command line typed into the new Scout pane.
 
 	account_env="$(_hcom_account_environment)"
-	scout_command="${account_env}_hcom_launch_learning_scout ${(q)provider} ${(q)working_directory}"
+	scout_command="${account_env}HCOM_TEAM_LABEL=learn-${provider} hcom:scout ${(q)working_directory}"
 
 	_hcom_workflow_launch_layout "$ZSH_CONFIG_ROOT/scripts/hcom-learn.applescript" "$scout_command"
 	local osascript_exit_code=$?  # Exit status from the layout script that opened the pane.
@@ -127,7 +114,7 @@ _hcom_learning_cleanup_scout() {
 # @param  {string}  command_name
 #     Public command name, used in validation and layout error messages.
 # @param  {string}  provider
-#     "claude" or "codex", used to select the matching Scout role.
+#     "claude" or "codex", used to label the learner and Scout pair.
 # @param  {string}  learner_role
 #     Configured learner role to launch once the Scout pane is open.
 # @param  {string}  source_input
@@ -136,7 +123,7 @@ _hcom_learning_cleanup_scout() {
 #     Optional trusted user context describing the intended learning focus.
 _hcom_learning_launch() {
 	local command_name="$1"  # Public command name, used in validation and layout error messages.
-	local provider="$2"  # "claude" or "codex", used to select the matching Scout role.
+	local provider="$2"  # "claude" or "codex", used to label the learner and Scout pair.
 	local learner_role="$3"  # Configured learner role to launch once the Scout pane is open.
 	local source_input="$4"  # URL or pasted source material to analyse.
 	local context="$5"  # Optional trusted user context for the learning task.
@@ -153,7 +140,7 @@ _hcom_learning_launch() {
 		return "$layout_exit_code"
 	fi
 
-	_hcom_launch_configured_role "$learner_role" "$working_directory" "${learning_context[2]}"
+	HCOM_TEAM_LABEL="learn-${provider}" _hcom_launch_configured_role "$learner_role" "$working_directory" "${learning_context[2]}"
 	local learner_exit_code=$?  # Exit status from the learner launch.
 
 	if (( learner_exit_code == 0 )); then

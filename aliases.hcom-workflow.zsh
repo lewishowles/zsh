@@ -1,20 +1,5 @@
 # Shared helpers for the hcom plan and insights-review launchers.
 
-# Returns a peer tag combining a caller-supplied prefix with a sanitised pair ID.
-# Reused by launchers that need two peers (e.g. Claude and Codex) sharing one tag.
-#
-# @param  {string}  prefix
-#     Prefix identifying which workflow the peer belongs to.
-# @param  {string}  peer_id
-#     Optional. Pair ID shared with the peer's counterpart; generated when omitted.
-_hcom_workflow_peer_tag() {
-	local prefix="$1"  # Prefix identifying which workflow the peer belongs to.
-	local peer_id="${2:-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}}"  # Pair ID, generated when the caller omits one.
-
-	peer_id="${peer_id//[^[:alnum:]_.-]/-}"
-	print -r -- "${prefix}-${peer_id}"
-}
-
 # Validates a launcher's prompt template file, then returns its contents with one
 # placeholder replaced by a shell-quoted value. Returns 1 if the file is missing or
 # unreadable, after printing an error prefixed with the caller's command name.

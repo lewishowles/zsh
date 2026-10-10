@@ -12,8 +12,9 @@
 #   scout-claude     | scout-codex
 #
 # Each reviewer routes its research through the scout in its own column
-# (`<repo>-scout-review-claude` / `<repo>-scout-review-codex`). The two reviewers share a
-# launch-specific tag so a consolidator can match the exact pair.
+# (`<repo>-insights-claude-scout` / `<repo>-insights-codex-scout`).
+# Both panes in a column share a team label (insights-claude or insights-codex),
+# so each reviewer's team-send reaches only its own scout.
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
@@ -31,7 +32,6 @@ hcom:insights() {
 	fi
 
 	local quoted_report_path="${(q)report_path}"  # Shell-quoted report path for the typed launch command.
-	local insights_review_pair_id="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"  # ID shared by the paired insights-review tags.
 
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
@@ -40,14 +40,13 @@ hcom:insights() {
 	account_env="$(_hcom_account_environment)"
 
 	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
-	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 _hcom_launch_configured_role scout-review-claude"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 _hcom_launch_configured_role scout-review-codex"  # Command for the Codex scout pane.
+	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude hcom:scout"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex hcom:scout"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \
 		"$scout_claude_command" \
-		"$scout_codex_command" \
-		"$insights_review_pair_id"
+		"$scout_codex_command"
 
 	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
 
@@ -55,7 +54,7 @@ hcom:insights() {
 		return "$osascript_exit_code"
 	fi
 
-	HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:insights:claude "$report_path" "$insights_review_pair_id"
+	HCOM_INSIGHTS_REVIEW_WORKFLOW=1 hcom:insights:claude "$report_path"
 }
 
 # Builds the shared insights-review-peer independent-review initial prompt.
@@ -70,16 +69,13 @@ _hcom_insights_review_prompt() {
 
 # @desc  Start a Claude insights-review peer review of a given report file
 # @cat   hcom
-# Usage: hcom:insights:claude <report-path> [insights-review-pair-id]
+# Usage: hcom:insights:claude <report-path>
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
-# @param  {string}  insights_review_pair_id
-#     Optional. The ID shared with the paired Codex insights reviewer; when
-#     omitted, a fresh ID is generated.
 function hcom:insights:claude() {
-	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom:insights:claude: usage: hcom:insights:claude <report-path> [insights-review-pair-id]\n' >&2
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom:insights:claude: usage: hcom:insights:claude <report-path>\n' >&2
 		return 1
 	fi
 
@@ -90,7 +86,6 @@ function hcom:insights:claude() {
 		return 1
 	fi
 
-	local insights_review_peer_tag="$(_hcom_workflow_peer_tag insights-review-peer "${2:-}")"  # Tag shared with the paired insights-review peer.
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_insights_review_prompt "$report_path")"; then
@@ -98,10 +93,11 @@ function hcom:insights:claude() {
 		return 1
 	fi
 
-	_hcom_launch_role \
+	HCOM_TEAM_LABEL=insights-claude _hcom_launch_role \
 		--tool claude \
-		--tag "$insights_review_peer_tag" \
+		--tag orchestrator \
 		--model opus \
+		--role-file orchestrator.md \
 		--role-file insights-review-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \
@@ -110,16 +106,13 @@ function hcom:insights:claude() {
 
 # @desc  Start a Codex insights-review peer review of a given report file
 # @cat   hcom
-# Usage: hcom:insights:codex <report-path> [insights-review-pair-id]
+# Usage: hcom:insights:codex <report-path>
 #
 # @param  {string}  report_path
 #     The rendered Codex insights report file to review.
-# @param  {string}  insights_review_pair_id
-#     Optional. The ID shared with the paired Claude insights reviewer; when
-#     omitted, a fresh ID is generated.
 function hcom:insights:codex() {
-	if [[ $# -lt 1 || $# -gt 2 ]]; then
-		printf 'hcom:insights:codex: usage: hcom:insights:codex <report-path> [insights-review-pair-id]\n' >&2
+	if [[ $# -ne 1 ]]; then
+		printf 'hcom:insights:codex: usage: hcom:insights:codex <report-path>\n' >&2
 		return 1
 	fi
 
@@ -130,7 +123,6 @@ function hcom:insights:codex() {
 		return 1
 	fi
 
-	local insights_review_peer_tag="$(_hcom_workflow_peer_tag insights-review-peer "${2:-}")"  # Tag shared with the paired insights-review peer.
 	local initial_prompt  # Prompt text that must load successfully before launch.
 
 	if ! initial_prompt="$(_hcom_insights_review_prompt "$report_path")"; then
@@ -138,10 +130,11 @@ function hcom:insights:codex() {
 		return 1
 	fi
 
-	_hcom_launch_role \
+	HCOM_TEAM_LABEL=insights-codex _hcom_launch_role \
 		--tool codex \
-		--tag "$insights_review_peer_tag" \
+		--tag orchestrator \
 		--model gpt-6-astra \
+		--role-file orchestrator.md \
 		--role-file insights-review-peer.md \
 		--thinking high \
 		--working-dir "$PWD" \

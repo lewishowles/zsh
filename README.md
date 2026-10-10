@@ -278,20 +278,18 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hcom:implementer` |  | Start the Implementer hcom role on the account with more quota headroom |
 | `hcom:implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom |
 | `hcom:insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
-| `hcom:insights:claude` | <report-path> [insights-review-pair-id] | Start a Claude insights-review peer review of a given report file |
-| `hcom:insights:codex` | <report-path> [insights-review-pair-id] | Start a Codex insights-review peer review of a given report file |
+| `hcom:insights:claude` | <report-path> | Start a Claude insights-review peer review of a given report file |
+| `hcom:insights:codex` | <report-path> | Start a Codex insights-review peer review of a given report file |
 | `hcom:orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom |
 | `hcom:orchestrator:codex` |  | Start the Codex Orchestrator hcom role on the account with more quota headroom |
 | `hcom:plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
-| `hcom:plan:claude` | <task-name> [planning-pair-id] | Start a Claude planning-peer review of a given task name or path |
-| `hcom:plan:codex` | <task-name> [planning-pair-id] | Start a Codex planning-peer review of a given task name or path |
+| `hcom:plan:claude` | <task-name> | Start a Claude planning-peer review of a given task name or path |
+| `hcom:plan:codex` | <task-name> | Start a Codex planning-peer review of a given task name or path |
 | `hcom:resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
 | `hcom:reviewer` |  | Start the Reviewer hcom role on the account with more quota headroom |
 | `hcom:reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom |
 | `hcom:scout` |  | Start the Scout hcom role on the account with more quota headroom |
 | `hcom:scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom |
-| `hcom:scout:peer:claude` |  | Start the Scout for a workflow's Claude-named peer on the account with more quota headroom |
-| `hcom:scout:peer:codex` |  | Start the Scout for a workflow's Codex-named peer on the account with more quota headroom |
 | `hcom:team` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete hcom team |
 | `hcom:team:claude` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Claude hcom team |
 | `hcom:team:codex` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |

@@ -40,16 +40,8 @@ typeset -A HCOM_ROLE_CONFIG=(
 	implementer-claude "claude|implementer|sonnet|implementer.md|medium"
 	scout-claude "claude|scout|haiku|scout.md|medium"
 
-	scout-peer-claude "codex|scout-peer-claude|gpt-6-luna|scout.md|medium"
-	scout-peer-codex "codex|scout-peer-codex|gpt-6-luna|scout.md|medium"
-	scout-review-claude "codex|scout-review-claude|gpt-6-luna|scout.md|medium"
-	scout-review-codex "codex|scout-review-codex|gpt-6-luna|scout.md|medium"
-
-	learner-claude "claude|learner-claude|opus|learner.md|medium"
-	scout-learn-claude "codex|scout-learn-claude|gpt-6-luna|scout.md|medium"
-
-	learner-codex "codex|learner-codex|gpt-6-astra|learner.md|medium"
-	scout-learn-codex "codex|scout-learn-codex|gpt-6-luna|scout.md|medium"
+	learner-claude "claude|orchestrator|opus|orchestrator.md,learner.md|medium"
+	learner-codex "codex|orchestrator|gpt-6-astra|orchestrator.md,learner.md|medium"
 )
 
 # Launches a role using its shared hcom configuration.
@@ -129,16 +121,4 @@ hcom:scout() {
 # @cat   hcom
 hcom:scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
-}
-
-# @desc  Start the Scout for a workflow's Claude-named peer on the account with more quota headroom
-# @cat   hcom
-hcom:scout:peer:claude() {
-	_hcom_launch_configured_role scout-peer-claude "$@"
-}
-
-# @desc  Start the Scout for a workflow's Codex-named peer on the account with more quota headroom
-# @cat   hcom
-hcom:scout:peer:codex() {
-	_hcom_launch_configured_role scout-peer-codex "$@"
 }
