@@ -200,16 +200,16 @@ alias agents="zed AGENTS.md"
 # @desc  Set up agent files (Claude + Codex) globally, for both accounts
 # @cat   agents
 agents:setup:global() {
-	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both "$@"
-	"$HOME/Dev/Configuration/Agents/scripts/setup-global.sh" --both \
+	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-global.sh" --both "$@"
+	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-global.sh" --both \
 		--claude-dir "$HOME/.claude-2" --codex-dir "$HOME/.codex-2" "$@"
 }
 # @desc  Set up agent files (Claude + Codex) for the current project
 # @cat   agents
-alias agents:setup="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --both"
+alias agents:setup="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --both"
 # @desc  Initialise WORKSPACE.md for the current project
 # @cat   agents
-alias agents:workspace="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --write-workspace"
+alias agents:workspace="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --write-workspace"
 # @desc  Force-regenerate WORKSPACE.md for the current project
 # @cat   agents
-alias agents:workspace:force="$HOME/Dev/Configuration/Agents/scripts/setup-project.sh --force-workspace"
+alias agents:workspace:force="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --force-workspace"

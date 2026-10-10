@@ -52,21 +52,21 @@ These provide:
 
 ### 3. Link the configuration
 
-Assuming this repository is checked out at `~/Dev/Configuration/zsh`:
+Assuming this repository is checked out at `~/Dev/Repositories/Configuration/zsh`:
 
 ```sh
 mkdir -p ~/.config
 mkdir -p "$HOME/Library/Application Support/com.mitchellh.ghostty"
 
-ln -sf ~/Dev/Configuration/zsh/zshrc ~/.zshrc
-ln -sf ~/Dev/Configuration/zsh/zprofile ~/.zprofile
-ln -sf ~/Dev/Configuration/zsh/starship.toml ~/.config/starship.toml
-ln -sf ~/Dev/Configuration/zsh/ghostty.config \
+ln -sf ~/Dev/Repositories/Configuration/zsh/zshrc ~/.zshrc
+ln -sf ~/Dev/Repositories/Configuration/zsh/zprofile ~/.zprofile
+ln -sf ~/Dev/Repositories/Configuration/zsh/starship.toml ~/.config/starship.toml
+ln -sf ~/Dev/Repositories/Configuration/zsh/ghostty.config \
 	"$HOME/Library/Application Support/com.mitchellh.ghostty/config.ghostty"
 
 touch ~/.hushlogin
 
-cd ~/Dev/Configuration/zsh
+cd ~/Dev/Repositories/Configuration/zsh
 git config core.hooksPath hooks
 ```
 
