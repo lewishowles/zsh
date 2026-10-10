@@ -22,6 +22,65 @@ _hcom_team_tags() {
 	print -r -- "$tag_prefix-orchestrator|$tag_prefix-reviewer|$tag_prefix-implementer|$tag_prefix-scout"
 }
 
+# Sets `reply` to the project slug and task slug that name a task team, so its
+# tags stay the same in any checkout. Fails when Progress cannot read the task or
+# a slug holds anything other than lowercase letters, digits, and inner hyphens.
+#
+# @param  {string}  working_directory
+#     Checkout containing the project's Progress records.
+# @param  {string}  task_id
+#     Task whose team address is needed.
+_hcom_task_team_address() {
+	local working_directory="$1"  # Checkout used for the task lookup.
+	local task_id="$2"  # Exact task ID used to find the Progress record.
+	local task_json  # Selected task and its project record from Progress.
+	local project_slug task_slug  # Human-readable slugs forming the team address.
+	local -a slugs slug_names  # Values and names checked against the tag-safe slug rule.
+	local index  # Position of the slug being validated.
+
+	if ! task_json="$(cd "$working_directory" && progress task get "$task_id" --json 2>/dev/null)" || ! jq -e --arg task_id "$task_id" '.ok == true and .data.id == $task_id and (.data.project.slug | type == "string") and (.data.slug | type == "string")' >/dev/null 2>&1 <<<"$task_json"; then
+		printf 'hcom: could not read task %s in %s.\n' "$task_id" "$working_directory" >&2
+		return 1
+	fi
+
+	project_slug="$(jq -r '.data.project.slug' <<<"$task_json")"
+	task_slug="$(jq -r '.data.slug' <<<"$task_json")"
+	slugs=("$project_slug" "$task_slug")
+	slug_names=(project task)
+	for index in 1 2; do
+		if [[ -z "${slugs[index]}" || "${slugs[index]}" == -* || "${slugs[index]}" == *- || "${slugs[index]}" == *[^a-z0-9-]* ]]; then
+			printf 'hcom: invalid Progress %s slug: %s\n' "${slug_names[index]}" "${slugs[index]}" >&2
+			return 1
+		fi
+	done
+
+	reply=("$project_slug" "$task_slug")
+}
+
+# Refuses a task team when any of its exact role tags is held by a live peer.
+#
+# @param  {string}  team_tags
+#     Pipe-separated role tags for the requested team.
+_hcom_refuse_live_team() {
+	local team_tags="$1"  # Exact tags reserved for the requested team.
+	local agents_json  # Current live agent records from HCOM.
+	local tag  # One role tag to check for a collision.
+	local -a exact_tags  # Tags split for individual membership checks.
+
+	if ! agents_json="$(command hcom list --json 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
+		printf 'hcom: cannot check live teams.\n' >&2
+		return 1
+	fi
+
+	exact_tags=("${(@s:|:)team_tags}")
+	for tag in "${exact_tags[@]}"; do
+		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
+			printf 'hcom: a live team already holds %s.\n' "$tag" >&2
+			return 1
+		fi
+	done
+}
+
 # Stops agents for exact team tags, ignoring agents that are already stopped.
 #
 # Returns the exit status of the last failed `hcom kill`, or 0 when every tag
@@ -76,6 +135,7 @@ _hcom_clear_team_scope() {
 	unset HCOM_ACTIVE_TEAM_TAGS
 	unset HCOM_ACTIVE_TEAM_TERMINAL_IDS
 	unset HCOM_TEAM_TERMINAL_IDS
+	unset HCOM_ACTIVE_TEAM_TASK_ID
 }
 
 # Returns the orchestrator prompt for a team continuation mode.
@@ -173,8 +233,22 @@ _hcom_launch_team() {
 	local skip_confirmation="${reply[6]}"  # Whether to start a continuation without prompting.
 	local requested_task_id="${reply[7]}"  # Task named with --task, or empty to find the in-progress task.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
+	local task_project_tag=""  # Stable project prefix used only by task teams.
+	local task_team_tags=""  # Exact role tags checked before pane creation.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
 	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
+
+	if [[ -n "$requested_task_id" ]]; then
+		_hcom_task_team_address "$team_scope_directory" "$requested_task_id" || return 1
+		task_project_tag="${reply[1]}"
+		team_label="${reply[2]}"
+		task_team_tags="$(HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
+		_hcom_refuse_live_team "$task_team_tags" || return 1
+		if [[ "$launch_mode" == continue ]]; then
+			printf '%s: continuing a named task is not available yet: %s\n' "$command_name" "$requested_task_id" >&2
+			return 1
+		fi
+	fi
 
 	if [[ "$launch_mode" == continue ]]; then
 		_hcom_preview_team_continuation "$team_scope_directory" "$skip_confirmation"
@@ -344,23 +418,25 @@ _hcom_launch_team() {
 		fi
 	fi
 
-	# A terminal ID survives the agent session and lets the next launch replace
-	# only the teammate panels created by this orchestrator shell.
+	# A terminal ID survives the agent session. Ordinary same-shell launches
+	# replace the prior ordinary team, while task teams keep their own scope.
 	local previous_terminal_ids="${HCOM_TEAM_TERMINAL_IDS:-}"  # Prior same-shell pane IDs, if any.
 	local previous_team_tags="${HCOM_ACTIVE_TEAM_TAGS:-}"  # Prior same-shell exact tags, if any.
-	if [[ -n "$previous_terminal_ids" ]] && [[ -n "$previous_team_tags" ]]; then
+	local replace_terminal_ids=""  # Panes of an ordinary prior team, when replacement applies.
+	if [[ -z "$requested_task_id" && -z "${HCOM_ACTIVE_TEAM_TASK_ID:-}" && -n "$previous_terminal_ids" && -n "$previous_team_tags" ]]; then
 		_hcom_stop_team_tags "$previous_team_tags"
+		replace_terminal_ids="$previous_terminal_ids"
 	fi
 
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit
 	# status, propagated so the command reports the real pane-launch failure.
 	# Accounts and providers were paired to roles above; the orchestrator's own
 	# pair is passed separately below.
-	_hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$previous_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" || return $?
+	HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_create_panes "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
-	_hcom_store_team_scope "$team_scope_directory" "$team_label" "$team_tags" "$team_terminal_ids"
+	_hcom_store_team_scope "$team_scope_directory" "$team_label" "$team_tags" "$team_terminal_ids" "$requested_task_id"
 
 	if [[ -n "$team_label" ]]; then
 		printf 'Starting hcom team %s in %s.\n' "$team_label" "$team_scope_directory"
@@ -369,7 +445,7 @@ _hcom_launch_team() {
 	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
 	# up teammates on return; its exit status is this function's result.
 	# It takes the account and provider reserved for it above.
-	_hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
+	HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
 # Shows the next progress task or chunk and confirms a team continuation before launch.
@@ -654,8 +730,9 @@ _hcom_team_create_panes() {
 	local account_env  # Account override prefix copied into each new pane command.
 	account_env="$(_hcom_account_environment)"
 
-	local team_env=""  # Optional HCOM_TEAM_LABEL assignment for new panes.
+	local team_env=""  # Optional HCOM_TEAM_LABEL and HCOM_TEAM_PROJECT_TAG assignments for new panes.
 	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
+	[[ -n "${HCOM_TEAM_PROJECT_TAG:-}" ]] && team_env+="HCOM_TEAM_PROJECT_TAG=${(q)HCOM_TEAM_PROJECT_TAG} "
 
 	local reviewer_env="${account_env}HCOM_ACCOUNT=${reviewer_account:-default} "  # Reviewer pane's environment prefix, overridden below for account 2.
 	local implementer_env="${account_env}HCOM_ACCOUNT=${implementer_account:-default} "  # Implementer pane's environment prefix, overridden below for account 2.
@@ -722,17 +799,21 @@ _hcom_team_create_panes() {
 #     Pipe-separated exact role tags for the active scope.
 # @param  {string}  team_terminal_ids
 #     Pipe-separated Ghostty pane IDs for matching cleanup.
+# @param  {string}  task_id
+#     Task ID for a named task team, or empty for an ordinary team.
 _hcom_store_team_scope() {
 	local working_directory="$1"  # Project directory for the team.
 	local team_label="$2"  # Optional label that scopes the team.
 	local team_tags="$3"  # Exact role tags for the active scope.
 	local team_terminal_ids="$4"  # Ghostty pane IDs for matching cleanup.
+	local task_id="${5:-}"  # Task identity that prevents cross-team replacement.
 
 	typeset -g HCOM_ACTIVE_TEAM_DIRECTORY="$working_directory"  # Stored directory for implicit or matching stops.
 	typeset -g HCOM_ACTIVE_TEAM_LABEL="$team_label"  # Stored optional label for the active scope.
 	typeset -g HCOM_ACTIVE_TEAM_TAGS="$team_tags"  # Stored exact role tags for the active scope.
 	typeset -g HCOM_ACTIVE_TEAM_TERMINAL_IDS="$team_terminal_ids"  # Stored IDs for matching pane cleanup.
 	typeset -g HCOM_TEAM_TERMINAL_IDS="$team_terminal_ids"  # Current IDs used by same-shell relaunch cleanup.
+	typeset -g HCOM_ACTIVE_TEAM_TASK_ID="$task_id"  # Empty for ordinary teams; non-empty for task teams.
 }
 
 # Runs the foreground orchestrator and cleans up the team on return.
@@ -913,8 +994,13 @@ _hcom_parse_team_args() {
 		_hcom_validate_team_label "$team_label" "$command_name" || return 1
 	fi
 
-	if [[ -n "$task_id" ]] && [[ "$launch_mode" != resume ]]; then
-		printf '%s: --task only works with resume.\n' "$command_name" >&2
+	if [[ -n "$task_id" && -n "$team_label" ]]; then
+		printf '%s: --task and --team cannot be used together.\n' "$command_name" >&2
+		return 1
+	fi
+
+	if [[ -n "$task_id" ]] && [[ "$launch_mode" != resume && "$launch_mode" != continue ]]; then
+		printf '%s: --task only works with resume or continue.\n' "$command_name" >&2
 		return 1
 	fi
 
@@ -963,13 +1049,13 @@ hcom:team:claude() {
 # tag-resolution failures return non-zero, as does a failure to close panes or
 # clear the stored scope; a failed agent stop is tolerated.
 #
-# @desc  Stop the exact hcom team for a directory and optional team label
+# @desc  Stop the exact hcom team for a directory, label, or task
 # @cat   hcom
 #
-# Usage: hcom:team:stop [--team <label>] [--dir <path>]
+# Usage: hcom:team:stop [--team <label> | --task <id>] [--dir <path>]
 #
 # Run with no arguments from the shell that launched the team, or with
-# --team and/or --dir from elsewhere. From another shell this always stops
+# --team, --task, and/or --dir from elsewhere. From another shell this always stops
 # the team's agents, but can only close its Ghostty panes when that scope
 # matches the launching shell's own stored team.
 #
@@ -977,14 +1063,17 @@ hcom:team:claude() {
 #     Optional project directory from --dir. Defaults to the active team's directory or the current directory with an explicit scope.
 # @param  {string}  team_label
 #     Optional team label. Defaults to the active team's label when no scope is supplied.
+# @param  {string}  task_id
+#     Optional task ID whose derived team address is stopped.
 hcom:team:stop() {
 	# Stop scope parsed from argv; copied out of `reply` before the next helper call.
 	_hcom_parse_team_stop_args "$@" || return $?
 	local working_directory="${reply[1]}"  # Explicit directory, or empty for an implicit stop.
 	local team_label="${reply[2]}"  # Explicit label, or empty for an implicit stop.
 	local explicit_scope="${reply[3]}"  # Whether --team or a directory was supplied.
+	local task_id="${reply[4]}"  # Task identity for a directory-independent team scope.
 
-	_hcom_resolve_team_stop_scope "$explicit_scope" "$working_directory" "$team_label"
+	_hcom_resolve_team_stop_scope "$explicit_scope" "$working_directory" "$team_label" "$task_id"
 	local resolve_status=$?  # 0 proceed, 1 validation or tag failure, 2 no active team.
 
 	if (( resolve_status == 2 )); then
@@ -1008,12 +1097,13 @@ hcom:team:stop() {
 # diagnostic when an option or positional is malformed.
 #
 # @param  {string}  ...
-#     The hcom:team:stop arguments: optional --team <label> and --dir <path>.
+#     The hcom:team:stop arguments: optional --team <label> or --task <id>, and --dir <path>.
 _hcom_parse_team_stop_args() {
 	local team_label=""  # Explicit label from --team, empty otherwise.
+	local task_id=""  # Task ID for a derived team address.
 	local working_directory=""  # Explicit directory from --dir, empty otherwise.
 	local explicit_scope=0  # Whether --team or a directory was supplied, rather than using the launching shell's stored team.
-	local usage_message="hcom:team:stop: usage: hcom:team:stop [--team <label>] [--dir <path>]"  # Shared usage error text.
+	local usage_message="hcom:team:stop: usage: hcom:team:stop [--team <label> | --task <id>] [--dir <path>]"  # Shared usage error text.
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -1037,6 +1127,16 @@ _hcom_parse_team_stop_args() {
 				explicit_scope=1
 				shift 2
 				;;
+			--task)
+				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
+					printf 'hcom:team:stop: --task requires a task ID.\n' >&2
+					return 1
+				fi
+
+				task_id="$2"
+				explicit_scope=1
+				shift 2
+				;;
 			--)
 				shift
 				break
@@ -1053,8 +1153,12 @@ _hcom_parse_team_stop_args() {
 		printf '%s\n' "$usage_message" >&2
 		return 1
 	fi
+	if [[ -n "$task_id" && -n "$team_label" ]]; then
+		printf 'hcom:team:stop: --task and --team cannot be used together.\n' >&2
+		return 1
+	fi
 
-	reply=("$working_directory" "$team_label" "$explicit_scope")
+	reply=("$working_directory" "$team_label" "$explicit_scope" "$task_id")
 }
 
 # Resolves which team a stop should act on and how far cleanup may go.
@@ -1073,10 +1177,14 @@ _hcom_parse_team_stop_args() {
 #     Requested project directory, or empty to use the stored or current one.
 # @param  {string}  team_label
 #     Requested team label, or empty.
+# @param  {string}  task_id
+#     Optional task ID used to recover the project and task address.
 _hcom_resolve_team_stop_scope() {
 	local explicit_scope="$1"  # 1 when a scope was supplied, 0 for an implicit stop.
 	local working_directory="$2"  # Requested directory, or empty to use the stored or current one.
 	local team_label="$3"  # Requested team label, or empty.
+	local task_id="${4:-}"  # Optional task ID for derived tags.
+	local task_project_tag=""  # Stable project prefix for a task team.
 	local team_tags=""  # Exact tags resolved for the requested stop scope.
 	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.
 	local scope_matches_active=0  # Whether an explicit scope matches stored directory and label, so its stored state can be cleared too.
@@ -1103,7 +1211,12 @@ _hcom_resolve_team_stop_scope() {
 			_hcom_validate_team_label "$team_label" hcom:team:stop || return 1
 		fi
 
-		team_tags="$(_hcom_team_tags "$working_directory" "$team_label")" || return 1
+		if [[ -n "$task_id" ]]; then
+			_hcom_task_team_address "$working_directory" "$task_id" || return 1
+			task_project_tag="${reply[1]}"
+			team_label="${reply[2]}"
+		fi
+		team_tags="$(HCOM_TEAM_PROJECT_TAG="$task_project_tag" _hcom_team_tags "$working_directory" "$team_label")" || return 1
 
 		if [[ -n "${HCOM_ACTIVE_TEAM_DIRECTORY:-}" ]] && [[ "${working_directory:A}" = "${HCOM_ACTIVE_TEAM_DIRECTORY:A}" ]] && [[ "$team_label" = "${HCOM_ACTIVE_TEAM_LABEL:-}" ]]; then
 			scope_matches_active=1

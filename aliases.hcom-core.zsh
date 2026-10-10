@@ -169,11 +169,17 @@ _hcom_role_invoke() {
 	fi
 }
 
-# Returns the repository portion of an hcom tag.
+# Returns the repository portion of an hcom tag, or a task team's project tag.
 #
 # @param  {string}  working_directory
 #     The directory selected for the agent launch.
 _hcom_scoped_tag() {
+	# Task teams carry their Progress project slug into every role terminal.
+	if [[ -n "${HCOM_TEAM_PROJECT_TAG:-}" ]]; then
+		print -r -- "$HCOM_TEAM_PROJECT_TAG"
+		return 0
+	fi
+
 	local directory_name="${1:t}"
 	local repository_tag
 
