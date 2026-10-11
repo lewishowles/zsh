@@ -1078,42 +1078,6 @@ _hcom_run_team_orchestrator() {
 	return "$orchestrator_exit_code"
 }
 
-# Prints an option error to stderr after a blank line, with a muted command
-# prefix and the words the user should act on highlighted. Colour is only used
-# when stderr is a terminal and NO_COLOR is unset. cli-style checks stdout, which
-# is captured here, so colour is forced once stderr has passed that check.
-#
-# @param  {string}  command_name
-#     The public team command that rejected the option.
-# @param  {string}  ...
-#     Message segments, alternating plain and highlighted text and starting
-#     with plain text. Pass an empty first segment to highlight the opening word.
-_hcom_team_option_error() {
-	local command_name="$1"  # Command prefix shown before the error.
-	shift
-	local segment  # Current message segment.
-	local highlight=0  # Whether the current segment names an action.
-
-	if [[ ! -t 2 || -n "${NO_COLOR:-}" ]]; then
-		printf '\n%s: ' "$command_name" >&2
-		printf '%s' "$@" >&2
-		printf '\n' >&2
-		return
-	fi
-
-	printf '\n%s' "$(FORCE_COLOR=1 cli_style_span "$command_name:" muted --weight normal)" >&2
-	printf ' ' >&2
-	for segment in "$@"; do
-		if (( highlight )); then
-			printf '%s' "$(FORCE_COLOR=1 cli_style_span "$segment" info)" >&2
-		else
-			printf '%s' "$segment" >&2
-		fi
-		highlight=$(( 1 - highlight ))
-	done
-	printf '\n' >&2
-}
-
 # Parses the hcom:team argument list and validates it.
 # Sets the standard zsh `reply` array to seven values in order: launch mode,
 # team label, keep-agents flag, working directory, initial prompt, the

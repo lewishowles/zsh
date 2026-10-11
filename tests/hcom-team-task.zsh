@@ -152,6 +152,7 @@ error_file="$fixture_dir/error"  # Captured error output for the exact-text chec
 assert_team_option_error 'hcom:team:codex: --dir requires a directory.' _hcom_parse_team_args hcom:team:codex --dir
 assert_team_option_error 'hcom:team: --message requires text.' _hcom_parse_team_args hcom:team --message --yes
 assert_team_option_error 'hcom:team: --team requires a label.' _hcom_parse_team_args hcom:team --team
+assert_team_option_error 'hcom:team: invalid team label: Bad_Label'$'\n''hcom:team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args hcom:team --team Bad_Label
 assert_team_option_error 'hcom:team: --task requires a task ID.' _hcom_parse_team_args hcom:team resume --task
 assert_team_option_error 'hcom:team: unknown option: --bad' _hcom_parse_team_args hcom:team --bad
 assert_team_option_error 'hcom:team: usage: hcom:team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args hcom:team extra

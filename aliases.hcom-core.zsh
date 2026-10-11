@@ -5,6 +5,55 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 
 # Core launch helpers
 
+# Prints one option error line to stderr, with a muted command prefix and the
+# words the user should act on highlighted. Colour is only used when stderr is
+# a terminal and NO_COLOR is unset. cli-style checks stdout, which is captured
+# here, so colour is forced once stderr has passed that check.
+#
+# @param  {string}  command_name
+#     The public command that rejected the option.
+# @param  {string}  ...
+#     Message segments, alternating plain and highlighted text and starting
+#     with plain text. Pass an empty first segment to highlight the opening word.
+_hcom_team_option_error_line() {
+	local command_name="$1"  # Command prefix shown before the error.
+	shift
+	local segment  # Current message segment.
+	local highlight=0  # Whether the current segment is a word the user should act on.
+
+	if [[ ! -t 2 || -n "${NO_COLOR:-}" ]]; then
+		printf '%s: ' "$command_name" >&2
+		printf '%s' "$@" >&2
+		printf '\n' >&2
+		return
+	fi
+
+	printf '%s' "$(FORCE_COLOR=1 cli_style_span "$command_name:" muted --weight normal)" >&2
+	printf ' ' >&2
+	for segment in "$@"; do
+		if (( highlight )); then
+			printf '%s' "$(FORCE_COLOR=1 cli_style_span "$segment" info)" >&2
+		else
+			printf '%s' "$segment" >&2
+		fi
+		highlight=$(( 1 - highlight ))
+	done
+	printf '\n' >&2
+}
+
+# Prints the first line of an option error after one blank line. Print any
+# further lines with _hcom_team_option_error_line, so the whole error has a
+# single blank line above it.
+#
+# @param  {string}  command_name
+#     The public command that rejected the option.
+# @param  {string}  ...
+#     Message segments passed to _hcom_team_option_error_line.
+_hcom_team_option_error() {
+	printf '\n' >&2
+	_hcom_team_option_error_line "$@"
+}
+
 # Checks that a team label is safe to include in an hcom tag.
 #
 # @param  {string}  team_label
@@ -16,8 +65,8 @@ _hcom_validate_team_label() {
 	local command_name="$2"
 
 	if [[ -z "$team_label" ]] || [[ "$team_label" == -* ]] || [[ "$team_label" == *- ]] || [[ "$team_label" == *[^a-z0-9-]* ]]; then
-		printf '%s: invalid team label: %s\n' "$command_name" "$team_label" >&2
-		printf '%s: use lowercase letters, numbers, and internal hyphens.\n' "$command_name" >&2
+		_hcom_team_option_error "$command_name" 'invalid team label: ' "$team_label"
+		_hcom_team_option_error_line "$command_name" 'use lowercase letters, numbers, and internal hyphens.'
 		return 1
 	fi
 }
