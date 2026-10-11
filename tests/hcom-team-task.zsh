@@ -130,6 +130,42 @@ fi
 _hcom_parse_team_args hcom:team continue --yes || fail 'plain continue parses'
 [[ -z "${reply[2]}" && -z "${reply[7]}" ]] || fail 'plain continue retains root scope'
 
+# Fails the test unless the command is rejected with exactly this uncoloured
+# error after a blank line. Stderr is a file here, so no colour is expected.
+#
+# @param  {string}  expected
+#     The error text that should follow the leading blank line.
+# @param  {string}  ...
+#     The parser call and arguments that should be rejected.
+assert_team_option_error() {
+	local expected="$1"  # The uncoloured error the parser should print.
+	shift
+
+	if "$@" 2>"$error_file"; then
+		fail "accepted invalid option: $expected"
+	fi
+
+	[[ "$(<"$error_file")" == $'\n'"$expected" ]] || fail "option error changed: $expected"
+}
+
+error_file="$fixture_dir/error"  # Captured error output for the exact-text checks below.
+assert_team_option_error 'hcom:team:codex: --dir requires a directory.' _hcom_parse_team_args hcom:team:codex --dir
+assert_team_option_error 'hcom:team: --message requires text.' _hcom_parse_team_args hcom:team --message --yes
+assert_team_option_error 'hcom:team: --team requires a label.' _hcom_parse_team_args hcom:team --team
+assert_team_option_error 'hcom:team: --task requires a task ID.' _hcom_parse_team_args hcom:team resume --task
+assert_team_option_error 'hcom:team: unknown option: --bad' _hcom_parse_team_args hcom:team --bad
+assert_team_option_error 'hcom:team: usage: hcom:team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args hcom:team extra
+assert_team_option_error 'hcom:team: --task and --team cannot be used together.' _hcom_parse_team_args hcom:team resume --task tsk_A_B --team other
+assert_team_option_error 'hcom:team: --task only works with resume or continue.' _hcom_parse_team_args hcom:team --task tsk_A_B
+assert_team_option_error "hcom:team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args hcom:team --dir "$fixture_dir/missing"
+assert_team_option_error 'hcom:team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
+assert_team_option_error 'hcom:team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
+assert_team_option_error 'hcom:team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
+assert_team_option_error 'hcom:team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
+assert_team_option_error 'hcom:team:stop: usage: hcom:team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
+assert_team_option_error 'hcom:team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
+assert_team_option_error "hcom:team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
+
 _hcom_read_task_team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
 project_tag="${reply[1]}"  # Stable project slug for comparisons.
 team_label="${reply[2]}"  # Readable task slug for stop targeting.
@@ -141,7 +177,6 @@ _hcom_read_task_team "$fixture_dir/project" tsk_a_B || fail 'case-distinct addre
 [[ "${reply[2]}" != "$team_label" ]] || fail 'case-distinct tasks collide'
 _hcom_read_task_team "$fixture_dir/project" tsk_A-B || fail 'separator-distinct address derives'
 [[ "${reply[2]}" != "$team_label" ]] || fail 'separator-distinct tasks collide'
-error_file="$fixture_dir/error"  # Captured refusal text for exact preflight checks.
 if _hcom_read_task_team "$fixture_dir/project" tsk_unknown 2>"$error_file"; then
 	fail 'unknown task ID resolved'
 fi

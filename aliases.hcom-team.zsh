@@ -1078,6 +1078,42 @@ _hcom_run_team_orchestrator() {
 	return "$orchestrator_exit_code"
 }
 
+# Prints an option error to stderr after a blank line, with a muted command
+# prefix and the words the user should act on highlighted. Colour is only used
+# when stderr is a terminal and NO_COLOR is unset. cli-style checks stdout, which
+# is captured here, so colour is forced once stderr has passed that check.
+#
+# @param  {string}  command_name
+#     The public team command that rejected the option.
+# @param  {string}  ...
+#     Message segments, alternating plain and highlighted text and starting
+#     with plain text. Pass an empty first segment to highlight the opening word.
+_hcom_team_option_error() {
+	local command_name="$1"  # Command prefix shown before the error.
+	shift
+	local segment  # Current message segment.
+	local highlight=0  # Whether the current segment names an action.
+
+	if [[ ! -t 2 || -n "${NO_COLOR:-}" ]]; then
+		printf '\n%s: ' "$command_name" >&2
+		printf '%s' "$@" >&2
+		printf '\n' >&2
+		return
+	fi
+
+	printf '\n%s' "$(FORCE_COLOR=1 cli_style_span "$command_name:" muted --weight normal)" >&2
+	printf ' ' >&2
+	for segment in "$@"; do
+		if (( highlight )); then
+			printf '%s' "$(FORCE_COLOR=1 cli_style_span "$segment" info)" >&2
+		else
+			printf '%s' "$segment" >&2
+		fi
+		highlight=$(( 1 - highlight ))
+	done
+	printf '\n' >&2
+}
+
 # Parses the hcom:team argument list and validates it.
 # Sets the standard zsh `reply` array to seven values in order: launch mode,
 # team label, keep-agents flag, working directory, initial prompt, the
@@ -1115,7 +1151,7 @@ _hcom_parse_team_args() {
 		case "$1" in
 			--dir)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf '%s: --dir requires a directory.\n' "$command_name" >&2
+					_hcom_team_option_error "$command_name" '' '--dir' ' requires a directory.'
 					return 1
 				fi
 
@@ -1124,7 +1160,7 @@ _hcom_parse_team_args() {
 				;;
 			--message)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf '%s: --message requires text.\n' "$command_name" >&2
+					_hcom_team_option_error "$command_name" '' '--message' ' requires text.'
 					return 1
 				fi
 
@@ -1133,7 +1169,7 @@ _hcom_parse_team_args() {
 				;;
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf '%s: --team requires a label.\n' "$command_name" >&2
+					_hcom_team_option_error "$command_name" '' '--team' ' requires a label.'
 					return 1
 				fi
 
@@ -1142,7 +1178,7 @@ _hcom_parse_team_args() {
 				;;
 			--task)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf '%s: --task requires a task ID.\n' "$command_name" >&2
+					_hcom_team_option_error "$command_name" '' '--task' ' requires a task ID.'
 					return 1
 				fi
 
@@ -1162,7 +1198,7 @@ _hcom_parse_team_args() {
 				break
 				;;
 			--*)
-				printf '%s: unknown option: %s\n' "$command_name" "$1" >&2
+				_hcom_team_option_error "$command_name" 'unknown option: ' "$1"
 				return 1
 				;;
 			*) break ;;
@@ -1170,7 +1206,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		printf '%s: usage: %s [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]\n' "$command_name" "$command_name" >&2
+		_hcom_team_option_error "$command_name" 'usage: ' "$command_name [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]"
 		return 1
 	fi
 
@@ -1179,17 +1215,17 @@ _hcom_parse_team_args() {
 	fi
 
 	if [[ -n "$task_id" && -n "$team_label" ]]; then
-		printf '%s: --task and --team cannot be used together.\n' "$command_name" >&2
+		_hcom_team_option_error "$command_name" '' '--task' ' and ' '--team' ' cannot be used together.'
 		return 1
 	fi
 
 	if [[ -n "$task_id" ]] && [[ "$launch_mode" != resume && "$launch_mode" != continue ]]; then
-		printf '%s: --task only works with resume or continue.\n' "$command_name" >&2
+		_hcom_team_option_error "$command_name" '' '--task' ' only works with ' 'resume or continue' '.'
 		return 1
 	fi
 
 	if [[ -n "$working_directory" ]] && [[ ! -d "$working_directory" ]]; then
-		printf '%s: working directory not found: %s\n' "$command_name" "$working_directory" >&2
+		_hcom_team_option_error "$command_name" 'working directory not found: ' "$working_directory"
 		return 1
 	fi
 
@@ -1287,13 +1323,12 @@ _hcom_parse_team_stop_args() {
 	local task_id=""  # Task ID for a derived team address.
 	local working_directory=""  # Explicit directory from --dir, empty otherwise.
 	local explicit_scope=0  # Whether --team or a directory was supplied, rather than using the launching shell's stored team.
-	local usage_message="hcom:team:stop: usage: hcom:team:stop [--team <label> | --task <id>] [--dir <path>]"  # Shared usage error text.
 
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--dir)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf 'hcom:team:stop: --dir requires a directory.\n' >&2
+					_hcom_team_option_error hcom:team:stop '' '--dir' ' requires a directory.'
 					return 1
 				fi
 
@@ -1303,7 +1338,7 @@ _hcom_parse_team_stop_args() {
 				;;
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf 'hcom:team:stop: --team requires a label.\n' >&2
+					_hcom_team_option_error hcom:team:stop '' '--team' ' requires a label.'
 					return 1
 				fi
 
@@ -1313,7 +1348,7 @@ _hcom_parse_team_stop_args() {
 				;;
 			--task)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					printf 'hcom:team:stop: --task requires a task ID.\n' >&2
+					_hcom_team_option_error hcom:team:stop '' '--task' ' requires a task ID.'
 					return 1
 				fi
 
@@ -1326,7 +1361,7 @@ _hcom_parse_team_stop_args() {
 				break
 				;;
 			--*)
-				printf 'hcom:team:stop: unknown option: %s\n' "$1" >&2
+				_hcom_team_option_error hcom:team:stop 'unknown option: ' "$1"
 				return 1
 				;;
 			*) break ;;
@@ -1334,11 +1369,11 @@ _hcom_parse_team_stop_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		printf '%s\n' "$usage_message" >&2
+		_hcom_team_option_error hcom:team:stop 'usage: ' 'hcom:team:stop [--team <label> | --task <id>] [--dir <path>]'
 		return 1
 	fi
 	if [[ -n "$task_id" && -n "$team_label" ]]; then
-		printf 'hcom:team:stop: --task and --team cannot be used together.\n' >&2
+		_hcom_team_option_error hcom:team:stop '' '--task' ' and ' '--team' ' cannot be used together.'
 		return 1
 	fi
 
@@ -1387,7 +1422,7 @@ _hcom_resolve_team_stop_scope() {
 		working_directory="${working_directory:-$PWD}"
 
 		if [[ ! -d "$working_directory" ]]; then
-			printf 'hcom:team:stop: working directory not found: %s\n' "$working_directory" >&2
+			_hcom_team_option_error hcom:team:stop 'working directory not found: ' "$working_directory"
 			return 1
 		fi
 
