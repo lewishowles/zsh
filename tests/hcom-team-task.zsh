@@ -330,7 +330,7 @@ _hcom_launch_team hcom:team:codex unused unused unused unused resume || fail 'pl
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'plain resume ignored the recorded checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'plain resume changed the root tags'
 _hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves after resume'
-[[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after resume'
+[[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail "root stop targets different tags after resume: stop resolved '${reply[1]}', resume stored '$HCOM_ACTIVE_TEAM_TAGS'"
 
 # A started task without a recorded checkout must stay in its original checkout.
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
