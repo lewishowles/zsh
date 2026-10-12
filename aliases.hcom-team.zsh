@@ -814,7 +814,7 @@ _hcom_select_resume_task() {
 
 		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
 		if (( task_count == 0 )); then
-			_hcom_team_option_error 'resume' 'no task is in progress, so there is no handoff to resume. Use ' 'continue' ' to start the next task.'
+			_hcom_team_option_error 'resume' 'no task is in progress, so there is no handoff to resume. Use ' 'cont' ' to start the next task.'
 			return 1
 		fi
 

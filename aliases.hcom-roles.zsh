@@ -4,17 +4,13 @@
 # @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 alias team="hcom:team"
+# Continues the next task or the task named by the first argument.
 # @desc  Continue a complete hcom team with the next task or a task ID
 # @cat   hcom
-if (( $+aliases[continue] )); then
-	unalias continue
-fi
-
-# Continues the next task or the task named by the first argument.
 #
 # @param  {string}  ...
 #     An optional task ID followed by the team continue options.
-continue() {
+cont() {
 	if [[ $# -gt 0 && "$1" != -* ]]; then
 		hcom:team continue --task "$1" "${@:2}"
 		return
