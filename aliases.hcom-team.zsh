@@ -794,31 +794,39 @@ _hcom_select_resume_task() {
 	local task_id="$2"  # Task whose handoff the team resumes.
 	local tasks_json  # In-progress tasks returned by progress task list.
 	local task_count  # Number of in-progress tasks in the project.
+	local listed_task_id  # The ID of one task in the list shown when several tasks are in progress.
+	local listed_task_title  # The title shown beside that task's ID.
 	local context_json  # Handoff returned by progress context get.
 	local current_goal  # The goal recorded in the handoff.
 	local next_step  # The next step recorded in the handoff.
 	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the next step readable on wide terminals.
 
 	if ! command -v jq >/dev/null 2>&1; then
-		printf 'hcom: jq is required to find the task to resume.\n' >&2
+		_hcom_team_option_error 'resume' '' 'jq' ' is required to find the task to resume.'
 		return 1
 	fi
 
 	if [[ -z "$task_id" ]]; then
 		if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --json 2>/dev/null)"; then
-			printf 'hcom: progress task list failed in %s.\n' "$working_directory" >&2
+			_hcom_team_option_error 'resume' 'progress task list failed in ' "$working_directory" '.'
 			return 1
 		fi
 
 		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
 		if (( task_count == 0 )); then
-			printf 'hcom: no task is in progress, so there is no handoff to resume. Use continue to start the next task.\n' >&2
+			_hcom_team_option_error 'resume' 'no task is in progress, so there is no handoff to resume. Use ' 'continue' ' to start the next task.'
 			return 1
 		fi
 
 		if (( task_count > 1 )); then
-			printf 'hcom: %s tasks are in progress; choose one with --task:\n' "$task_count" >&2
-			jq -r '.data.items[] | "  \(.id)  \(.title)"' <<<"$tasks_json" >&2
+			_hcom_team_option_error 'resume' '' "$task_count" ' tasks are in progress; choose one with ' '--task' ':'
+			jq -r '.data.items[] | [.id, .title] | @tsv' <<<"$tasks_json" | while IFS=$'\t' read -r listed_task_id listed_task_title; do
+				if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
+					printf '  %s  %s\n' "$(FORCE_COLOR=1 cli_style_span "$listed_task_id" info)" "$listed_task_title" >&2
+				else
+					printf '  %s  %s\n' "$listed_task_id" "$listed_task_title" >&2
+				fi
+			done
 			return 1
 		fi
 
@@ -827,12 +835,12 @@ _hcom_select_resume_task() {
 
 	if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
 		|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
-		printf 'hcom: could not read the handoff for task %s.\n' "$task_id" >&2
+		_hcom_team_option_error 'resume' 'could not read the handoff for task ' "$task_id" '.'
 		return 1
 	fi
 
 	if ! jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
-		printf 'hcom: task %s has no saved handoff to resume.\n' "$task_id" >&2
+		_hcom_team_option_error 'resume' 'task ' "$task_id" ' has no saved handoff to resume.'
 		return 1
 	fi
 

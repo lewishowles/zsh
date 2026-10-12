@@ -161,7 +161,7 @@ _hcom_learning_launch() {
 # @cat   hcom
 function learn:claude() {
 	if (( $# < 1 || $# > 2 )); then
-		printf 'hcom:learn:claude: usage: hcom:learn:claude <source> [context]\n' >&2
+		printf 'learn:claude: usage: learn:claude <source> [context]\n' >&2
 		return 1
 	fi
 
@@ -178,7 +178,7 @@ function learn:claude() {
 # @cat   hcom
 function learn:codex() {
 	if (( $# < 1 || $# > 2 )); then
-		printf 'hcom:learn:codex: usage: hcom:learn:codex <source> [context]\n' >&2
+		printf 'learn:codex: usage: learn:codex <source> [context]\n' >&2
 		return 1
 	fi
 
