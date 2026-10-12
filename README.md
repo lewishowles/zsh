@@ -274,29 +274,29 @@ The pre-commit hook regenerates the command table automatically before each comm
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `handoff` |  | Resume a complete hcom team from the clipboard handoff |
-| `hcom:implementer` |  | Start the Implementer hcom role on the account with more quota headroom |
-| `hcom:implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom |
+| `hcom:implementer` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hcom:implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `hcom:insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
 | `hcom:insights:claude` | <report-path> | Start a Claude insights-review peer review of a given report file |
 | `hcom:insights:codex` | <report-path> | Start a Codex insights-review peer review of a given report file |
-| `hcom:orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom |
-| `hcom:orchestrator:codex` |  | Start the Codex Orchestrator hcom role on the account with more quota headroom |
+| `hcom:orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hcom:orchestrator:codex` |  | Start the Codex Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `hcom:plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
 | `hcom:plan:claude` | <task-name> | Start a Claude planning-peer review of a given task name or path |
 | `hcom:plan:codex` | <task-name> | Start a Codex planning-peer review of a given task name or path |
 | `hcom:resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
-| `hcom:reviewer` |  | Start the Reviewer hcom role on the account with more quota headroom |
-| `hcom:reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom |
-| `hcom:scout` |  | Start the Scout hcom role on the account with more quota headroom |
-| `hcom:scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom |
+| `hcom:reviewer` |  | Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hcom:reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hcom:scout` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hcom:scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `hcom:team` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete hcom team |
 | `hcom:team:claude` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Claude hcom team |
 | `hcom:team:codex` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |
 | `hcom:team:stop` | [--team <label> | --task <id>] [--dir <path>] | Stop the exact hcom team for a directory, label, or task |
-| `hi` |  | Start the Implementer hcom role on the account with more quota headroom |
-| `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom |
-| `hr` |  | Start the Reviewer hcom role on the account with more quota headroom |
-| `hs` |  | Start the Scout hcom role on the account with more quota headroom |
+| `hi` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hr` |  | Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
+| `hs` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `learn:claude` |  | Start a Claude source-learning learner and its dedicated Scout |
 | `learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
 | `resume` |  | Resume a complete hcom team from the stored handoff or a task ID |

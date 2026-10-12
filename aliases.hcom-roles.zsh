@@ -42,16 +42,16 @@ resume() {
 # @desc  Resume a complete hcom team from the clipboard handoff
 # @cat   hcom
 alias handoff="hcom:team handoff"
-# @desc  Start the Orchestrator hcom role on the account with more quota headroom
+# @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 alias ho="hcom:orchestrator"
-# @desc  Start the Reviewer hcom role on the account with more quota headroom
+# @desc  Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 alias hr="hcom:reviewer"
-# @desc  Start the Implementer hcom role on the account with more quota headroom
+# @desc  Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 alias hi="hcom:implementer"
-# @desc  Start the Scout hcom role on the account with more quota headroom
+# @desc  Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 alias hs="hcom:scout"
 
@@ -73,17 +73,87 @@ typeset -A HCOM_ROLE_CONFIG=(
 	learner-codex "codex|orchestrator|gpt-6-astra|orchestrator.md,learner.md|medium"
 )
 
-# Launches a role using its shared hcom configuration.
+# Launches a role using its shared hcom configuration. With --task, or when the
+# launch folder is a task's registered Progress worktree, the role joins that
+# task's team in its worktree, the same team that team continue --task starts.
+# A team label that is already set wins over the worktree folder, but not over --task.
+#
+# Call it as <role> [directory] [prompt] or <role> --task <id> [prompt].
 #
 # @param  {string}  role
 #     The configured role to launch.
+# @param  {string}  task_id
+#     Optional, given as --task <id>: the task whose team and worktree the role joins.
 # @param  {string}  working_directory
-#     Optional project directory. Defaults to the current directory.
+#     Optional folder to launch in, defaulting to the current folder. Not accepted with --task.
 # @param  {string}  initial_prompt
-#     Optional initial prompt for the role.
+#     Optional first message for the role.
 _hcom_launch_configured_role() {
-	local role="$1"
+	local role="$1"  # The configured role to launch.
 	shift
+	local command_name="hcom:${role//-/:}"  # The public command shown in error messages, such as hcom:scout.
+	local original_directory="$PWD"  # The folder the command ran from, where Progress looks up the task.
+	local working_directory=""  # The folder the role starts in.
+	local initial_prompt=""  # The first message for the role, if any.
+	local task_id=""  # The task whose team the role joins, from --task or the worktree folder name.
+	local folder_task_id=""  # The launch folder's name, which is a task ID when the folder is a Progress worktree.
+	local team_project_tag=""  # The task team's project tag, passed to the launched role.
+	local team_label=""  # The task team's label, passed to the launched role.
+
+	case "${1:-}" in
+		--task)
+			if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
+				_hcom_team_option_error "$command_name" '' '--task' ' requires a task ID.'
+				return 1
+			fi
+
+			task_id="$2"
+			shift 2
+			;;
+		--*)
+			_hcom_team_option_error "$command_name" 'unknown option: ' "$1"
+			return 1
+			;;
+	esac
+
+	if [[ -n "$task_id" ]]; then
+		if [[ $# -gt 1 ]]; then
+			_hcom_team_option_error "$command_name" 'usage: ' "$command_name --task <id> [prompt]"
+			return 1
+		fi
+
+		initial_prompt="${1:-}"
+	else
+		working_directory="${1:-$PWD}"
+		initial_prompt="${2:-}"
+		folder_task_id="${working_directory:A:t}"
+
+		# A team label the caller already set wins, so hcom:learn keeps its learner beside its Scout.
+		if [[ -z "${HCOM_TEAM_LABEL:-}" && "$folder_task_id" == tsk_* ]] && _hcom_get_launch_checkout "$original_directory" "$folder_task_id" 2>/dev/null; then
+			# Only the task's registered worktree joins its team; a subfolder or a lookalike folder launches as before.
+			if [[ -n "${reply[1]}" && "$working_directory" -ef "${reply[1]}" ]]; then
+				task_id="$folder_task_id"
+			fi
+		fi
+	fi
+
+	if [[ -n "$task_id" ]]; then
+		_hcom_read_task_team "$original_directory" "$task_id" || return 1
+		team_project_tag="${reply[1]}"
+		team_label="${reply[2]}"
+	fi
+
+	# With --task, the launch folder is the task's registered worktree. The team is read
+	# first so that an unknown task is reported as unknown, not as missing a worktree.
+	if [[ -z "$working_directory" ]]; then
+		_hcom_get_launch_checkout "$original_directory" "$task_id" || return 1
+		working_directory="${reply[1]}"
+
+		if [[ -z "$working_directory" ]]; then
+			printf 'hcom: task %s has no registered worktree.\n' "$task_id" >&2
+			return 1
+		fi
+	fi
 
 	local -a role_config
 	role_config=("${(@s:|:)HCOM_ROLE_CONFIG[$role]}")
@@ -94,59 +164,68 @@ _hcom_launch_configured_role() {
 		role_file_arguments+=(--role-file "$role_file")
 	done
 
-	_hcom_launch_role \
-		--tool "${role_config[1]}" \
-		--tag "${role_config[2]}" \
-		--model "${role_config[3]}" \
-		"${role_file_arguments[@]}" \
-		--thinking "${role_config[5]}" \
-		--working-dir "${1:-$PWD}" \
-		--initial-prompt "${2:-}"
+	local -a launch_arguments=(  # Options for the role launch, shared by both launch forms below.
+		--tool "${role_config[1]}"
+		--tag "${role_config[2]}"
+		--model "${role_config[3]}"
+		"${role_file_arguments[@]}"
+		--thinking "${role_config[5]}"
+		--working-dir "$working_directory"
+		--initial-prompt "$initial_prompt"
+	)
+
+	# A task team's settings go in the launched role's environment, as team continue passes them.
+	# Without a task, the role keeps whatever team settings the shell already has.
+	if [[ -n "$task_id" ]]; then
+		HCOM_TEAM_PROJECT_TAG="$team_project_tag" HCOM_TEAM_LABEL="$team_label" _hcom_launch_role "${launch_arguments[@]}"
+	else
+		_hcom_launch_role "${launch_arguments[@]}"
+	fi
 }
 
-# @desc  Start the Orchestrator hcom role on the account with more quota headroom
+# @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:orchestrator() {
 	_hcom_launch_configured_role orchestrator "$@"
 }
 
-# @desc  Start the Codex Orchestrator hcom role on the account with more quota headroom
+# @desc  Start the Codex Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:orchestrator:codex() {
 	_hcom_launch_configured_role orchestrator-codex "$@"
 }
 
-# @desc  Start the Implementer hcom role on the account with more quota headroom
+# @desc  Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:implementer() {
 	_hcom_launch_configured_role implementer "$@"
 }
 
-# @desc  Start the Claude Implementer hcom role on the account with more quota headroom
+# @desc  Start the Claude Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:implementer:claude() {
 	_hcom_launch_configured_role implementer-claude "$@"
 }
 
-# @desc  Start the Reviewer hcom role on the account with more quota headroom
+# @desc  Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:reviewer() {
 	_hcom_launch_configured_role reviewer "$@"
 }
 
-# @desc  Start the Codex Reviewer hcom role on the account with more quota headroom
+# @desc  Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:reviewer:codex() {
 	_hcom_launch_configured_role reviewer-codex "$@"
 }
 
-# @desc  Start the Scout hcom role on the account with more quota headroom
+# @desc  Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
-# @desc  Start the Claude Scout hcom role on the account with more quota headroom
+# @desc  Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 hcom:scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
