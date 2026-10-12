@@ -29,6 +29,10 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 	exit 0
 fi
 if [[ "$1" == next && "$2" == --json ]]; then
+	if [[ "${HCOM_FIXTURE_NO_NEXT_TASK:-0}" == 1 ]]; then
+		print -r -- '{"ok":true,"data":{"project":{"name":"Fixture"},"task":null,"chunk":null}}'
+		exit 0
+	fi
 	print -r -- "{\"ok\":true,\"data\":{\"project\":{\"name\":\"Fixture\"},\"task\":{\"id\":\"${HCOM_FIXTURE_NEXT_TASK:-tsk_A_B}\",\"title\":\"Fixture task\",\"status\":\"${HCOM_FIXTURE_NEXT_STATUS:-ready}\",\"chunks\":[]},\"chunk\":null}}"
 	exit 0
 fi
@@ -104,6 +108,7 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
 source "$repo_root/aliases.hcom-core.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
+source "$repo_root/aliases.hcom-roles.zsh"
 
 # Shows preview text without relying on the installed colour helper.
 #
@@ -114,11 +119,11 @@ cli_style_span() {
 }
 
 # Preview text for a ready named task.
-named_preview="$(_hcom_preview_team_continuation "$fixture_dir/project" 1 tsk_A_B)" || fail 'named task preview builds'
+named_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_A_B)" || fail 'named task preview builds'
 [[ "$named_preview" == *'Selected task'* && "$named_preview" == *'tsk_A_B'* && "$named_preview" == *'Status: ready'* ]] || fail 'named preview omits the selected task details'
 [[ "$named_preview" != *'Fixture task'* ]] || fail 'named preview shows the default task'
 # Preview text for a started named task with an active chunk.
-started_preview="$(_hcom_preview_team_continuation "$fixture_dir/project" 1 tsk_a_B)" || fail 'started task preview builds'
+started_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'started task preview builds'
 [[ "$started_preview" == *'Other task'* && "$started_preview" == *'tsk_a_B'* && "$started_preview" == *'Status: in-progress'* ]] || fail 'started preview omits the selected task status'
 [[ "$started_preview" == *'Active chunk'* && "$started_preview" == *'chk_active'* && "$started_preview" != *'Pending chunk'* ]] || fail 'started preview skipped the active chunk'
 
@@ -153,6 +158,9 @@ assert_team_option_error() {
 
 error_file="$fixture_dir/error"  # Captured error output for the exact-text checks below.
 assert_team_option_error 'team:codex: --dir requires a directory.' _hcom_parse_team_args team:codex --dir
+assert_team_option_error 'team: --task requires a task ID.' team --task
+assert_team_option_error 'cont: --task requires a task ID.' cont --task
+assert_team_option_error 'resume: --task requires a task ID.' resume --task
 assert_team_option_error 'team: --message requires text.' _hcom_parse_team_args team --message --yes
 assert_team_option_error 'team: --team requires a label.' _hcom_parse_team_args team --team
 assert_team_option_error 'team: invalid team label: Bad_Label'$'\n''team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args team --team Bad_Label
@@ -165,43 +173,48 @@ assert_team_option_error "team: working directory not found: $fixture_dir/missin
 assert_team_option_error 'team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
 assert_team_option_error 'team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
 assert_team_option_error 'team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
+assert_team_option_error 'team:stop: --task requires a task ID.' team:stop --task
+assert_team_option_error "team:stop: could not read task tsk_unknown in $PWD." team:stop --task tsk_unknown
 assert_team_option_error 'team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
 assert_team_option_error 'team:stop: usage: team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
 assert_team_option_error 'team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
 assert_team_option_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
+export HCOM_FIXTURE_NO_NEXT_TASK=1  # Makes the progress stub return no task for the continuation error check.
+assert_team_option_error 'cont: nothing to continue in Fixture.' _hcom_preview_team_continuation cont "$fixture_dir/project" 1
+unset HCOM_FIXTURE_NO_NEXT_TASK
 
-_hcom_read_task_team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
+_hcom_read_task_team team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
 project_tag="${reply[1]}"  # Stable project slug for comparisons.
 team_label="${reply[2]}"  # Readable task slug for stop targeting.
 [[ "$project_tag" == zsh-config && "$team_label" == continue-parallel-task-teams ]] || fail 'task address is not the Progress slugs'
 [[ "$project_tag$team_label" != *[^a-z0-9-]* ]] || fail 'task address has unsafe characters'
-_hcom_read_task_team "$fixture_dir/tsk_A__B" tsk_A_B || fail 'worktree address derives'
+_hcom_read_task_team team "$fixture_dir/tsk_A__B" tsk_A_B || fail 'worktree address derives'
 [[ "${reply[1]}" == "$project_tag" && "${reply[2]}" == "$team_label" ]] || fail 'worktree changes the address'
-_hcom_read_task_team "$fixture_dir/project" tsk_a_B || fail 'case-distinct address derives'
+_hcom_read_task_team team "$fixture_dir/project" tsk_a_B || fail 'case-distinct address derives'
 [[ "${reply[2]}" != "$team_label" ]] || fail 'case-distinct tasks collide'
-_hcom_read_task_team "$fixture_dir/project" tsk_A-B || fail 'separator-distinct address derives'
+_hcom_read_task_team team "$fixture_dir/project" tsk_A-B || fail 'separator-distinct address derives'
 [[ "${reply[2]}" != "$team_label" ]] || fail 'separator-distinct tasks collide'
-if _hcom_read_task_team "$fixture_dir/project" tsk_unknown 2>"$error_file"; then
+if _hcom_read_task_team team "$fixture_dir/project" tsk_unknown 2>"$error_file"; then
 	fail 'unknown task ID resolved'
 fi
-[[ "$(<"$error_file")" == "hcom: could not read task tsk_unknown in $fixture_dir/project." ]] || fail 'unknown task read error was misleading'
-if _hcom_read_task_team "$fixture_dir/project" tsk_bad_slug 2>/dev/null; then
+[[ "$(<"$error_file")" == $'\n'"team: could not read task tsk_unknown in $fixture_dir/project." ]] || fail 'unknown task read error was misleading'
+if _hcom_read_task_team team "$fixture_dir/project" tsk_bad_slug 2>/dev/null; then
 	fail 'invalid task slug was rewritten or accepted'
 fi
-if HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_read_task_team "$fixture_dir/project" tsk_A_B 2>/dev/null; then
+if HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_read_task_team team "$fixture_dir/project" tsk_A_B 2>/dev/null; then
 	fail 'invalid project slug was rewritten or accepted'
 fi
 
-team_tags="$(HCOM_TEAM_PROJECT_TAG="$project_tag" _hcom_team_tags "$fixture_dir/project" "$team_label")"  # Role tags for the selected task.
+team_tags="$(HCOM_TEAM_PROJECT_TAG="$project_tag" _hcom_team_tags team "$fixture_dir/project" "$team_label")"  # Role tags for the selected task.
 [[ "$team_tags" == "$project_tag-$team_label-orchestrator|"* ]] || fail 'role tags do not share task address'
-root_tags="$(_hcom_team_tags "$PWD" '')"  # Existing unlabelled root role tags.
+root_tags="$(_hcom_team_tags team "$PWD" '')"  # Existing unlabelled root role tags.
 [[ "$root_tags" != "$team_tags" ]] || fail 'task team collides with root team'
 
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
-if _hcom_refuse_live_tags "$team_tags" 2>"$error_file"; then
+if _hcom_refuse_live_tags team "$team_tags" 2>"$error_file"; then
 	fail 'live role tag did not block launch'
 fi
-[[ "$(<"$error_file")" == "hcom: peer already holds ${team_tags%%|*}." ]] || fail 'duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"team: peer already holds ${team_tags%%|*}." ]] || fail 'duplicate refusal text'
 
 # Records whether a single role reaches the launch boundary.
 #
@@ -215,7 +228,7 @@ mkdir -p "$fixture_dir/roles"
 print -r -- 'Fixture role prompt.' > "$fixture_dir/roles/scout.md"
 HCOM_ROLE_DIR="$fixture_dir/roles"
 role_invoke_calls=0  # Number of single-role launch calls.
-scout_tag="$(_hcom_scoped_tag "$PWD")-scout"  # Full role tag for the fixture checkout.
+scout_tag="$(_hcom_scoped_tag hcom "$PWD")-scout"  # Full role tag for the fixture checkout.
 print -r -- "[{\"tag\":\"$scout_tag\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_role --tool codex --tag scout --model fixture --role-file scout.md 2>"$error_file"; then
 	fail 'duplicate single role launched'
@@ -230,13 +243,13 @@ print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTUR
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'duplicate task team launched'
 fi
-[[ "$(<"$error_file")" == "hcom: peer already holds ${team_tags%%|*}." ]] || fail 'launcher duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"team:codex: peer already holds ${team_tags%%|*}." ]] || fail 'launcher duplicate refusal text'
 [[ ! -e "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" ]] || fail 'duplicate task team created a checkout'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_unknown --yes 2>"$error_file"; then
 	fail 'unknown task launched'
 fi
-[[ "$(<"$error_file")" == "hcom: could not read task tsk_unknown in $PWD." ]] || fail 'launcher unknown task refusal text'
+[[ "$(<"$error_file")" == $'\n'"team:codex: could not read task tsk_unknown in $PWD." ]] || fail 'launcher unknown task refusal text'
 expected_task_status=''  # Progress status expected in each eligibility refusal.
 for task_id in tsk_blocked tsk_needs_decision tsk_done; do
 	case "$task_id" in
@@ -247,21 +260,21 @@ for task_id in tsk_blocked tsk_needs_decision tsk_done; do
 	if _hcom_launch_team team:codex unused unused unused unused continue --task "$task_id" --yes 2>"$error_file"; then
 		fail "$task_id launched"
 	fi
-	[[ "$(<"$error_file")" == "team:codex: task $task_id has status $expected_task_status; only ready or in-progress tasks can continue." ]] || fail "$task_id eligibility refusal text"
+	[[ "$(<"$error_file")" == $'\n'"team:codex: task $task_id has status $expected_task_status; only ready or in-progress tasks can continue." ]] || fail "$task_id eligibility refusal text"
 done
 
-plain_prompt="$(_hcom_team_continuation_prompt continue 0)"  # Prompt used by ordinary continue.
+plain_prompt="$(_hcom_team_continuation_prompt team continue 0)"  # Prompt used by ordinary continue.
 [[ "$plain_prompt" == 'Use the `project-continue` skill to retrieve the current progress records and continue with the next ready work.' ]] || fail 'plain continue prompt changed'
-plain_ready_prompt="$(_hcom_team_continuation_prompt continue 1)"  # Prompt used by a ready default task.
+plain_ready_prompt="$(_hcom_team_continuation_prompt team continue 1)"  # Prompt used by a ready default task.
 [[ "$plain_ready_prompt" == *'Start the selected task. If it has no chunks, plan them with the `project-plan-task` skill.'* ]] || fail 'plain ready prompt changed'
 # Prompt for a ready task chosen by ID.
-named_prompt="$(_hcom_team_continuation_prompt continue 1 '' tsk_A_B "$fixture_dir/project")" || fail 'named ready prompt builds'
+named_prompt="$(_hcom_team_continuation_prompt team continue 1 '' tsk_A_B "$fixture_dir/project")" || fail 'named ready prompt builds'
 [[ "$named_prompt" == *'Continue task tsk_A_B. This selected task takes precedence over bare `progress next`.'* ]] || fail 'named prompt does not select the task'
 [[ "$named_prompt" == *'Other in-progress task IDs: tsk_a_B.'* ]] || fail 'named prompt omits another active task'
 [[ "$named_prompt" == *'progress task start tsk_A_B --secondary'* && "$named_prompt" == *'clean-tree check'* ]] || fail 'named ready prompt omits safe secondary start'
 [[ "$named_prompt" != *'Other in-progress task IDs: tsk_A_B'* ]] || fail 'named prompt lists its own task as another'
 # Prompt for an in-progress task chosen by ID.
-named_started_prompt="$(_hcom_team_continuation_prompt continue 0 '' tsk_a_B "$fixture_dir/project")" || fail 'named in-progress prompt builds'
+named_started_prompt="$(_hcom_team_continuation_prompt team continue 0 '' tsk_a_B "$fixture_dir/project")" || fail 'named in-progress prompt builds'
 [[ "$named_started_prompt" == *'Other in-progress task IDs: tsk_A_B.'* && "$named_started_prompt" != *'progress task start'* ]] || fail 'named in-progress prompt restarts the task'
 _hcom_parse_team_stop_args --task tsk_A_B --dir "$fixture_dir/tsk_A__B" || fail 'stop --task parses'
 _hcom_resolve_team_stop_scope "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
@@ -269,14 +282,18 @@ _hcom_resolve_team_stop_scope "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply
 
 # Stubs the final launch boundary; no fixture case can open a terminal.
 #
+# @param  {string}  command_name
+#     The public command whose pane creation is being tested.
 # @param  {string}  ...
 #     Pane launch arguments, including prior IDs.
 _hcom_team_create_panes() {
+	local command_name="$1"  # Public command responsible for the pane launch.
+	shift
 	replaced_terminal_ids="$6"
 	launched_pane_directory="$4"
 	pane_calls=$((pane_calls + 1))
 	local resolved_tags  # Tags derived using the launch's project scope.
-	resolved_tags="$(_hcom_team_tags "${4:-$PWD}" "$5")"
+	resolved_tags="$(_hcom_team_tags "$command_name" "${4:-$PWD}" "$5")"
 	reply=("$resolved_tags" "new|panes")
 }
 
@@ -299,6 +316,8 @@ _hcom_run_team_orchestrator() {
 
 # Supplies enough account data to reach the pane boundary.
 #
+# @param  {string}  command_name
+#     The public command requesting quota.
 # @param  {string}  provider
 #     Provider requested by the launcher.
 _hcom_quota_allocate() {
@@ -307,12 +326,14 @@ _hcom_quota_allocate() {
 
 # Avoids reading a real handoff when checking the task-team replacement path.
 #
+# @param  {string}  command_name
+#     The public command requesting the resume.
 # @param  {string}  working_directory
 #     Checkout selected for the team.
 # @param  {string}  task_id
 #     Named task selected for resume.
 _hcom_select_resume_task() {
-	reply=("${2:-tsk_A_B}")
+	reply=("${3:-tsk_A_B}")
 }
 
 pane_calls=0  # Number of pane boundaries reached by test launches.
@@ -320,11 +341,20 @@ replaced_terminal_ids=""  # Prior pane IDs passed to the pane boundary.
 stopped_team_tags=""  # Prior tags passed to the stop boundary.
 launched_pane_directory=""  # Folder given to the role panes; empty means the original checkout.
 launched_orchestrator_directory=""  # Folder given to the orchestrator; empty means the original checkout.
+print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+if cont --task tsk_A_B --yes 2>"$error_file"; then
+	fail 'cont launched a duplicate task team'
+fi
+[[ "$(<"$error_file")" == $'\n'"cont: peer already holds ${team_tags%%|*}." && "$pane_calls" == 0 ]] || fail 'cont refusal lost its name or reached the pane boundary'
+if resume --task tsk_A_B 2>"$error_file"; then
+	fail 'resume launched a duplicate task team'
+fi
+[[ "$(<"$error_file")" == $'\n'"resume: peer already holds ${team_tags%%|*}." && "$pane_calls" == 0 ]] || fail 'resume refusal lost its name or reached the pane boundary'
 print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team team:codex unused unused unused unused 2>"$error_file"; then
 	fail 'duplicate root team launched'
 fi
-[[ "$(<"$error_file")" == "hcom: peer already holds ${root_tags%%|*}." ]] || fail 'root-team duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"team:codex: peer already holds ${root_tags%%|*}." ]] || fail 'root-team duplicate refusal text'
 [[ "$pane_calls" == 0 && -z "$stopped_team_tags" ]] || fail 'duplicate root team created panes or stopped agents'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
@@ -333,7 +363,7 @@ HCOM_TEAM_TERMINAL_IDS='old|panes'  # Existing ordinary team panes.
 HCOM_ACTIVE_TEAM_TASK_ID=''  # Existing team is not task-scoped.
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'manual team relaunch'
 [[ "$stopped_team_tags" == 'old-root-orchestrator|old-root-reviewer' && "$replaced_terminal_ids" == 'old|panes' ]] || fail 'manual team did not replace prior root'
-manual_team_tags="$(_hcom_team_tags "$PWD" blue)"  # Exact tags stored for the ordinary manual team.
+manual_team_tags="$(_hcom_team_tags team "$PWD" blue)"  # Exact tags stored for the ordinary manual team.
 stopped_team_tags=''
 _hcom_launch_team team:codex unused unused unused unused || fail 'root relaunch'
 [[ "$stopped_team_tags" == "$manual_team_tags" && "$replaced_terminal_ids" == 'new|panes' ]] || fail 'root did not replace prior manual team'
@@ -375,7 +405,7 @@ prior_pane_calls="$pane_calls"  # Pane count before refusal cases.
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes 2>"$error_file"; then
 	fail 'in-progress task without a checkout launched'
 fi
-expected_refusal=$'team:codex: task tsk_a_B has no managed checkout, so its work is in the original checkout.\nteam:codex: if it is the root team\'s task, carry on with that team; otherwise run resume --task tsk_a_B there once no other team is working in it.'  # Both lines of the in-progress task refusal.
+expected_refusal=$'\nteam:codex: task tsk_a_B has no managed checkout, so its work is in the original checkout.\nteam:codex: if it is the root team\'s task, carry on with that team; otherwise run resume --task tsk_a_B there once no other team is working in it.'  # Both lines of the in-progress task refusal.
 [[ "$(<"$error_file")" == "$expected_refusal" ]] || fail 'in-progress task refusal pointed to the wrong command'
 [[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'in-progress task refusal came after pane creation'
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
@@ -389,16 +419,16 @@ export HCOM_FIXTURE_WORKTREE_ERROR=git-binding-failed
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'worktree failure launched a team'
 fi
-[[ "$(<"$error_file")" == 'hcom: worktree git-binding-failed' && "$pane_calls" == "$prior_pane_calls" ]] || fail 'worktree failure did not stop before panes'
+[[ "$(<"$error_file")" == $'\nteam:codex: worktree git-binding-failed' && "$pane_calls" == "$prior_pane_calls" ]] || fail 'worktree failure did not stop before panes'
 HCOM_FIXTURE_NEXT_STATUS=in-progress
 if _hcom_launch_team team:codex unused unused unused unused continue --yes 2>"$error_file"; then
 	fail 'in-progress default ignored a checkout error'
 fi
-[[ "$(<"$error_file")" == 'hcom: worktree git-binding-failed' ]] || fail 'in-progress default did not print the Progress error'
+[[ "$(<"$error_file")" == $'\nteam:codex: worktree git-binding-failed' ]] || fail 'in-progress default did not print the Progress error'
 if _hcom_launch_team team:codex unused unused unused unused resume 2>"$error_file"; then
 	fail 'plain resume ignored a checkout error'
 fi
-[[ "$(<"$error_file")" == 'hcom: worktree git-binding-failed' ]] || fail 'plain resume did not print the Progress error'
+[[ "$(<"$error_file")" == $'\nteam:codex: worktree git-binding-failed' ]] || fail 'plain resume did not print the Progress error'
 HCOM_FIXTURE_NEXT_STATUS=ready
 unset HCOM_FIXTURE_WORKTREE_ERROR
 prior_pane_calls="$pane_calls"
@@ -408,7 +438,7 @@ if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_
 	fail 'ensure failure launched a team'
 fi
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'ensure failure did not follow a missing checkout'
-[[ "$(<"$error_file")" == 'hcom: worktree unresolved-dependencies' ]] || fail 'ensure failure did not print the Progress error'
+[[ "$(<"$error_file")" == $'\nteam:codex: worktree unresolved-dependencies' ]] || fail 'ensure failure did not print the Progress error'
 [[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'ensure failure came after pane creation'
 unset HCOM_FIXTURE_ENSURE_ERROR
 

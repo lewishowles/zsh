@@ -87,17 +87,25 @@ _hcom_account_environment() {
 # Refuses a launch when a live agent already holds any of the given role tags,
 # and names that agent. Also refuses when HCOM cannot list the live agents.
 #
+# @param  {string}  command_name
+#     The public command named in errors.
+#     Role launchers pass hcom to keep their existing plain message.
 # @param  {string}  role_tags
 #     Pipe-separated full role tags that the launch would use.
 _hcom_refuse_live_tags() {
-	local role_tags="$1"  # Full role tags that the launch would use.
+	local command_name="$1"  # Public command responsible for the launch.
+	local role_tags="$2"  # Full role tags that the launch would use.
 	local agents_json  # Current live agent records from HCOM.
 	local tag  # One role tag to check for a collision.
 	local agent_name  # The name of the live agent that already holds the tag.
 	local -a exact_tags  # Tags split for individual membership checks.
 
 	if ! agents_json="$(command hcom list --json 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
-		printf 'hcom: cannot check which agents are live.\n' >&2
+		if [[ "$command_name" == hcom ]]; then
+			printf 'hcom: cannot check which agents are live.\n' >&2
+		else
+			_hcom_team_option_error "$command_name" 'cannot check which agents are live.'
+		fi
 		return 1
 	fi
 
@@ -106,7 +114,11 @@ _hcom_refuse_live_tags() {
 		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
 			agent_name="$(jq -r --arg tag "$tag" 'first(.[] | select(.tag == $tag) | .name) // empty' <<<"$agents_json")"
 			[[ -n "$agent_name" ]] || agent_name='a live agent'
-			printf 'hcom: %s already holds %s.\n' "$agent_name" "$tag" >&2
+			if [[ "$command_name" == hcom ]]; then
+				printf 'hcom: %s already holds %s.\n' "$agent_name" "$tag" >&2
+			else
+				_hcom_team_option_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '.'
+			fi
 			return 1
 		fi
 	done
@@ -179,7 +191,7 @@ _hcom_launch_role() {
 
 	local role_prompt="${(pj:\n\n:)role_prompts}"  # The role files' text, separated by blank lines.
 	local repository_tag scoped_tag
-	repository_tag="$(_hcom_scoped_tag "$working_directory")" || return 1
+	repository_tag="$(_hcom_scoped_tag hcom "$working_directory")" || return 1
 	scoped_tag="${repository_tag}-${tag}"
 
 	if [[ -n "$team_label" ]]; then
@@ -187,7 +199,7 @@ _hcom_launch_role() {
 		scoped_tag="${repository_tag}-${team_label}-${tag}"
 	fi
 
-	_hcom_refuse_live_tags "$scoped_tag" || return 1
+	_hcom_refuse_live_tags hcom "$scoped_tag" || return 1
 
 	_hcom_role_invoke "$tool" "$scoped_tag" "$model" "$working_directory" "$role_prompt" "$initial_prompt" "$thinking_effort"
 }
@@ -264,23 +276,32 @@ _hcom_role_invoke() {
 
 # Returns the repository portion of an hcom tag, or a task team's project tag.
 #
+# @param  {string}  command_name
+#     The public command shown if the directory cannot form a tag.
+#     Role launchers pass hcom to keep their existing plain message.
 # @param  {string}  working_directory
 #     The directory selected for the agent launch.
 _hcom_scoped_tag() {
+	local command_name="$1"  # Public command responsible for the tag.
+	local working_directory="$2"  # Directory selected for the agent launch.
 	# Task teams carry their Progress project slug into every role terminal.
 	if [[ -n "${HCOM_TEAM_PROJECT_TAG:-}" ]]; then
 		print -r -- "$HCOM_TEAM_PROJECT_TAG"
 		return 0
 	fi
 
-	local directory_name="${1:t}"
+	local directory_name="${working_directory:t}"
 	local repository_tag
 
 	repository_tag="$(print -r -- "$directory_name" | tr -cs '[:alnum:]' '-')"
 	repository_tag="${repository_tag%-}"
 
 	if [[ -z "$repository_tag" ]]; then
-		printf 'hcom: cannot derive a tag from directory: %s\n' "$1" >&2
+		if [[ "$command_name" == hcom ]]; then
+			printf 'hcom: cannot derive a tag from directory: %s\n' "$working_directory" >&2
+		else
+			_hcom_team_option_error "$command_name" 'cannot derive a tag from directory: ' "$working_directory"
+		fi
 		return 1
 	fi
 

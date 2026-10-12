@@ -13,11 +13,11 @@ fi
 #     An optional task ID followed by the team continue options.
 cont() {
 	if [[ $# -gt 0 && "$1" != -* ]]; then
-		team continue --task "$1" "${@:2}"
+		_hcom_launch_team cont orchestrator reviewer implementer scout continue --task "$1" "${@:2}"
 		return
 	fi
 
-	team continue "$@"
+	_hcom_launch_team cont orchestrator reviewer implementer scout continue "$@"
 }
 if (( $+aliases[resume] )); then
 	unalias resume
@@ -30,11 +30,11 @@ fi
 #     An optional task ID followed by the team resume options.
 resume() {
 	if [[ $# -gt 0 && "$1" != -* ]]; then
-		team resume --task "$1" "${@:2}"
+		_hcom_launch_team resume orchestrator reviewer implementer scout resume --task "$1" "${@:2}"
 		return
 	fi
 
-	team resume "$@"
+	_hcom_launch_team resume orchestrator reviewer implementer scout resume "$@"
 }
 # @desc  Resume a complete hcom team from the clipboard handoff
 # @cat   hcom
@@ -126,7 +126,7 @@ _hcom_launch_configured_role() {
 		folder_task_id="${working_directory:A:t}"
 
 		# A team label the caller already set wins, so learn keeps its learner beside its Scout.
-		if [[ -z "${HCOM_TEAM_LABEL:-}" && "$folder_task_id" == tsk_* ]] && _hcom_get_launch_checkout "$original_directory" "$folder_task_id" 2>/dev/null; then
+		if [[ -z "${HCOM_TEAM_LABEL:-}" && "$folder_task_id" == tsk_* ]] && _hcom_get_launch_checkout hcom "$original_directory" "$folder_task_id" 2>/dev/null; then
 			# Only the task's registered worktree joins its team; a subfolder or a lookalike folder launches as before.
 			if [[ -n "${reply[1]}" && "$working_directory" -ef "${reply[1]}" ]]; then
 				task_id="$folder_task_id"
@@ -135,7 +135,7 @@ _hcom_launch_configured_role() {
 	fi
 
 	if [[ -n "$task_id" ]]; then
-		_hcom_read_task_team "$original_directory" "$task_id" || return 1
+		_hcom_read_task_team hcom "$original_directory" "$task_id" || return 1
 		team_project_tag="${reply[1]}"
 		team_label="${reply[2]}"
 	fi
@@ -143,7 +143,7 @@ _hcom_launch_configured_role() {
 	# With --task, the launch folder is the task's registered worktree. The team is read
 	# first so that an unknown task is reported as unknown, not as missing a worktree.
 	if [[ -z "$working_directory" ]]; then
-		_hcom_get_launch_checkout "$original_directory" "$task_id" || return 1
+		_hcom_get_launch_checkout hcom "$original_directory" "$task_id" || return 1
 		working_directory="${reply[1]}"
 
 		if [[ -z "$working_directory" ]]; then

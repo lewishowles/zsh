@@ -30,7 +30,7 @@ _hcom_learning_context() {
 		fi
 	done
 
-	repository_tag="$(_hcom_scoped_tag "$PWD")" || return 1
+	repository_tag="$(_hcom_scoped_tag hcom "$PWD")" || return 1
 	scout_tag="${repository_tag}-learn-${provider}-scout"
 	learner_prompt_lines=(
 		"Use project-learn-from-source to analyse the source below."

@@ -68,10 +68,14 @@ _hcom_quota_claude() {
 # provider as not exhausted, because a probe that did not answer says nothing about how
 # much quota is left, and guessing at empty would strand a whole team on one provider.
 #
+# @param  {string}  command_name
+#     The public command shown for an unknown provider.
+#     Role launchers pass hcom to keep their existing plain message.
 # @param  {string}  provider
 #     claude assigns orchestrator/reviewer; codex assigns implementer/scout.
 _hcom_quota_allocate() {
-	local provider="$1"  # Provider whose two accounts are being compared.
+	local command_name="$1"  # Public command responsible for the allocation.
+	local provider="$2"  # Provider whose two accounts are being compared.
 	local account  # Account currently being probed.
 	local available  # Six-value quota line on success, or the probe diagnostic on failure.
 	local -i heavier_index=1 lighter_index=2  # Positions in the per-account arrays, default first.
@@ -91,7 +95,11 @@ _hcom_quota_allocate() {
 	case "$provider" in
 		claude|codex) ;;
 		*)
-			printf 'hcom: unknown quota provider: %s\n' "$provider" >&2
+			if [[ "$command_name" == hcom ]]; then
+				printf 'hcom: unknown quota provider: %s\n' "$provider" >&2
+			else
+				_hcom_team_option_error "$command_name" 'unknown quota provider: ' "$provider"
+			fi
 			return 1
 			;;
 	esac
@@ -181,7 +189,7 @@ _hcom_quota_account_directory() {
 	local provider="$1"  # Provider whose accounts are compared.
 	local allocation  # Allocator output: heavier account, lighter account, exhausted flag.
 
-	if ! allocation="$(_hcom_quota_allocate "$provider")"; then
+	if ! allocation="$(_hcom_quota_allocate hcom "$provider")"; then
 		return 0
 	fi
 
