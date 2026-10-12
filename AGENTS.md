@@ -26,7 +26,6 @@ Personal macOS Zsh configuration for shell startup, shared environment, aliases,
 
 ## Need to know
 
-- Read `WORKSPACE.md` before choosing commands. It records the available diagnostics and forbidden operations.
 - Run commands from the repository root unless the command contract explicitly accepts another directory.
 - Match neighbouring Zsh style and keep public command annotations current.
 - Regenerate the README command table through `docs:generate`; do not hand-edit content between `<!-- commands:start -->` and `<!-- commands:end -->`.
