@@ -10,7 +10,7 @@ export EDITOR="$VISUAL"
 # @cat   agent
 #
 # Runs Codex on whichever of the two accounts has more quota headroom, matching what
-# hcom:team gives its orchestrator. A session with a single role is doing the orchestrator's
+# team gives its orchestrator. A session with a single role is doing the orchestrator's
 # job, which is the heavier of the two roles the allocator assigns.
 #
 # An account already chosen by hand, through acct2 or an inherited CODEX_HOME, is left
@@ -38,7 +38,7 @@ codex() {
 # @cat   agent
 #
 # Runs Claude in auto-mode on whichever of the two accounts has more quota headroom, matching
-# what hcom:team gives its orchestrator. A session with a single role is doing the
+# what team gives its orchestrator. A session with a single role is doing the
 # orchestrator's job, which is the heavier of the two roles the allocator assigns.
 #
 # An account already chosen by hand, through acct2 or an inherited CLAUDE_CONFIG_DIR, is left

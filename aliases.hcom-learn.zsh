@@ -73,7 +73,7 @@ _hcom_learning_open_scout() {
 	local scout_command  # Full command line typed into the new Scout pane.
 
 	account_env="$(_hcom_account_environment)"
-	scout_command="${account_env}HCOM_TEAM_LABEL=learn-${provider} hcom:scout ${(q)working_directory}"
+	scout_command="${account_env}HCOM_TEAM_LABEL=learn-${provider} scout ${(q)working_directory}"
 
 	_hcom_workflow_launch_layout "$ZSH_CONFIG_ROOT/scripts/hcom-learn.applescript" "$scout_command"
 	local osascript_exit_code=$?  # Exit status from the layout script that opened the pane.
@@ -165,7 +165,7 @@ function learn:claude() {
 		return 1
 	fi
 
-	_hcom_learning_launch hcom:learn:claude claude learner-claude "$1" "${2:-}"
+	_hcom_learning_launch learn:claude claude learner-claude "$1" "${2:-}"
 }
 
 # Starts a Codex source-learning learner and its dedicated Scout.
@@ -182,5 +182,5 @@ function learn:codex() {
 		return 1
 	fi
 
-	_hcom_learning_launch hcom:learn:codex codex learner-codex "$1" "${2:-}"
+	_hcom_learning_launch learn:codex codex learner-codex "$1" "${2:-}"
 }

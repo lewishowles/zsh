@@ -282,7 +282,7 @@ _hcom_team_continuation_prompt() {
 # @param  {string}  scout_launcher
 #     Function that starts the scout pane.
 # @param  {string}  ...
-#     The remaining hcom:team arguments: an optional resume|continue|handover|handoff
+#     The remaining team arguments: an optional resume|continue|handover|handoff
 #     token followed by named options.
 _hcom_launch_team() {
 	local command_name="$1"  # Public command name used in diagnostics.
@@ -417,7 +417,7 @@ _hcom_launch_team() {
 	local -a failed_providers  # Providers whose probe failed, so their pair is the default-account fallback rather than a measurement.
 	if [[ -z "${CLAUDE_CONFIG_DIR:-}" && -z "${CODEX_HOME:-}" ]]; then
 		case "$command_name" in
-			hcom:team)
+			team)
 				if ! claude_allocation="$(_hcom_quota_allocate claude)"; then
 					failed_providers+=(claude)
 				fi
@@ -427,13 +427,13 @@ _hcom_launch_team() {
 				claude_accounts=(${=claude_allocation})
 				codex_accounts=(${=codex_allocation})
 				;;
-			hcom:team:codex)
+			team:codex)
 				if ! codex_allocation="$(_hcom_quota_allocate codex)"; then
 					failed_providers+=(codex)
 				fi
 				codex_accounts=(${=codex_allocation})
 				;;
-			hcom:team:claude)
+			team:claude)
 				if ! claude_allocation="$(_hcom_quota_allocate claude)"; then
 					failed_providers+=(claude)
 				fi
@@ -444,8 +444,8 @@ _hcom_launch_team() {
 
 	# Each role carries its provider alongside its account number, because the
 	# same number means a different config directory for Claude and for Codex.
-	# Only the mixed team chooses providers here; hcom:team:claude and
-	# hcom:team:codex were asked for one provider and keep it throughout, but
+	# Only the mixed team chooses providers here; team:claude and
+	# team:codex were asked for one provider and keep it throughout, but
 	# they still take that provider's allocated pair. A provider with both
 	# accounts spent has none left for either of its two roles, so the mixed
 	# team moves all four roles to the provider that still has headroom. A
@@ -464,15 +464,15 @@ _hcom_launch_team() {
 	# reviewer takes the lighter one, in every branch below. When one provider carries all
 	# four roles, the scout shares the orchestrator's account and the implementer the
 	# reviewer's, so the two costliest roles never share one.
-	if [[ "$command_name" == hcom:team ]]; then
+	if [[ "$command_name" == team ]]; then
 		if (( claude_accounts[3] == 1 && codex_accounts[3] == 1 )); then
 			printf '%s: Claude and Codex are both exhausted; no panes launched.\n' "$command_name" >&2
 			return 1
 		elif (( codex_accounts[3] == 1 )); then
-			orchestrator_launcher=hcom:orchestrator
-			reviewer_launcher=hcom:reviewer
-			implementer_launcher=hcom:implementer:claude
-			scout_launcher=hcom:scout:claude
+			orchestrator_launcher=orchestrator
+			reviewer_launcher=reviewer
+			implementer_launcher=implementer:claude
+			scout_launcher=scout:claude
 			reviewer_account="${claude_accounts[2]:-}"
 			implementer_account="${claude_accounts[2]:-}"
 			scout_account="${claude_accounts[1]:-}"
@@ -482,10 +482,10 @@ _hcom_launch_team() {
 			scout_provider=claude
 			orchestrator_provider=claude
 		elif (( claude_accounts[3] == 1 )); then
-			orchestrator_launcher=hcom:orchestrator:codex
-			reviewer_launcher=hcom:reviewer:codex
-			implementer_launcher=hcom:implementer
-			scout_launcher=hcom:scout
+			orchestrator_launcher=orchestrator:codex
+			reviewer_launcher=reviewer:codex
+			implementer_launcher=implementer
+			scout_launcher=scout
 			reviewer_account="${codex_accounts[2]:-}"
 			implementer_account="${codex_accounts[2]:-}"
 			scout_account="${codex_accounts[1]:-}"
@@ -500,7 +500,7 @@ _hcom_launch_team() {
 			scout_account="${codex_accounts[2]:-}"
 			orchestrator_account="${claude_accounts[1]:-}"
 		fi
-	elif [[ "$command_name" == hcom:team:codex ]]; then
+	elif [[ "$command_name" == team:codex ]]; then
 		reviewer_account="${codex_accounts[2]:-}"
 		implementer_account="${codex_accounts[2]:-}"
 		scout_account="${codex_accounts[1]:-}"
@@ -509,7 +509,7 @@ _hcom_launch_team() {
 		implementer_provider=codex
 		scout_provider=codex
 		orchestrator_provider=codex
-	elif [[ "$command_name" == hcom:team:claude ]]; then
+	elif [[ "$command_name" == team:claude ]]; then
 		reviewer_account="${claude_accounts[2]:-}"
 		implementer_account="${claude_accounts[2]:-}"
 		scout_account="${claude_accounts[1]:-}"
@@ -520,15 +520,15 @@ _hcom_launch_team() {
 		orchestrator_provider=claude
 	fi
 
-	if [[ "$command_name" == hcom:team ]]; then
+	if [[ "$command_name" == team ]]; then
 		if (( codex_accounts[3] == 1 )); then
 			printf '%s: Codex is exhausted; using the Claude team.\n' "$command_name" >&2
 		elif (( claude_accounts[3] == 1 )); then
 			printf '%s: Claude is exhausted; using the Codex team.\n' "$command_name" >&2
 		fi
-	elif [[ "$command_name" == hcom:team:codex ]] && (( codex_accounts[3] == 1 )); then
+	elif [[ "$command_name" == team:codex ]] && (( codex_accounts[3] == 1 )); then
 		printf '%s: Codex is exhausted; launching anyway on its two nearly empty accounts.\n' "$command_name" >&2
-	elif [[ "$command_name" == hcom:team:claude ]] && (( claude_accounts[3] == 1 )); then
+	elif [[ "$command_name" == team:claude ]] && (( claude_accounts[3] == 1 )); then
 		printf '%s: Claude is exhausted; launching anyway on its two nearly empty accounts.\n' "$command_name" >&2
 	fi
 
@@ -963,7 +963,7 @@ _hcom_team_create_panes() {
 
 # Stores the active team scope in the launching shell.
 #
-# The launching shell keeps this scope so hcom:team:stop needs no arguments
+# The launching shell keeps this scope so team:stop needs no arguments
 # there and can tell which team it is scoped to.
 #
 # @param  {string}  working_directory
@@ -1069,7 +1069,7 @@ _hcom_run_team_orchestrator() {
 	return "$orchestrator_exit_code"
 }
 
-# Parses the hcom:team argument list and validates it.
+# Parses the team argument list and validates it.
 # Sets the standard zsh `reply` array to seven values in order: launch mode,
 # team label, keep-agents flag, working directory, initial prompt, the
 # skip-confirmation flag, and the requested task. Returns non-zero with a diagnostic when parsing or
@@ -1078,7 +1078,7 @@ _hcom_run_team_orchestrator() {
 # @param  {string}  command_name
 #     Public command name used in error output.
 # @param  {string}  ...
-#     The remaining hcom:team arguments: an optional resume|continue|handover|handoff
+#     The remaining team arguments: an optional resume|continue|handover|handoff
 #     token followed by named options.
 _hcom_parse_team_args() {
 	local command_name="$1"  # Public command name used in diagnostics.
@@ -1190,28 +1190,28 @@ _hcom_parse_team_args() {
 # @desc  Start, resume, continue, or hand over the complete hcom team
 # @cat   hcom
 #
-# Usage: hcom:team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
-hcom:team() {
-	_hcom_launch_team hcom:team hcom:orchestrator hcom:reviewer hcom:implementer hcom:scout "$@"
+team() {
+	_hcom_launch_team team orchestrator reviewer implementer scout "$@"
 }
 
 # @desc  Start, resume, continue, or hand over the complete Codex hcom team
 # @cat   hcom
 #
-# Usage: hcom:team:codex [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team:codex [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
-hcom:team:codex() {
-	_hcom_launch_team hcom:team:codex hcom:orchestrator:codex hcom:reviewer:codex hcom:implementer hcom:scout "$@"
+team:codex() {
+	_hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout "$@"
 }
 
 # @desc  Start, resume, continue, or hand over the complete Claude hcom team
 # @cat   hcom
 #
-# Usage: hcom:team:claude [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team:claude [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
-hcom:team:claude() {
-	_hcom_launch_team hcom:team:claude hcom:orchestrator hcom:reviewer hcom:implementer:claude hcom:scout:claude "$@"
+team:claude() {
+	_hcom_launch_team team:claude orchestrator reviewer implementer:claude scout:claude "$@"
 }
 
 # Stops the exact hcom team for a directory and optional team label.
@@ -1227,7 +1227,7 @@ hcom:team:claude() {
 # @desc  Stop the exact hcom team for a directory, label, or task
 # @cat   hcom
 #
-# Usage: hcom:team:stop [--team <label> | --task <id>] [--dir <path>]
+# Usage: team:stop [--team <label> | --task <id>] [--dir <path>]
 #
 # Run with no arguments from the shell that launched the team, or with
 # --team, --task, and/or --dir from elsewhere. From another shell this always stops
@@ -1240,7 +1240,7 @@ hcom:team:claude() {
 #     Optional team label. Defaults to the active team's label when no scope is supplied.
 # @param  {string}  task_id
 #     Optional task ID whose derived team address is stopped.
-hcom:team:stop() {
+team:stop() {
 	# Stop scope parsed from argv; copied out of `reply` before the next helper call.
 	_hcom_parse_team_stop_args "$@" || return $?
 	local working_directory="${reply[1]}"  # Explicit directory, or empty for an implicit stop.
@@ -1266,13 +1266,13 @@ hcom:team:stop() {
 	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" "$explicit_scope" "$scope_matches_active"
 }
 
-# Parses the hcom:team:stop argument list and validates it.
+# Parses the team:stop argument list and validates it.
 # Sets the standard zsh `reply` array to three values in order: working
 # directory, team label, explicit-scope flag. Returns non-zero with a
 # diagnostic when an option or positional is malformed.
 #
 # @param  {string}  ...
-#     The hcom:team:stop arguments: optional --team <label> or --task <id>, and --dir <path>.
+#     The team:stop arguments: optional --team <label> or --task <id>, and --dir <path>.
 _hcom_parse_team_stop_args() {
 	local team_label=""  # Explicit label from --team, empty otherwise.
 	local task_id=""  # Task ID for a derived team address.
@@ -1283,7 +1283,7 @@ _hcom_parse_team_stop_args() {
 		case "$1" in
 			--dir)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error hcom:team:stop '' '--dir' ' requires a directory.'
+					_hcom_team_option_error team:stop '' '--dir' ' requires a directory.'
 					return 1
 				fi
 
@@ -1293,7 +1293,7 @@ _hcom_parse_team_stop_args() {
 				;;
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error hcom:team:stop '' '--team' ' requires a label.'
+					_hcom_team_option_error team:stop '' '--team' ' requires a label.'
 					return 1
 				fi
 
@@ -1303,7 +1303,7 @@ _hcom_parse_team_stop_args() {
 				;;
 			--task)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error hcom:team:stop '' '--task' ' requires a task ID.'
+					_hcom_team_option_error team:stop '' '--task' ' requires a task ID.'
 					return 1
 				fi
 
@@ -1316,7 +1316,7 @@ _hcom_parse_team_stop_args() {
 				break
 				;;
 			--*)
-				_hcom_team_option_error hcom:team:stop 'unknown option: ' "$1"
+				_hcom_team_option_error team:stop 'unknown option: ' "$1"
 				return 1
 				;;
 			*) break ;;
@@ -1324,11 +1324,11 @@ _hcom_parse_team_stop_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_team_option_error hcom:team:stop 'usage: ' 'hcom:team:stop [--team <label> | --task <id>] [--dir <path>]'
+		_hcom_team_option_error team:stop 'usage: ' 'team:stop [--team <label> | --task <id>] [--dir <path>]'
 		return 1
 	fi
 	if [[ -n "$task_id" && -n "$team_label" ]]; then
-		_hcom_team_option_error hcom:team:stop '' '--task' ' and ' '--team' ' cannot be used together.'
+		_hcom_team_option_error team:stop '' '--task' ' and ' '--team' ' cannot be used together.'
 		return 1
 	fi
 
@@ -1377,12 +1377,12 @@ _hcom_resolve_team_stop_scope() {
 		working_directory="${working_directory:-$PWD}"
 
 		if [[ ! -d "$working_directory" ]]; then
-			_hcom_team_option_error hcom:team:stop 'working directory not found: ' "$working_directory"
+			_hcom_team_option_error team:stop 'working directory not found: ' "$working_directory"
 			return 1
 		fi
 
 		if [[ -n "$team_label" ]]; then
-			_hcom_validate_team_label "$team_label" hcom:team:stop || return 1
+			_hcom_validate_team_label "$team_label" team:stop || return 1
 		fi
 
 		if [[ -n "$task_id" ]]; then

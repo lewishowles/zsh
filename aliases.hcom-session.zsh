@@ -61,12 +61,12 @@ _hcom_resolve_agent() {
 # Prints the resolved agent and returns hcom r's status. Returns 1 when the name
 # is malformed or when no active or recently stopped agent can be resolved.
 # Resumes the resolved stopped agent through hcom r.
-hcom:resume() {
+agent:resume() {
 	local raw_name="$1"  # Agent name or role-prefixed shorthand.
 	shift
 
 	if [[ -z "$raw_name" ]]; then
-		printf 'hcom:resume: usage: hcom:resume <name> [tool-args...]\n' >&2
+		printf 'agent:resume: usage: agent:resume <name> [tool-args...]\n' >&2
 		return 1
 	fi
 
@@ -80,7 +80,7 @@ hcom:resume() {
 	local role="${resolved_agent[3]:-}"  # Role parsed from the full agent tag.
 
 	if [[ -z "$tag" ]]; then
-		printf 'hcom:resume: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
+		printf 'agent:resume: could not resolve %s (not alive or recently stopped)\n' "$name" >&2
 		return 1
 	fi
 

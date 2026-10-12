@@ -119,15 +119,15 @@ started_preview="$(_hcom_preview_team_continuation "$fixture_dir/project" 1 tsk_
 [[ "$started_preview" == *'Other task'* && "$started_preview" == *'tsk_a_B'* && "$started_preview" == *'Status: in-progress'* ]] || fail 'started preview omits the selected task status'
 [[ "$started_preview" == *'Active chunk'* && "$started_preview" == *'chk_active'* && "$started_preview" != *'Pending chunk'* ]] || fail 'started preview skipped the active chunk'
 
-_hcom_parse_team_args hcom:team continue --task tsk_A_B --yes || fail 'continue --task parses'
+_hcom_parse_team_args team continue --task tsk_A_B --yes || fail 'continue --task parses'
 [[ "${reply[1]}" == continue && "${reply[7]}" == tsk_A_B ]] || fail 'continue keeps the requested task'
-_hcom_parse_team_args hcom:team:codex continue --task tsk_A_B --yes || fail 'Codex variant parses'
-_hcom_parse_team_args hcom:team:claude continue --task tsk_A_B --yes || fail 'Claude variant parses'
-_hcom_parse_team_args hcom:team resume --task tsk_A_B || fail 'resume --task still parses'
-if _hcom_parse_team_args hcom:team continue --task tsk_A_B --team other 2>/dev/null; then
+_hcom_parse_team_args team:codex continue --task tsk_A_B --yes || fail 'Codex variant parses'
+_hcom_parse_team_args team:claude continue --task tsk_A_B --yes || fail 'Claude variant parses'
+_hcom_parse_team_args team resume --task tsk_A_B || fail 'resume --task still parses'
+if _hcom_parse_team_args team continue --task tsk_A_B --team other 2>/dev/null; then
 	fail '--task and --team must clash'
 fi
-_hcom_parse_team_args hcom:team continue --yes || fail 'plain continue parses'
+_hcom_parse_team_args team continue --yes || fail 'plain continue parses'
 [[ -z "${reply[2]}" && -z "${reply[7]}" ]] || fail 'plain continue retains root scope'
 
 # Fails the test unless the command is rejected with exactly this uncoloured
@@ -149,23 +149,23 @@ assert_team_option_error() {
 }
 
 error_file="$fixture_dir/error"  # Captured error output for the exact-text checks below.
-assert_team_option_error 'hcom:team:codex: --dir requires a directory.' _hcom_parse_team_args hcom:team:codex --dir
-assert_team_option_error 'hcom:team: --message requires text.' _hcom_parse_team_args hcom:team --message --yes
-assert_team_option_error 'hcom:team: --team requires a label.' _hcom_parse_team_args hcom:team --team
-assert_team_option_error 'hcom:team: invalid team label: Bad_Label'$'\n''hcom:team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args hcom:team --team Bad_Label
-assert_team_option_error 'hcom:team: --task requires a task ID.' _hcom_parse_team_args hcom:team resume --task
-assert_team_option_error 'hcom:team: unknown option: --bad' _hcom_parse_team_args hcom:team --bad
-assert_team_option_error 'hcom:team: usage: hcom:team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args hcom:team extra
-assert_team_option_error 'hcom:team: --task and --team cannot be used together.' _hcom_parse_team_args hcom:team resume --task tsk_A_B --team other
-assert_team_option_error 'hcom:team: --task only works with resume or continue.' _hcom_parse_team_args hcom:team --task tsk_A_B
-assert_team_option_error "hcom:team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args hcom:team --dir "$fixture_dir/missing"
-assert_team_option_error 'hcom:team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
-assert_team_option_error 'hcom:team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
-assert_team_option_error 'hcom:team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
-assert_team_option_error 'hcom:team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
-assert_team_option_error 'hcom:team:stop: usage: hcom:team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
-assert_team_option_error 'hcom:team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
-assert_team_option_error "hcom:team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
+assert_team_option_error 'team:codex: --dir requires a directory.' _hcom_parse_team_args team:codex --dir
+assert_team_option_error 'team: --message requires text.' _hcom_parse_team_args team --message --yes
+assert_team_option_error 'team: --team requires a label.' _hcom_parse_team_args team --team
+assert_team_option_error 'team: invalid team label: Bad_Label'$'\n''team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args team --team Bad_Label
+assert_team_option_error 'team: --task requires a task ID.' _hcom_parse_team_args team resume --task
+assert_team_option_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
+assert_team_option_error 'team: usage: team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args team extra
+assert_team_option_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team resume --task tsk_A_B --team other
+assert_team_option_error 'team: --task only works with resume or continue.' _hcom_parse_team_args team --task tsk_A_B
+assert_team_option_error "team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args team --dir "$fixture_dir/missing"
+assert_team_option_error 'team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
+assert_team_option_error 'team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
+assert_team_option_error 'team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
+assert_team_option_error 'team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
+assert_team_option_error 'team:stop: usage: team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
+assert_team_option_error 'team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
+assert_team_option_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
 
 _hcom_read_task_team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
 project_tag="${reply[1]}"  # Stable project slug for comparisons.
@@ -224,13 +224,13 @@ _hcom_launch_role --tool codex --tag scout --model fixture --role-file scout.md 
 [[ "$role_invoke_calls" == 1 ]] || fail 'single role with no live duplicate missed the launch boundary'
 
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
-if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'duplicate task team launched'
 fi
 [[ "$(<"$error_file")" == "hcom: peer already holds ${team_tags%%|*}." ]] || fail 'launcher duplicate refusal text'
 [[ ! -e "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" ]] || fail 'duplicate task team created a checkout'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
-if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_unknown --yes 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_unknown --yes 2>"$error_file"; then
 	fail 'unknown task launched'
 fi
 [[ "$(<"$error_file")" == "hcom: could not read task tsk_unknown in $PWD." ]] || fail 'launcher unknown task refusal text'
@@ -241,10 +241,10 @@ for task_id in tsk_blocked tsk_needs_decision tsk_done; do
 		tsk_needs_decision) expected_task_status=needs-decision ;;
 		tsk_done) expected_task_status=done ;;
 	esac
-	if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task "$task_id" --yes 2>"$error_file"; then
+	if _hcom_launch_team team:codex unused unused unused unused continue --task "$task_id" --yes 2>"$error_file"; then
 		fail "$task_id launched"
 	fi
-	[[ "$(<"$error_file")" == "hcom:team:codex: task $task_id has status $expected_task_status; only ready or in-progress tasks can continue." ]] || fail "$task_id eligibility refusal text"
+	[[ "$(<"$error_file")" == "team:codex: task $task_id has status $expected_task_status; only ready or in-progress tasks can continue." ]] || fail "$task_id eligibility refusal text"
 done
 
 plain_prompt="$(_hcom_team_continuation_prompt continue 0)"  # Prompt used by ordinary continue.
@@ -318,7 +318,7 @@ stopped_team_tags=""  # Prior tags passed to the stop boundary.
 launched_pane_directory=""  # Folder given to the role panes; empty means the original checkout.
 launched_orchestrator_directory=""  # Folder given to the orchestrator; empty means the original checkout.
 print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
-if _hcom_launch_team hcom:team:codex unused unused unused unused 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused 2>"$error_file"; then
 	fail 'duplicate root team launched'
 fi
 [[ "$(<"$error_file")" == "hcom: peer already holds ${root_tags%%|*}." ]] || fail 'root-team duplicate refusal text'
@@ -328,39 +328,39 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 HCOM_ACTIVE_TEAM_TAGS='old-root-orchestrator|old-root-reviewer'  # Existing ordinary team tags.
 HCOM_TEAM_TERMINAL_IDS='old|panes'  # Existing ordinary team panes.
 HCOM_ACTIVE_TEAM_TASK_ID=''  # Existing team is not task-scoped.
-_hcom_launch_team hcom:team:codex unused unused unused unused --team blue || fail 'manual team relaunch'
+_hcom_launch_team team:codex unused unused unused unused --team blue || fail 'manual team relaunch'
 [[ "$stopped_team_tags" == 'old-root-orchestrator|old-root-reviewer' && "$replaced_terminal_ids" == 'old|panes' ]] || fail 'manual team did not replace prior root'
 manual_team_tags="$(_hcom_team_tags "$PWD" blue)"  # Exact tags stored for the ordinary manual team.
 stopped_team_tags=''
-_hcom_launch_team hcom:team:codex unused unused unused unused || fail 'root relaunch'
+_hcom_launch_team team:codex unused unused unused unused || fail 'root relaunch'
 [[ "$stopped_team_tags" == "$manual_team_tags" && "$replaced_terminal_ids" == 'new|panes' ]] || fail 'root did not replace prior manual team'
 
 stopped_team_tags=''
 HCOM_ACTIVE_TEAM_TASK_ID=tsk_A_B
 HCOM_ACTIVE_TEAM_TAGS="$team_tags"
 HCOM_TEAM_TERMINAL_IDS='task|panes'
-_hcom_launch_team hcom:team:codex unused unused unused unused || fail 'root after task team'
+_hcom_launch_team team:codex unused unused unused unused || fail 'root after task team'
 [[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" ]] || fail 'root replaced prior task team'
 
 stopped_team_tags=''
-_hcom_launch_team hcom:team:codex unused unused unused unused resume --task tsk_A_B || fail 'resume task team'
+_hcom_launch_team team:codex unused unused unused unused resume --task tsk_A_B || fail 'resume task team'
 [[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A_B ]] || fail 'task team replaced prior ordinary team'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'named resume without checkout left the original directory'
 
-_hcom_launch_team hcom:team:codex unused unused unused unused resume --task tsk_blocked || fail 'resume blocked task team'
+_hcom_launch_team team:codex unused unused unused unused resume --task tsk_blocked || fail 'resume blocked task team'
 [[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_blocked ]] || fail 'blocked task team did not retain its task ID'
 
 # A named task creates its checkout once and gives it to every role.
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'named task did not look up then create its checkout'
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
-_hcom_launch_team hcom:team:codex unused unused unused unused resume --task tsk_A_B || fail 'named resume with recorded checkout'
+_hcom_launch_team team:codex unused unused unused unused resume --task tsk_A_B || fail 'named resume with recorded checkout'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named resume ignored the recorded checkout'
-_hcom_launch_team hcom:team:codex unused unused unused unused resume || fail 'plain resume with recorded checkout'
+_hcom_launch_team team:codex unused unused unused unused resume || fail 'plain resume with recorded checkout'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'plain resume ignored the recorded checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'plain resume changed the root tags'
 _hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves after resume'
@@ -369,30 +369,30 @@ _hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves afte
 # A started task without a recorded checkout must stay in its original checkout.
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
 prior_pane_calls="$pane_calls"  # Pane count before refusal cases.
-if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_a_B --yes 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes 2>"$error_file"; then
 	fail 'in-progress task without a checkout launched'
 fi
-expected_refusal=$'hcom:team:codex: task tsk_a_B has no managed checkout, so its work is in the original checkout.\nhcom:team:codex: if it is the root team\'s task, carry on with that team; otherwise run resume --task tsk_a_B there once no other team is working in it.'  # Both lines of the in-progress task refusal.
+expected_refusal=$'team:codex: task tsk_a_B has no managed checkout, so its work is in the original checkout.\nteam:codex: if it is the root team\'s task, carry on with that team; otherwise run resume --task tsk_a_B there once no other team is working in it.'  # Both lines of the in-progress task refusal.
 [[ "$(<"$error_file")" == "$expected_refusal" ]] || fail 'in-progress task refusal pointed to the wrong command'
 [[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'in-progress task refusal came after pane creation'
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --yes || fail 'in-progress default without checkout'
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default without checkout'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'in-progress default without checkout left the original directory'
-_hcom_launch_team hcom:team:codex unused unused unused unused resume || fail 'plain resume without checkout'
+_hcom_launch_team team:codex unused unused unused unused resume || fail 'plain resume without checkout'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'plain resume without checkout left the original directory'
 HCOM_FIXTURE_NEXT_STATUS=ready
 prior_pane_calls="$pane_calls"
 export HCOM_FIXTURE_WORKTREE_ERROR=git-binding-failed
-if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'worktree failure launched a team'
 fi
 [[ "$(<"$error_file")" == 'hcom: worktree git-binding-failed' && "$pane_calls" == "$prior_pane_calls" ]] || fail 'worktree failure did not stop before panes'
 HCOM_FIXTURE_NEXT_STATUS=in-progress
-if _hcom_launch_team hcom:team:codex unused unused unused unused continue --yes 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused continue --yes 2>"$error_file"; then
 	fail 'in-progress default ignored a checkout error'
 fi
 [[ "$(<"$error_file")" == 'hcom: worktree git-binding-failed' ]] || fail 'in-progress default did not print the Progress error'
-if _hcom_launch_team hcom:team:codex unused unused unused unused resume 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused resume 2>"$error_file"; then
 	fail 'plain resume ignored a checkout error'
 fi
 [[ "$(<"$error_file")" == 'hcom: worktree git-binding-failed' ]] || fail 'plain resume did not print the Progress error'
@@ -401,7 +401,7 @@ unset HCOM_FIXTURE_WORKTREE_ERROR
 prior_pane_calls="$pane_calls"
 export HCOM_FIXTURE_ENSURE_ERROR=unresolved-dependencies
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
-if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
+if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'ensure failure launched a team'
 fi
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'ensure failure did not follow a missing checkout'
@@ -411,20 +411,20 @@ unset HCOM_FIXTURE_ENSURE_ERROR
 
 # A dirty original checkout gives a ready default task its own checkout.
 HCOM_FIXTURE_GIT_DIRTY=1
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --yes || fail 'dirty-root continuation'
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'dirty-root continuation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'dirty-root roles did not use the checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'dirty-root default changed the root tags'
 _hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves after dirty-root continuation'
 [[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after dirty-root continuation'
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --yes || fail 'in-progress default continuation'
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default continuation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'in-progress default ignored the recorded checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'in-progress default changed the root tags'
 _hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves after in-progress continuation'
 [[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after in-progress continuation'
 HCOM_FIXTURE_NEXT_STATUS=ready
 HCOM_FIXTURE_GIT_DIRTY=0
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --yes || fail 'clean-root continuation'
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'clean-root continuation'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'clean original checkout did not retain its launch path'
 
 # The root task completes before the secondary task team resumes its checkout.
@@ -436,7 +436,7 @@ rm -f "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B"
 if progress worktree get tsk_A_B --json >/dev/null; then
 	fail 'completed root task kept a recorded checkout'
 fi
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'task after root completion'
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'task after root completion'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" && "$HCOM_ACTIVE_TEAM_TAGS" != "$root_tags" ]] || fail 'task after root completion lost its own checkout or tags'
 
 # The secondary task completes before the next root task starts.
@@ -447,7 +447,7 @@ HCOM_FIXTURE_GIT_DIRTY=1
 if progress worktree get tsk_a_B --json >/dev/null; then
 	fail 'completed secondary task kept a recorded checkout'
 fi
-_hcom_launch_team hcom:team:codex unused unused unused unused continue --yes || fail 'root after task completion'
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'root after task completion'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A_-B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A_-B" && "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'root after task completion lost its own checkout or tags'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == *'ensure tsk_A-B' ]] || fail 'root after task completion did not select the next task'
 

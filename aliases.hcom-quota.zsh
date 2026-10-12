@@ -60,7 +60,7 @@ _hcom_quota_claude() {
 # nothing left at all. Otherwise two nearly empty accounts keep one role each rather than
 # both landing on one.
 #
-# The third field flags a provider whose accounts are both spent, so hcom:team can move the
+# The third field flags a provider whose accounts are both spent, so team can move the
 # whole team onto the other provider rather than split roles across two dead accounts.
 #
 # A failed probe still selects default for both roles, but returns 2 rather than 0, so the

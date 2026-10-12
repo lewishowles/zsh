@@ -1,9 +1,10 @@
 # Shared hcom role configuration and launchers.
 
-# Provides short names for the team and shared role launchers.
-# @desc  Start, resume, continue, or hand over the complete hcom team
-# @cat   hcom
-alias team="hcom:team"
+# Clears the former team alias before the team function is loaded.
+if (( $+aliases[team] )); then
+	unalias team
+fi
+
 # Continues the next task or the task named by the first argument.
 # @desc  Continue a complete hcom team with the next task or a task ID
 # @cat   hcom
@@ -12,11 +13,11 @@ alias team="hcom:team"
 #     An optional task ID followed by the team continue options.
 cont() {
 	if [[ $# -gt 0 && "$1" != -* ]]; then
-		hcom:team continue --task "$1" "${@:2}"
+		team continue --task "$1" "${@:2}"
 		return
 	fi
 
-	hcom:team continue "$@"
+	team continue "$@"
 }
 if (( $+aliases[resume] )); then
 	unalias resume
@@ -29,27 +30,27 @@ fi
 #     An optional task ID followed by the team resume options.
 resume() {
 	if [[ $# -gt 0 && "$1" != -* ]]; then
-		hcom:team resume --task "$1" "${@:2}"
+		team resume --task "$1" "${@:2}"
 		return
 	fi
 
-	hcom:team resume "$@"
+	team resume "$@"
 }
 # @desc  Resume a complete hcom team from the clipboard handoff
 # @cat   hcom
-alias handoff="hcom:team handoff"
+alias handoff="team handoff"
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-alias ho="hcom:orchestrator"
+alias ho="orchestrator"
 # @desc  Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-alias hr="hcom:reviewer"
+alias hr="reviewer"
 # @desc  Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-alias hi="hcom:implementer"
+alias hi="implementer"
 # @desc  Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-alias hs="hcom:scout"
+alias hs="scout"
 
 # Role configuration fields: tool|tag|model|role_file|thinking.
 # role_file may list several files, separated by commas with no spaces.
@@ -87,7 +88,7 @@ typeset -A HCOM_ROLE_CONFIG=(
 _hcom_launch_configured_role() {
 	local role="$1"  # The configured role to launch.
 	shift
-	local command_name="hcom:${role//-/:}"  # The public command shown in error messages, such as hcom:scout.
+	local command_name="${role//-/:}"  # The public command shown in error messages, such as scout.
 	local original_directory="$PWD"  # The folder the command ran from, where Progress looks up the task.
 	local working_directory=""  # The folder the role starts in.
 	local initial_prompt=""  # The first message for the role, if any.
@@ -124,7 +125,7 @@ _hcom_launch_configured_role() {
 		initial_prompt="${2:-}"
 		folder_task_id="${working_directory:A:t}"
 
-		# A team label the caller already set wins, so hcom:learn keeps its learner beside its Scout.
+		# A team label the caller already set wins, so learn keeps its learner beside its Scout.
 		if [[ -z "${HCOM_TEAM_LABEL:-}" && "$folder_task_id" == tsk_* ]] && _hcom_get_launch_checkout "$original_directory" "$folder_task_id" 2>/dev/null; then
 			# Only the task's registered worktree joins its team; a subfolder or a lookalike folder launches as before.
 			if [[ -n "${reply[1]}" && "$working_directory" -ef "${reply[1]}" ]]; then
@@ -181,48 +182,48 @@ _hcom_launch_configured_role() {
 
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:orchestrator() {
+orchestrator() {
 	_hcom_launch_configured_role orchestrator "$@"
 }
 
 # @desc  Start the Codex Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:orchestrator:codex() {
+orchestrator:codex() {
 	_hcom_launch_configured_role orchestrator-codex "$@"
 }
 
 # @desc  Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:implementer() {
+implementer() {
 	_hcom_launch_configured_role implementer "$@"
 }
 
 # @desc  Start the Claude Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:implementer:claude() {
+implementer:claude() {
 	_hcom_launch_configured_role implementer-claude "$@"
 }
 
 # @desc  Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:reviewer() {
+reviewer() {
 	_hcom_launch_configured_role reviewer "$@"
 }
 
 # @desc  Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:reviewer:codex() {
+reviewer:codex() {
 	_hcom_launch_configured_role reviewer-codex "$@"
 }
 
 # @desc  Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:scout() {
+scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
 # @desc  Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
-hcom:scout:claude() {
+scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
 }

@@ -196,8 +196,8 @@ _hcom_launch_role() {
 # agent with the tool-specific environment prefix.
 #
 # A solo role runs on whichever of the two accounts has more quota headroom, the same
-# choice hcom:team makes for its orchestrator. The probe is skipped when an account is
-# already chosen: by hand or acct2 (CODEX_HOME or CLAUDE_CONFIG_DIR set), or by hcom:team,
+# choice team makes for its orchestrator. The probe is skipped when an account is
+# already chosen: by hand or acct2 (CODEX_HOME or CLAUDE_CONFIG_DIR set), or by team,
 # which sets HCOM_ACCOUNT on every role it launches so a team's placement is never
 # second-guessed. A failed quota probe falls back to the default account and launches anyway.
 #
