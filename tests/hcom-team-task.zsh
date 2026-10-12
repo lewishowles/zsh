@@ -4,6 +4,9 @@
 
 setopt errexit nounset pipefail
 
+# Keep inherited team settings from affecting this fixture.
+unset HCOM_TEAM_LABEL HCOM_TEAM_PROJECT_TAG
+
 repo_root="${0:A:h:h}"  # Repository containing the alias files under test.
 fixture_dir="$(mktemp -d)"  # Isolated command stubs and agent-list data.
 trap 'rm -rf "$fixture_dir"' EXIT
