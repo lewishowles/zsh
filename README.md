@@ -300,7 +300,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hs` |  | Start the Scout hcom role on the account with more quota headroom |
 | `learn:claude` |  | Start a Claude source-learning learner and its dedicated Scout |
 | `learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
-| `resume` |  | Resume a complete hcom team from the stored handoff |
+| `resume` |  | Resume a complete hcom team from the stored handoff or a task ID |
 | `team` |  | Start, resume, continue, or hand over the complete hcom team |
 
 ### nav

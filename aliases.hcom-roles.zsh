@@ -7,9 +7,23 @@ alias team="hcom:team"
 # @desc  Continue a complete hcom team with the next task or --task TASK_ID
 # @cat   hcom
 alias continue="hcom:team continue"
-# @desc  Resume a complete hcom team from the stored handoff
+if (( $+aliases[resume] )); then
+	unalias resume
+fi
+
+# @desc  Resume a complete hcom team from the stored handoff or a task ID
 # @cat   hcom
-alias resume="hcom:team resume"
+#
+# @param  {string}  ...
+#     An optional task ID followed by the team resume options.
+resume() {
+	if [[ $# -gt 0 && "$1" != -* ]]; then
+		hcom:team resume --task "$1" "${@:2}"
+		return
+	fi
+
+	hcom:team resume "$@"
+}
 # @desc  Resume a complete hcom team from the clipboard handoff
 # @cat   hcom
 alias handoff="hcom:team handoff"
