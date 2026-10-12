@@ -84,6 +84,34 @@ _hcom_account_environment() {
 	print -r -- "$account_environment"
 }
 
+# Refuses a launch when a live agent already holds any of the given role tags,
+# and names that agent. Also refuses when HCOM cannot list the live agents.
+#
+# @param  {string}  role_tags
+#     Pipe-separated full role tags that the launch would use.
+_hcom_refuse_live_tags() {
+	local role_tags="$1"  # Full role tags that the launch would use.
+	local agents_json  # Current live agent records from HCOM.
+	local tag  # One role tag to check for a collision.
+	local agent_name  # The name of the live agent that already holds the tag.
+	local -a exact_tags  # Tags split for individual membership checks.
+
+	if ! agents_json="$(command hcom list --json 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
+		printf 'hcom: cannot check which agents are live.\n' >&2
+		return 1
+	fi
+
+	exact_tags=("${(@s:|:)role_tags}")
+	for tag in "${exact_tags[@]}"; do
+		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
+			agent_name="$(jq -r --arg tag "$tag" 'first(.[] | select(.tag == $tag) | .name) // empty' <<<"$agents_json")"
+			[[ -n "$agent_name" ]] || agent_name='a live agent'
+			printf 'hcom: %s already holds %s.\n' "$agent_name" "$tag" >&2
+			return 1
+		fi
+	done
+}
+
 # Launches one role in the current terminal, using the selected project directory.
 #
 # `--hcom-system-prompt` doesn't reach the agent's actual system prompt (verified: the
@@ -93,6 +121,9 @@ _hcom_account_environment() {
 #
 # Repeat `--role-file` to give the role several prompt files. Their text is
 # combined in the order given, separated by blank lines.
+#
+# Stops without launching when a live agent already holds the role's full tag,
+# because a second agent with the same tag blocks every message sent to that role.
 #
 # Usage:
 #   _hcom_launch_role \
@@ -155,6 +186,8 @@ _hcom_launch_role() {
 		_hcom_validate_team_label "$team_label" hcom || return 1
 		scoped_tag="${repository_tag}-${team_label}-${tag}"
 	fi
+
+	_hcom_refuse_live_tags "$scoped_tag" || return 1
 
 	_hcom_role_invoke "$tool" "$scoped_tag" "$model" "$working_directory" "$role_prompt" "$initial_prompt" "$thinking_effort"
 }

@@ -121,30 +121,6 @@ _hcom_get_launch_checkout() {
 	esac
 }
 
-# Refuses a task team when any of its exact role tags is held by a live peer.
-#
-# @param  {string}  team_tags
-#     Pipe-separated role tags for the requested team.
-_hcom_refuse_live_team() {
-	local team_tags="$1"  # Exact tags reserved for the requested team.
-	local agents_json  # Current live agent records from HCOM.
-	local tag  # One role tag to check for a collision.
-	local -a exact_tags  # Tags split for individual membership checks.
-
-	if ! agents_json="$(command hcom list --json 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
-		printf 'hcom: cannot check live teams.\n' >&2
-		return 1
-	fi
-
-	exact_tags=("${(@s:|:)team_tags}")
-	for tag in "${exact_tags[@]}"; do
-		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
-			printf 'hcom: a live team already holds %s.\n' "$tag" >&2
-			return 1
-		fi
-	done
-}
-
 # Stops agents for exact team tags, ignoring agents that are already stopped.
 #
 # Returns the exit status of the last failed `hcom kill`, or 0 when every tag
@@ -327,7 +303,7 @@ _hcom_launch_team() {
 	local requested_task_id="${reply[7]}"  # Task named with --task, or empty to find the in-progress task.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local team_project_tag=""  # Address prefix for every role: the project name for a named task's team, or the original checkout's name for the root team.
-	local task_team_tags=""  # Exact role tags checked before pane creation.
+	local launch_team_tags=""  # Exact role tags checked before pane creation.
 	local requested_task_status=""  # Progress status of the explicitly selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
 	local continuation_task_id=""  # Task selected by the default continuation preview.
@@ -341,8 +317,8 @@ _hcom_launch_team() {
 		team_project_tag="${reply[1]}"
 		team_label="${reply[2]}"
 		requested_task_status="${reply[3]}"
-		task_team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
-		_hcom_refuse_live_team "$task_team_tags" || return 1
+		launch_team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
+		_hcom_refuse_live_tags "$launch_team_tags" || return 1
 		if [[ "$launch_mode" == continue ]]; then
 			if [[ "$requested_task_status" != ready && "$requested_task_status" != in-progress ]]; then
 				printf '%s: task %s has status %s; only ready or in-progress tasks can continue.\n' "$command_name" "$requested_task_id" "${requested_task_status:-none}" >&2
@@ -584,6 +560,13 @@ _hcom_launch_team() {
 	if [[ -z "$requested_task_id" && -z "${HCOM_ACTIVE_TEAM_TASK_ID:-}" && -n "$previous_terminal_ids" && -n "$previous_team_tags" ]]; then
 		_hcom_stop_team_tags "$previous_team_tags"
 		replace_terminal_ids="$previous_terminal_ids"
+	fi
+
+	if [[ -z "$requested_task_id" ]]; then
+		# A root team checks its tags only after this shell's previous team has
+		# stopped, so relaunching that team in the same shell is not refused.
+		launch_team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$team_scope_directory" "$team_label")" || return 1
+		_hcom_refuse_live_tags "$launch_team_tags" || return 1
 	fi
 
 	# A non-zero return is a tag-derivation failure (1) or the osascript exit

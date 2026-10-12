@@ -195,14 +195,40 @@ root_tags="$(_hcom_team_tags "$PWD" '')"  # Existing unlabelled root role tags.
 [[ "$root_tags" != "$team_tags" ]] || fail 'task team collides with root team'
 
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
-if _hcom_refuse_live_team "$team_tags" 2>"$error_file"; then
+if _hcom_refuse_live_tags "$team_tags" 2>"$error_file"; then
 	fail 'live role tag did not block launch'
 fi
-[[ "$(<"$error_file")" == "hcom: a live team already holds ${team_tags%%|*}." ]] || fail 'duplicate refusal text'
+[[ "$(<"$error_file")" == "hcom: peer already holds ${team_tags%%|*}." ]] || fail 'duplicate refusal text'
+
+# Records whether a single role reaches the launch boundary.
+#
+# @param  {string}  ...
+#     Role launch arguments.
+_hcom_role_invoke() {
+	role_invoke_calls=$((role_invoke_calls + 1))
+}
+
+mkdir -p "$fixture_dir/roles"
+print -r -- 'Fixture role prompt.' > "$fixture_dir/roles/scout.md"
+HCOM_ROLE_DIR="$fixture_dir/roles"
+role_invoke_calls=0  # Number of single-role launch calls.
+scout_tag="$(_hcom_scoped_tag "$PWD")-scout"  # Full role tag for the fixture checkout.
+print -r -- "[{\"tag\":\"$scout_tag\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+if _hcom_launch_role --tool codex --tag scout --model fixture --role-file scout.md 2>"$error_file"; then
+	fail 'duplicate single role launched'
+fi
+[[ "$(<"$error_file")" == "hcom: peer already holds $scout_tag." ]] || fail 'single-role duplicate refusal text'
+[[ "$role_invoke_calls" == 0 ]] || fail 'duplicate single role reached the launch boundary'
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+_hcom_launch_role --tool codex --tag scout --model fixture --role-file scout.md || fail 'single role with no live duplicate did not launch'
+[[ "$role_invoke_calls" == 1 ]] || fail 'single role with no live duplicate missed the launch boundary'
+
+print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'duplicate task team launched'
 fi
-[[ "$(<"$error_file")" == "hcom: a live team already holds ${team_tags%%|*}." ]] || fail 'launcher duplicate refusal text'
+[[ "$(<"$error_file")" == "hcom: peer already holds ${team_tags%%|*}." ]] || fail 'launcher duplicate refusal text'
+[[ ! -e "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" ]] || fail 'duplicate task team created a checkout'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team hcom:team:codex unused unused unused unused continue --task tsk_unknown --yes 2>"$error_file"; then
 	fail 'unknown task launched'
@@ -291,6 +317,14 @@ replaced_terminal_ids=""  # Prior pane IDs passed to the pane boundary.
 stopped_team_tags=""  # Prior tags passed to the stop boundary.
 launched_pane_directory=""  # Folder given to the role panes; empty means the original checkout.
 launched_orchestrator_directory=""  # Folder given to the orchestrator; empty means the original checkout.
+print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+if _hcom_launch_team hcom:team:codex unused unused unused unused 2>"$error_file"; then
+	fail 'duplicate root team launched'
+fi
+[[ "$(<"$error_file")" == "hcom: peer already holds ${root_tags%%|*}." ]] || fail 'root-team duplicate refusal text'
+[[ "$pane_calls" == 0 && -z "$stopped_team_tags" ]] || fail 'duplicate root team created panes or stopped agents'
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+
 HCOM_ACTIVE_TEAM_TAGS='old-root-orchestrator|old-root-reviewer'  # Existing ordinary team tags.
 HCOM_TEAM_TERMINAL_IDS='old|panes'  # Existing ordinary team panes.
 HCOM_ACTIVE_TEAM_TASK_ID=''  # Existing team is not task-scoped.
