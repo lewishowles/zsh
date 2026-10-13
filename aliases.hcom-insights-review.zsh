@@ -94,6 +94,7 @@ function insights:claude() {
 	fi
 
 	HCOM_TEAM_LABEL=insights-claude _hcom_launch_role \
+		--command insights:claude \
 		--tool claude \
 		--tag orchestrator \
 		--model opus \
@@ -131,6 +132,7 @@ function insights:codex() {
 	fi
 
 	HCOM_TEAM_LABEL=insights-codex _hcom_launch_role \
+		--command insights:codex \
 		--tool codex \
 		--tag orchestrator \
 		--model gpt-6-astra \

@@ -30,7 +30,7 @@ _hcom_learning_context() {
 		fi
 	done
 
-	repository_tag="$(_hcom_scoped_tag hcom "$PWD")" || return 1
+	repository_tag="$(_hcom_scoped_tag "$command_name" "$PWD")" || return 1
 	scout_tag="${repository_tag}-learn-${provider}-scout"
 	learner_prompt_lines=(
 		"Use project-learn-from-source to analyse the source below."
@@ -140,7 +140,7 @@ _hcom_learning_launch() {
 		return "$layout_exit_code"
 	fi
 
-	HCOM_TEAM_LABEL="learn-${provider}" _hcom_launch_configured_role "$learner_role" "$working_directory" "${learning_context[2]}"
+	HCOM_TEAM_LABEL="learn-${provider}" _hcom_launch_configured_role "$learner_role" --command "$command_name" "$working_directory" "${learning_context[2]}"
 	local learner_exit_code=$?  # Exit status from the learner launch.
 
 	if (( learner_exit_code == 0 )); then

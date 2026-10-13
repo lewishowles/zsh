@@ -109,6 +109,8 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 source "$repo_root/aliases.hcom-core.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
 source "$repo_root/aliases.hcom-roles.zsh"
+source "$repo_root/aliases.hcom-learn.zsh"
+source "$repo_root/aliases.hcom-session.zsh"
 
 # Shows preview text without relying on the installed colour helper.
 #
@@ -138,50 +140,60 @@ fi
 _hcom_parse_team_args team continue --yes || fail 'plain continue parses'
 [[ -z "${reply[2]}" && -z "${reply[7]}" ]] || fail 'plain continue retains root scope'
 
-# Fails the test unless the command is rejected with exactly this uncoloured
-# error after a blank line. Stderr is a file here, so no colour is expected.
+# Checks that a launcher rejects the call with status 1 and exactly this
+# uncoloured error after a blank line. Stderr is redirected to a file.
 #
 # @param  {string}  expected
 #     The error text that should follow the leading blank line.
 # @param  {string}  ...
-#     The parser call and arguments that should be rejected.
-assert_team_option_error() {
-	local expected="$1"  # The uncoloured error the parser should print.
+#     The launcher call and arguments that should be rejected.
+assert_command_error() {
+	local expected="$1"  # The uncoloured launcher error to check.
+	local exit_code  # Status returned by the rejected call.
 	shift
 
 	if "$@" 2>"$error_file"; then
-		fail "accepted invalid option: $expected"
+		fail "launcher accepted an invalid call: $expected"
+	else
+		exit_code=$?
 	fi
 
-	[[ "$(<"$error_file")" == $'\n'"$expected" ]] || fail "option error changed: $expected"
+	[[ "$exit_code" == 1 ]] || fail "launcher error returned status $exit_code instead of 1: $expected"
+	[[ "$(<"$error_file")" == $'\n'"$expected" ]] || fail "launcher error changed: $expected"
 }
 
 error_file="$fixture_dir/error"  # Captured error output for the exact-text checks below.
-assert_team_option_error 'team:codex: --dir requires a directory.' _hcom_parse_team_args team:codex --dir
-assert_team_option_error 'team: --task requires a task ID.' team --task
-assert_team_option_error 'cont: --task requires a task ID.' cont --task
-assert_team_option_error 'resume: --task requires a task ID.' resume --task
-assert_team_option_error 'team: --message requires text.' _hcom_parse_team_args team --message --yes
-assert_team_option_error 'team: --team requires a label.' _hcom_parse_team_args team --team
-assert_team_option_error 'team: invalid team label: Bad_Label'$'\n''team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args team --team Bad_Label
-assert_team_option_error 'team: --task requires a task ID.' _hcom_parse_team_args team resume --task
-assert_team_option_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
-assert_team_option_error 'team: usage: team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args team extra
-assert_team_option_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team resume --task tsk_A_B --team other
-assert_team_option_error 'team: --task only works with resume or continue.' _hcom_parse_team_args team --task tsk_A_B
-assert_team_option_error "team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args team --dir "$fixture_dir/missing"
-assert_team_option_error 'team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
-assert_team_option_error 'team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
-assert_team_option_error 'team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
-assert_team_option_error 'team:stop: --task requires a task ID.' team:stop --task
-assert_team_option_error "team:stop: could not read task tsk_unknown in $PWD." team:stop --task tsk_unknown
-assert_team_option_error 'team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
-assert_team_option_error 'team:stop: usage: team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
-assert_team_option_error 'team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
-assert_team_option_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
+assert_command_error 'team:codex: --dir requires a directory.' _hcom_parse_team_args team:codex --dir
+assert_command_error 'team: --task requires a task ID.' team --task
+assert_command_error 'cont: --task requires a task ID.' cont --task
+assert_command_error 'resume: --task requires a task ID.' resume --task
+assert_command_error 'team: --message requires text.' _hcom_parse_team_args team --message --yes
+assert_command_error 'team: --team requires a label.' _hcom_parse_team_args team --team
+assert_command_error 'team: invalid team label: Bad_Label'$'\n''team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args team --team Bad_Label
+assert_command_error 'team: --task requires a task ID.' _hcom_parse_team_args team resume --task
+assert_command_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
+assert_command_error 'team: usage: team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args team extra
+assert_command_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team resume --task tsk_A_B --team other
+assert_command_error 'team: --task only works with resume or continue.' _hcom_parse_team_args team --task tsk_A_B
+assert_command_error "team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args team --dir "$fixture_dir/missing"
+assert_command_error 'team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
+assert_command_error 'team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
+assert_command_error 'team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
+assert_command_error 'team:stop: --task requires a task ID.' team:stop --task
+assert_command_error "team:stop: could not read task tsk_unknown in $PWD." team:stop --task tsk_unknown
+assert_command_error 'team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
+assert_command_error 'team:stop: usage: team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
+assert_command_error 'team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
+assert_command_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
 export HCOM_FIXTURE_NO_NEXT_TASK=1  # Makes the progress stub return no task for the continuation error check.
-assert_team_option_error 'cont: nothing to continue in Fixture.' _hcom_preview_team_continuation cont "$fixture_dir/project" 1
+assert_command_error 'cont: nothing to continue in Fixture.' _hcom_preview_team_continuation cont "$fixture_dir/project" 1
 unset HCOM_FIXTURE_NO_NEXT_TASK
+
+# Returns a blank clipboard, so the empty clipboard error is checked without reading the real one.
+pbpaste() { print -r -- '   '; }
+assert_command_error 'cont: clipboard is empty, copy the last messages first' _hcom_team_continuation_prompt cont handover 0
+unfunction pbpaste
+assert_command_error 'team:codex: unknown team continuation mode: invalid' _hcom_team_continuation_prompt team:codex invalid 0
 
 _hcom_read_task_team team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
 project_tag="${reply[1]}"  # Stable project slug for comparisons.
@@ -226,18 +238,26 @@ _hcom_role_invoke() {
 
 mkdir -p "$fixture_dir/roles"
 print -r -- 'Fixture role prompt.' > "$fixture_dir/roles/scout.md"
-HCOM_ROLE_DIR="$fixture_dir/roles"
+print -r -- 'Fixture role prompt.' > "$fixture_dir/roles/orchestrator.md"
+print -r -- 'Fixture role prompt.' > "$fixture_dir/roles/learner.md"
+export HCOM_ROLE_DIR="$fixture_dir/roles"
 role_invoke_calls=0  # Number of single-role launch calls.
-scout_tag="$(_hcom_scoped_tag hcom "$PWD")-scout"  # Full role tag for the fixture checkout.
+scout_tag="$(_hcom_scoped_tag scout "$PWD")-scout"  # Full role tag for the fixture checkout.
 print -r -- "[{\"tag\":\"$scout_tag\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
-if _hcom_launch_role --tool codex --tag scout --model fixture --role-file scout.md 2>"$error_file"; then
+if _hcom_launch_role --command scout --tool codex --tag scout --model fixture --role-file scout.md 2>"$error_file"; then
 	fail 'duplicate single role launched'
 fi
-[[ "$(<"$error_file")" == "hcom: peer already holds $scout_tag." ]] || fail 'single-role duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"scout: peer already holds $scout_tag." ]] || fail 'single-role duplicate refusal text'
 [[ "$role_invoke_calls" == 0 ]] || fail 'duplicate single role reached the launch boundary'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
-_hcom_launch_role --tool codex --tag scout --model fixture --role-file scout.md || fail 'single role with no live duplicate did not launch'
+_hcom_launch_role --command scout --tool codex --tag scout --model fixture --role-file scout.md || fail 'single role with no live duplicate did not launch'
 [[ "$role_invoke_calls" == 1 ]] || fail 'single role with no live duplicate missed the launch boundary'
+
+assert_command_error 'scout: unknown option: --bad' scout --bad
+assert_command_error 'scout: task tsk_A_B has no registered worktree.' scout --task tsk_A_B
+assert_command_error "agent:resume: 'bad' is not a valid agent name" _hcom_resolve_agent bad
+mkdir -p "$fixture_dir/---"
+assert_command_error "learn:codex: cannot derive a tag from directory: $fixture_dir/---" zsh -c 'source "$1/aliases.hcom-core.zsh"; source "$1/aliases.hcom-learn.zsh"; cd "$2"; _hcom_learning_context learn:codex codex source ""' -- "$repo_root" "$fixture_dir/---"
 
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
@@ -484,4 +504,30 @@ _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A_-B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A_-B" && "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'root after task completion lost its own checkout or tags'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == *'ensure tsk_A-B' ]] || fail 'root after task completion did not select the next task'
 
-print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, and stop targeting'
+# Records solo tool launches without starting an installed agent.
+cat > "$fixture_dir/bin/codex" <<'STUB'
+#!/usr/bin/env zsh
+print -r -- "codex ${CODEX_HOME:-} $*" >> "$HCOM_FIXTURE_SOLO_CALLS"
+STUB
+cat > "$fixture_dir/bin/claude" <<'STUB'
+#!/usr/bin/env zsh
+print -r -- "claude ${CLAUDE_CONFIG_DIR:-} $*" >> "$HCOM_FIXTURE_SOLO_CALLS"
+STUB
+chmod +x "$fixture_dir/bin/codex" "$fixture_dir/bin/claude"
+export HCOM_FIXTURE_SOLO_CALLS="$fixture_dir/solo-calls"
+source "$repo_root/aliases.hcom-quota.zsh"
+source "$repo_root/aliases.agents.zsh"
+
+# Records each solo launcher quota request and selects its second account.
+_hcom_quota_allocate() {
+	print -r -- "$1 $2" >> "$HCOM_FIXTURE_SOLO_CALLS"
+	print -r -- '2 1 0'
+}
+
+unset CODEX_HOME CLAUDE_CONFIG_DIR
+codex --fixture-codex || fail 'Codex solo fixture launch failed'
+claude --fixture-claude || fail 'Claude solo fixture launch failed'
+expected_solo_calls="$(printf '%s\n' 'codex codex' "codex $HOME/.codex-2 --fixture-codex" 'claude claude' "claude $HOME/.claude-2 --permission-mode auto --fixture-claude")"  # Quota requests and stubbed tool launches in order.
+[[ "$(<"$HCOM_FIXTURE_SOLO_CALLS")" == "$expected_solo_calls" ]] || fail 'solo launchers lost the quota provider or second account'
+
+print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, stop targeting, and solo quota selection'

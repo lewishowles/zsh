@@ -5,17 +5,17 @@ HCOM_ROLE_DIR="${HCOM_ROLE_DIR:-$AGENTS_CONFIG_ROOT/teams/hcom/roles}"
 
 # Core launch helpers
 
-# Prints one option error line to stderr, with a muted command prefix and the
-# words the user should act on highlighted. Colour is only used when stderr is
+# Prints one line of a launcher error to stderr, with a muted command prefix and
+# the words the user should act on highlighted. Colour is only used when stderr is
 # a terminal and NO_COLOR is unset. cli-style checks stdout, which is captured
 # here, so colour is forced once stderr has passed that check.
 #
 # @param  {string}  command_name
-#     The public command that rejected the option.
+#     The public command the user ran, shown as the error's prefix.
 # @param  {string}  ...
 #     Message segments, alternating plain and highlighted text and starting
 #     with plain text. Pass an empty first segment to highlight the opening word.
-_hcom_team_option_error_line() {
+_hcom_command_error_line() {
 	local command_name="$1"  # Command prefix shown before the error.
 	shift
 	local segment  # Current message segment.
@@ -41,17 +41,17 @@ _hcom_team_option_error_line() {
 	printf '\n' >&2
 }
 
-# Prints the first line of an option error after one blank line. Print any
-# further lines with _hcom_team_option_error_line, so the whole error has a
+# Prints the first line of a launcher error after one blank line. Print any
+# further lines with _hcom_command_error_line, so the whole error has a
 # single blank line above it.
 #
 # @param  {string}  command_name
-#     The public command that rejected the option.
+#     The public command the user ran, shown as the error's prefix.
 # @param  {string}  ...
-#     Message segments passed to _hcom_team_option_error_line.
-_hcom_team_option_error() {
+#     Message segments passed to _hcom_command_error_line.
+_hcom_command_error() {
 	printf '\n' >&2
-	_hcom_team_option_error_line "$@"
+	_hcom_command_error_line "$@"
 }
 
 # Checks that a team label is safe to include in an hcom tag.
@@ -65,8 +65,8 @@ _hcom_validate_team_label() {
 	local command_name="$2"
 
 	if [[ -z "$team_label" ]] || [[ "$team_label" == -* ]] || [[ "$team_label" == *- ]] || [[ "$team_label" == *[^a-z0-9-]* ]]; then
-		_hcom_team_option_error "$command_name" 'invalid team label: ' "$team_label"
-		_hcom_team_option_error_line "$command_name" 'use lowercase letters, numbers, and internal hyphens.'
+		_hcom_command_error "$command_name" 'invalid team label: ' "$team_label"
+		_hcom_command_error_line "$command_name" 'use lowercase letters, numbers, and internal hyphens.'
 		return 1
 	fi
 }
@@ -89,7 +89,6 @@ _hcom_account_environment() {
 #
 # @param  {string}  command_name
 #     The public command named in errors.
-#     Role launchers pass hcom to keep their existing plain message.
 # @param  {string}  role_tags
 #     Pipe-separated full role tags that the launch would use.
 _hcom_refuse_live_tags() {
@@ -101,11 +100,7 @@ _hcom_refuse_live_tags() {
 	local -a exact_tags  # Tags split for individual membership checks.
 
 	if ! agents_json="$(command hcom list --json 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
-		if [[ "$command_name" == hcom ]]; then
-			printf 'hcom: cannot check which agents are live.\n' >&2
-		else
-			_hcom_team_option_error "$command_name" 'cannot check which agents are live.'
-		fi
+		_hcom_command_error "$command_name" 'cannot check which agents are live.'
 		return 1
 	fi
 
@@ -114,11 +109,7 @@ _hcom_refuse_live_tags() {
 		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
 			agent_name="$(jq -r --arg tag "$tag" 'first(.[] | select(.tag == $tag) | .name) // empty' <<<"$agents_json")"
 			[[ -n "$agent_name" ]] || agent_name='a live agent'
-			if [[ "$command_name" == hcom ]]; then
-				printf 'hcom: %s already holds %s.\n' "$agent_name" "$tag" >&2
-			else
-				_hcom_team_option_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '.'
-			fi
+			_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '.'
 			return 1
 		fi
 	done
@@ -131,6 +122,9 @@ _hcom_refuse_live_tags() {
 # Deliver the role prompt through each tool's native mechanism instead: claude's
 # `--append-system-prompt`, codex's `HCOM_CODEX_SYSTEM_PROMPT` env var.
 #
+# Pass `--command` with the public command the user ran, such as scout or
+# plan:claude, so every error the launch reports starts with that name.
+#
 # Repeat `--role-file` to give the role several prompt files. Their text is
 # combined in the order given, separated by blank lines.
 #
@@ -139,6 +133,7 @@ _hcom_refuse_live_tags() {
 #
 # Usage:
 #   _hcom_launch_role \
+#     --command orchestrator \
 #     --tool claude \
 #     --tag orchestrator \
 #     --model sonnet \
@@ -148,13 +143,17 @@ _hcom_refuse_live_tags() {
 #     [--initial-prompt "..."] \
 #     [--thinking medium]
 _hcom_launch_role() {
+	local command_name=""  # The public command named in errors, from --command.
 	local tool="" tag="" model=""
 	local working_directory="$PWD" initial_prompt="" thinking_effort=""
 	local team_label="${HCOM_TEAM_LABEL:-}"
 	local -a role_files  # Role prompt files to combine, in the order given.
 
+	# Errors before --command is read, or without it, come from a mistaken internal
+	# call, so they name this helper instead of a public command.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
+			--command) command_name="$2"; shift 2 ;;
 			--tool) tool="$2"; shift 2 ;;
 			--tag) tag="$2"; shift 2 ;;
 			--model) model="$2"; shift 2 ;;
@@ -162,18 +161,18 @@ _hcom_launch_role() {
 			--working-dir) working_directory="$2"; shift 2 ;;
 			--initial-prompt) initial_prompt="$2"; shift 2 ;;
 			--thinking) thinking_effort="$2"; shift 2 ;;
-			*) printf 'hcom: unknown option: %s\n' "$1" >&2; return 1 ;;
+			*) _hcom_command_error "${command_name:-_hcom_launch_role}" 'unknown option: ' "$1"; return 1 ;;
 		esac
 	done
 
 	# Validate required parameters
-	if [[ -z "$tool" ]] || [[ -z "$tag" ]] || [[ -z "$model" ]] || [[ -z "${role_files[1]}" ]]; then
-		printf 'hcom: missing required parameters\n' >&2
+	if [[ -z "$command_name" ]] || [[ -z "$tool" ]] || [[ -z "$tag" ]] || [[ -z "$model" ]] || [[ -z "${role_files[1]}" ]]; then
+		_hcom_command_error "${command_name:-_hcom_launch_role}" 'missing required parameters'
 		return 1
 	fi
 
 	if [[ ! -d "$working_directory" ]]; then
-		printf 'hcom: working directory not found: %s\n' "$working_directory" >&2
+		_hcom_command_error "$command_name" 'working directory not found: ' "$working_directory"
 		return 1
 	fi
 
@@ -182,7 +181,7 @@ _hcom_launch_role() {
 	for role_file in "${role_files[@]}"; do
 		role_path="$HCOM_ROLE_DIR/$role_file"
 		if [[ ! -f "$role_path" ]]; then
-			printf 'hcom: role prompt not found: %s\n' "$role_path" >&2
+			_hcom_command_error "$command_name" 'role prompt not found: ' "$role_path"
 			return 1
 		fi
 
@@ -191,17 +190,17 @@ _hcom_launch_role() {
 
 	local role_prompt="${(pj:\n\n:)role_prompts}"  # The role files' text, separated by blank lines.
 	local repository_tag scoped_tag
-	repository_tag="$(_hcom_scoped_tag hcom "$working_directory")" || return 1
+	repository_tag="$(_hcom_scoped_tag "$command_name" "$working_directory")" || return 1
 	scoped_tag="${repository_tag}-${tag}"
 
 	if [[ -n "$team_label" ]]; then
-		_hcom_validate_team_label "$team_label" hcom || return 1
+		_hcom_validate_team_label "$team_label" "$command_name" || return 1
 		scoped_tag="${repository_tag}-${team_label}-${tag}"
 	fi
 
-	_hcom_refuse_live_tags hcom "$scoped_tag" || return 1
+	_hcom_refuse_live_tags "$command_name" "$scoped_tag" || return 1
 
-	_hcom_role_invoke "$tool" "$scoped_tag" "$model" "$working_directory" "$role_prompt" "$initial_prompt" "$thinking_effort"
+	_hcom_role_invoke "$command_name" "$tool" "$scoped_tag" "$model" "$working_directory" "$role_prompt" "$initial_prompt" "$thinking_effort"
 }
 
 # Assembles the hcom argument list from the resolved role settings and launches the
@@ -213,6 +212,8 @@ _hcom_launch_role() {
 # which sets HCOM_ACCOUNT on every role it launches so a team's placement is never
 # second-guessed. A failed quota probe falls back to the default account and launches anyway.
 #
+# @param  {string}  command_name
+#     The public command shown in quota errors.
 # @param  {string}  tool
 #     Agent tool to launch, "codex" or "claude".
 # @param  {string}  scoped_tag
@@ -228,13 +229,14 @@ _hcom_launch_role() {
 # @param  {string}  thinking_effort
 #     Optional reasoning effort passed to Claude; Codex uses its global default.
 _hcom_role_invoke() {
-	local tool="$1"  # Which agent to launch; selects the codex or claude branch.
-	local scoped_tag="$2"  # Fully qualified hcom tag for the agent.
-	local model="$3"  # Model identifier passed through to hcom.
-	local working_directory="$4"  # Directory the agent runs in.
-	local role_prompt="$5"  # Role instructions used as the system prompt.
-	local initial_prompt="$6"  # Optional first message for the agent.
-	local thinking_effort="$7"  # Optional reasoning effort for the agent.
+	local command_name="$1"  # Public command responsible for the launch.
+	local tool="$2"  # Which agent to launch; selects the codex or claude branch.
+	local scoped_tag="$3"  # Fully qualified hcom tag for the agent.
+	local model="$4"  # Model identifier passed through to hcom.
+	local working_directory="$5"  # Directory the agent runs in.
+	local role_prompt="$6"  # Role instructions used as the system prompt.
+	local initial_prompt="$7"  # Optional first message for the agent.
+	local thinking_effort="$8"  # Optional reasoning effort for the agent.
 	local -a hcom_arguments  # Assembled command line passed to hcom.
 	local account_directory=""  # Config directory for the allocated account; empty when the default account is used.
 
@@ -256,7 +258,7 @@ _hcom_role_invoke() {
 	fi
 
 	if [[ -z "${CODEX_HOME:-}${CLAUDE_CONFIG_DIR:-}" && -z "${HCOM_ACCOUNT+x}" ]]; then
-		account_directory="$(_hcom_quota_account_directory "$tool")"
+		account_directory="$(_hcom_quota_account_directory "$command_name" "$tool")"
 	fi
 
 	if [[ "$tool" = "codex" ]]; then
@@ -278,7 +280,6 @@ _hcom_role_invoke() {
 #
 # @param  {string}  command_name
 #     The public command shown if the directory cannot form a tag.
-#     Role launchers pass hcom to keep their existing plain message.
 # @param  {string}  working_directory
 #     The directory selected for the agent launch.
 _hcom_scoped_tag() {
@@ -297,11 +298,7 @@ _hcom_scoped_tag() {
 	repository_tag="${repository_tag%-}"
 
 	if [[ -z "$repository_tag" ]]; then
-		if [[ "$command_name" == hcom ]]; then
-			printf 'hcom: cannot derive a tag from directory: %s\n' "$working_directory" >&2
-		else
-			_hcom_team_option_error "$command_name" 'cannot derive a tag from directory: ' "$working_directory"
-		fi
+		_hcom_command_error "$command_name" 'cannot derive a tag from directory: ' "$working_directory"
 		return 1
 	fi
 

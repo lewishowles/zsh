@@ -47,11 +47,7 @@ _hcom_read_task_team() {
 	local index  # Position of the slug being validated.
 
 	if ! task_json="$(cd "$working_directory" && progress task get "$task_id" --json 2>/dev/null)" || ! jq -e --arg task_id "$task_id" '.ok == true and .data.id == $task_id and (.data.project.slug | type == "string") and (.data.slug | type == "string")' >/dev/null 2>&1 <<<"$task_json"; then
-		if [[ "$command_name" == hcom ]]; then
-			printf 'hcom: could not read task %s in %s.\n' "$task_id" "$working_directory" >&2
-		else
-			_hcom_team_option_error "$command_name" 'could not read task ' "$task_id" ' in ' "$working_directory" '.'
-		fi
+		_hcom_command_error "$command_name" 'could not read task ' "$task_id" ' in ' "$working_directory" '.'
 		return 1
 	fi
 
@@ -62,11 +58,7 @@ _hcom_read_task_team() {
 	slug_names=(project task)
 	for index in 1 2; do
 		if [[ -z "${slugs[index]}" || "${slugs[index]}" == -* || "${slugs[index]}" == *- || "${slugs[index]}" == *[^a-z0-9-]* ]]; then
-			if [[ "$command_name" == hcom ]]; then
-				printf 'hcom: invalid Progress %s slug: %s\n' "${slug_names[index]}" "${slugs[index]}" >&2
-			else
-				_hcom_team_option_error "$command_name" 'invalid Progress ' "${slug_names[index]}" ' slug: ' "${slugs[index]}"
-			fi
+			_hcom_command_error "$command_name" 'invalid Progress ' "${slug_names[index]}" ' slug: ' "${slugs[index]}"
 			return 1
 		fi
 	done
@@ -103,21 +95,13 @@ _hcom_check_checkout_response() {
 
 	if ! jq -e --arg task_id "$task_id" '.ok == true and .data.task_id == $task_id and (.data.path | type == "string") and (.data.path | startswith("/"))' >/dev/null 2>&1 <<<"$checkout_json"; then
 		checkout_message="$(jq -r '.error.message // empty' <<<"$checkout_json" 2>/dev/null)"
-		if [[ "$command_name" == hcom ]]; then
-			printf 'hcom: %s\n' "${checkout_message:-could not resolve the managed checkout.}" >&2
-		else
-			_hcom_team_option_error "$command_name" '' "${checkout_message:-could not resolve the managed checkout.}"
-		fi
+		_hcom_command_error "$command_name" '' "${checkout_message:-could not resolve the managed checkout.}"
 		return 1
 	fi
 
 	checkout_path="$(jq -r '.data.path' <<<"$checkout_json")"
 	if [[ ! -d "$checkout_path" ]]; then
-		if [[ "$command_name" == hcom ]]; then
-			printf 'hcom: managed checkout not found: %s\n' "$checkout_path" >&2
-		else
-			_hcom_team_option_error "$command_name" 'managed checkout not found: ' "$checkout_path"
-		fi
+		_hcom_command_error "$command_name" 'managed checkout not found: ' "$checkout_path"
 		return 1
 	fi
 
@@ -243,7 +227,7 @@ _hcom_team_continuation_prompt() {
 			if [[ -n "$selected_task_id" ]]; then
 				if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --all --json 2>/dev/null)" \
 					|| ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
-					_hcom_team_option_error "$command_name" 'could not list in-progress tasks in ' "$working_directory" '.'
+					_hcom_command_error "$command_name" 'could not list in-progress tasks in ' "$working_directory" '.'
 					return 1
 				fi
 
@@ -269,7 +253,7 @@ _hcom_team_continuation_prompt() {
 			local clipboard_contents="$(pbpaste)"  # Messages copied from the stopped team's session.
 
 			if [[ -z "${clipboard_contents//[[:space:]]/}" ]]; then
-				printf 'hcom: clipboard is empty, copy the last messages first\n' >&2
+				_hcom_command_error "$command_name" 'clipboard is empty, copy the last messages first'
 				return 1
 			fi
 
@@ -283,7 +267,7 @@ _hcom_team_continuation_prompt() {
 			print -r -- "---"
 			;;
 		*)
-			printf 'hcom: unknown team continuation mode: %s\n' "$launch_mode" >&2
+			_hcom_command_error "$command_name" 'unknown team continuation mode: ' "$launch_mode"
 			return 1
 			;;
 	esac
@@ -361,7 +345,7 @@ _hcom_launch_team() {
 		_hcom_refuse_live_tags "$command_name" "$launch_team_tags" || return 1
 		if [[ "$launch_mode" == continue ]]; then
 			if [[ "$requested_task_status" != ready && "$requested_task_status" != in-progress ]]; then
-				_hcom_team_option_error "$command_name" 'task ' "$requested_task_id" ' has status ' "${requested_task_status:-none}" '; only ' 'ready or in-progress' ' tasks can continue.'
+				_hcom_command_error "$command_name" 'task ' "$requested_task_id" ' has status ' "${requested_task_status:-none}" '; only ' 'ready or in-progress' ' tasks can continue.'
 				return 1
 			fi
 		fi
@@ -386,13 +370,13 @@ _hcom_launch_team() {
 				# A started task without its own checkout keeps its work in the original
 				# checkout. A new checkout starts from the last commit and would miss
 				# uncommitted work, so point the user back to the original checkout.
-				_hcom_team_option_error "$command_name" 'task ' "$requested_task_id" ' has no managed checkout, so its work is in the original checkout.'
-				_hcom_team_option_error_line "$command_name" "if it is the root team's task, carry on with that team; otherwise run " 'resume' ' --task ' "$requested_task_id" ' there once no other team is working in it.'
+				_hcom_command_error "$command_name" 'task ' "$requested_task_id" ' has no managed checkout, so its work is in the original checkout.'
+				_hcom_command_error_line "$command_name" "if it is the root team's task, carry on with that team; otherwise run " 'resume' ' --task ' "$requested_task_id" ' there once no other team is working in it.'
 				return 1
 			fi
 		elif (( continuation_task_needs_start )); then
 			if ! git_changes="$(git -C "$team_scope_directory" status --short)"; then
-				_hcom_team_option_error "$command_name" 'could not check Git status in ' "$team_scope_directory" '.'
+				_hcom_command_error "$command_name" 'could not check Git status in ' "$team_scope_directory" '.'
 				return 1
 			fi
 			# Uncommitted changes in the original checkout may belong to another
@@ -432,7 +416,7 @@ _hcom_launch_team() {
 		case "$?" in
 			0) working_directory="${reply[1]}" ;;
 			2)
-				_hcom_team_option_error "$command_name" '' "${reply[1]}"
+				_hcom_command_error "$command_name" '' "${reply[1]}"
 				return 1
 				;;
 			*) return 1 ;;
@@ -506,7 +490,7 @@ _hcom_launch_team() {
 	# reviewer's, so the two costliest roles never share one.
 	if [[ "$team_provider" == mixed ]]; then
 		if (( claude_accounts[3] == 1 && codex_accounts[3] == 1 )); then
-			_hcom_team_option_error "$command_name" '' 'Claude and Codex' ' are both exhausted; no panes launched.'
+			_hcom_command_error "$command_name" '' 'Claude and Codex' ' are both exhausted; no panes launched.'
 			return 1
 		elif (( codex_accounts[3] == 1 )); then
 			orchestrator_launcher=orchestrator
@@ -577,13 +561,13 @@ _hcom_launch_team() {
 			local confirmation  # Whatever the user typed at the prompt; only y or yes continues.
 
 			if ! read -r "confirmation?Continue anyway? [y/N] "; then
-				_hcom_team_option_error "$command_name" 'team launch cancelled.'
+				_hcom_command_error "$command_name" 'team launch cancelled.'
 				return 1
 			fi
 			case "$confirmation" in
 				[yY]|[yY][eE][sS]) ;;
 				*)
-					_hcom_team_option_error "$command_name" 'team launch cancelled.'
+					_hcom_command_error "$command_name" 'team launch cancelled.'
 					return 1
 					;;
 			esac
@@ -676,14 +660,14 @@ _hcom_preview_team_continuation() {
 	fi
 
 	if ! command -v jq >/dev/null 2>&1; then
-		_hcom_team_option_error "$command_name" '' 'jq' ' is required to preview the next team task or chunk.'
+		_hcom_command_error "$command_name" '' 'jq' ' is required to preview the next team task or chunk.'
 		return 1
 	fi
 
 	if [[ -n "$selected_task_id" ]]; then
 		if ! task_json="$(cd "$working_directory" && progress task get "$selected_task_id" --json 2>/dev/null)" \
 			|| ! jq -e --arg task_id "$selected_task_id" '.ok == true and .data.id == $task_id' >/dev/null 2>&1 <<<"$task_json"; then
-			_hcom_team_option_error "$command_name" 'could not preview task ' "$selected_task_id" ' in ' "$working_directory" '.'
+			_hcom_command_error "$command_name" 'could not preview task ' "$selected_task_id" ' in ' "$working_directory" '.'
 			return 1
 		fi
 
@@ -692,7 +676,7 @@ _hcom_preview_team_continuation() {
 		progress_json="$(jq -c '{ok, data: {project: .data.project, task: .data, chunk: ((.data.chunks // []) | map(select(.status == "active")) | .[0] // null)}}' <<<"$task_json")" || return 1
 	else
 		if ! progress_json="$(cd "$working_directory" && progress next --json 2>/dev/null)"; then
-			_hcom_team_option_error "$command_name" 'progress next failed in ' "$working_directory" '.'
+			_hcom_command_error "$command_name" 'progress next failed in ' "$working_directory" '.'
 			return 1
 		fi
 	fi
@@ -703,7 +687,7 @@ _hcom_preview_team_continuation() {
 	fi
 
 	if ! jq -e '.ok == true and .data.task != null' >/dev/null 2>&1 <<<"$progress_json"; then
-		_hcom_team_option_error "$command_name" 'nothing to continue in ' "$project_name" '.'
+		_hcom_command_error "$command_name" 'nothing to continue in ' "$project_name" '.'
 		return 1
 	fi
 
@@ -771,7 +755,7 @@ _hcom_preview_team_continuation() {
 
 	if (( ! skip_confirmation )); then
 		if [[ ! -t 0 ]]; then
-			_hcom_team_option_error "$command_name" 'cannot ask for confirmation because stdin is not a terminal; use ' '--yes' '.'
+			_hcom_command_error "$command_name" 'cannot ask for confirmation because stdin is not a terminal; use ' '--yes' '.'
 			return 1
 		fi
 
@@ -831,24 +815,24 @@ _hcom_select_resume_task() {
 	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the next step readable on wide terminals.
 
 	if ! command -v jq >/dev/null 2>&1; then
-		_hcom_team_option_error "$command_name" '' 'jq' ' is required to find the task to resume.'
+		_hcom_command_error "$command_name" '' 'jq' ' is required to find the task to resume.'
 		return 1
 	fi
 
 	if [[ -z "$task_id" ]]; then
 		if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --json 2>/dev/null)"; then
-			_hcom_team_option_error "$command_name" 'progress task list failed in ' "$working_directory" '.'
+			_hcom_command_error "$command_name" 'progress task list failed in ' "$working_directory" '.'
 			return 1
 		fi
 
 		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
 		if (( task_count == 0 )); then
-			_hcom_team_option_error "$command_name" 'no task is in progress, so there is no handoff to resume. Use ' 'cont' ' to start the next task.'
+			_hcom_command_error "$command_name" 'no task is in progress, so there is no handoff to resume. Use ' 'cont' ' to start the next task.'
 			return 1
 		fi
 
 		if (( task_count > 1 )); then
-			_hcom_team_option_error "$command_name" '' "$task_count" ' tasks are in progress; choose one with ' '--task' ':'
+			_hcom_command_error "$command_name" '' "$task_count" ' tasks are in progress; choose one with ' '--task' ':'
 			jq -r '.data.items[] | [.id, .title] | @tsv' <<<"$tasks_json" | while IFS=$'\t' read -r listed_task_id listed_task_title; do
 				if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
 					printf '  %s  %s\n' "$(FORCE_COLOR=1 cli_style_span "$listed_task_id" info)" "$listed_task_title" >&2
@@ -864,12 +848,12 @@ _hcom_select_resume_task() {
 
 	if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
 		|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
-		_hcom_team_option_error "$command_name" 'could not read the handoff for task ' "$task_id" '.'
+		_hcom_command_error "$command_name" 'could not read the handoff for task ' "$task_id" '.'
 		return 1
 	fi
 
 	if ! jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
-		_hcom_team_option_error "$command_name" 'task ' "$task_id" ' has no saved handoff to resume.'
+		_hcom_command_error "$command_name" 'task ' "$task_id" ' has no saved handoff to resume.'
 		return 1
 	fi
 
@@ -1156,7 +1140,7 @@ _hcom_parse_team_args() {
 		case "$1" in
 			--dir)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error "$command_name" '' '--dir' ' requires a directory.'
+					_hcom_command_error "$command_name" '' '--dir' ' requires a directory.'
 					return 1
 				fi
 
@@ -1165,7 +1149,7 @@ _hcom_parse_team_args() {
 				;;
 			--message)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error "$command_name" '' '--message' ' requires text.'
+					_hcom_command_error "$command_name" '' '--message' ' requires text.'
 					return 1
 				fi
 
@@ -1174,7 +1158,7 @@ _hcom_parse_team_args() {
 				;;
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error "$command_name" '' '--team' ' requires a label.'
+					_hcom_command_error "$command_name" '' '--team' ' requires a label.'
 					return 1
 				fi
 
@@ -1183,7 +1167,7 @@ _hcom_parse_team_args() {
 				;;
 			--task)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error "$command_name" '' '--task' ' requires a task ID.'
+					_hcom_command_error "$command_name" '' '--task' ' requires a task ID.'
 					return 1
 				fi
 
@@ -1203,7 +1187,7 @@ _hcom_parse_team_args() {
 				break
 				;;
 			--*)
-				_hcom_team_option_error "$command_name" 'unknown option: ' "$1"
+				_hcom_command_error "$command_name" 'unknown option: ' "$1"
 				return 1
 				;;
 			*) break ;;
@@ -1211,7 +1195,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_team_option_error "$command_name" 'usage: ' "$command_name [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]"
+		_hcom_command_error "$command_name" 'usage: ' "$command_name [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]"
 		return 1
 	fi
 
@@ -1220,17 +1204,17 @@ _hcom_parse_team_args() {
 	fi
 
 	if [[ -n "$task_id" && -n "$team_label" ]]; then
-		_hcom_team_option_error "$command_name" '' '--task' ' and ' '--team' ' cannot be used together.'
+		_hcom_command_error "$command_name" '' '--task' ' and ' '--team' ' cannot be used together.'
 		return 1
 	fi
 
 	if [[ -n "$task_id" ]] && [[ "$launch_mode" != resume && "$launch_mode" != continue ]]; then
-		_hcom_team_option_error "$command_name" '' '--task' ' only works with ' 'resume or continue' '.'
+		_hcom_command_error "$command_name" '' '--task' ' only works with ' 'resume or continue' '.'
 		return 1
 	fi
 
 	if [[ -n "$working_directory" ]] && [[ ! -d "$working_directory" ]]; then
-		_hcom_team_option_error "$command_name" 'working directory not found: ' "$working_directory"
+		_hcom_command_error "$command_name" 'working directory not found: ' "$working_directory"
 		return 1
 	fi
 
@@ -1333,7 +1317,7 @@ _hcom_parse_team_stop_args() {
 		case "$1" in
 			--dir)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error team:stop '' '--dir' ' requires a directory.'
+					_hcom_command_error team:stop '' '--dir' ' requires a directory.'
 					return 1
 				fi
 
@@ -1343,7 +1327,7 @@ _hcom_parse_team_stop_args() {
 				;;
 			--team)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error team:stop '' '--team' ' requires a label.'
+					_hcom_command_error team:stop '' '--team' ' requires a label.'
 					return 1
 				fi
 
@@ -1353,7 +1337,7 @@ _hcom_parse_team_stop_args() {
 				;;
 			--task)
 				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_team_option_error team:stop '' '--task' ' requires a task ID.'
+					_hcom_command_error team:stop '' '--task' ' requires a task ID.'
 					return 1
 				fi
 
@@ -1366,7 +1350,7 @@ _hcom_parse_team_stop_args() {
 				break
 				;;
 			--*)
-				_hcom_team_option_error team:stop 'unknown option: ' "$1"
+				_hcom_command_error team:stop 'unknown option: ' "$1"
 				return 1
 				;;
 			*) break ;;
@@ -1374,11 +1358,11 @@ _hcom_parse_team_stop_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_team_option_error team:stop 'usage: ' 'team:stop [--team <label> | --task <id>] [--dir <path>]'
+		_hcom_command_error team:stop 'usage: ' 'team:stop [--team <label> | --task <id>] [--dir <path>]'
 		return 1
 	fi
 	if [[ -n "$task_id" && -n "$team_label" ]]; then
-		_hcom_team_option_error team:stop '' '--task' ' and ' '--team' ' cannot be used together.'
+		_hcom_command_error team:stop '' '--task' ' and ' '--team' ' cannot be used together.'
 		return 1
 	fi
 
@@ -1427,7 +1411,7 @@ _hcom_resolve_team_stop_scope() {
 		working_directory="${working_directory:-$PWD}"
 
 		if [[ ! -d "$working_directory" ]]; then
-			_hcom_team_option_error team:stop 'working directory not found: ' "$working_directory"
+			_hcom_command_error team:stop 'working directory not found: ' "$working_directory"
 			return 1
 		fi
 

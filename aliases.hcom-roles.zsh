@@ -76,9 +76,16 @@ typeset -A HCOM_ROLE_CONFIG=(
 # A team label that is already set wins over the worktree folder, but not over --task.
 #
 # Call it as <role> [directory] [prompt] or <role> --task <id> [prompt].
+# A launcher whose public name differs from the role, such as learn:claude,
+# puts --command <name> straight after the role so errors use that name.
+# Role commands such as scout pass their arguments straight through, so they
+# accept --command too; it only changes the name shown in errors.
 #
 # @param  {string}  role
 #     The configured role to launch.
+# @param  {string}  command_name
+#     Optional, given as --command <name>: the public command named in errors.
+#     Defaults to the role name with colons, such as scout or orchestrator:codex.
 # @param  {string}  task_id
 #     Optional, given as --task <id>: the task whose team and worktree the role joins.
 # @param  {string}  working_directory
@@ -89,6 +96,12 @@ _hcom_launch_configured_role() {
 	local role="$1"  # The configured role to launch.
 	shift
 	local command_name="${role//-/:}"  # The public command shown in error messages, such as scout.
+
+	if [[ "${1:-}" == --command ]]; then
+		command_name="$2"
+		shift 2
+	fi
+
 	local original_directory="$PWD"  # The folder the command ran from, where Progress looks up the task.
 	local working_directory=""  # The folder the role starts in.
 	local initial_prompt=""  # The first message for the role, if any.
@@ -100,7 +113,7 @@ _hcom_launch_configured_role() {
 	case "${1:-}" in
 		--task)
 			if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-				_hcom_team_option_error "$command_name" '' '--task' ' requires a task ID.'
+				_hcom_command_error "$command_name" '' '--task' ' requires a task ID.'
 				return 1
 			fi
 
@@ -108,14 +121,14 @@ _hcom_launch_configured_role() {
 			shift 2
 			;;
 		--*)
-			_hcom_team_option_error "$command_name" 'unknown option: ' "$1"
+			_hcom_command_error "$command_name" 'unknown option: ' "$1"
 			return 1
 			;;
 	esac
 
 	if [[ -n "$task_id" ]]; then
 		if [[ $# -gt 1 ]]; then
-			_hcom_team_option_error "$command_name" 'usage: ' "$command_name --task <id> [prompt]"
+			_hcom_command_error "$command_name" 'usage: ' "$command_name --task <id> [prompt]"
 			return 1
 		fi
 
@@ -126,7 +139,7 @@ _hcom_launch_configured_role() {
 		folder_task_id="${working_directory:A:t}"
 
 		# A team label the caller already set wins, so learn keeps its learner beside its Scout.
-		if [[ -z "${HCOM_TEAM_LABEL:-}" && "$folder_task_id" == tsk_* ]] && _hcom_get_launch_checkout hcom "$original_directory" "$folder_task_id" 2>/dev/null; then
+		if [[ -z "${HCOM_TEAM_LABEL:-}" && "$folder_task_id" == tsk_* ]] && _hcom_get_launch_checkout "$command_name" "$original_directory" "$folder_task_id" 2>/dev/null; then
 			# Only the task's registered worktree joins its team; a subfolder or a lookalike folder launches as before.
 			if [[ -n "${reply[1]}" && "$working_directory" -ef "${reply[1]}" ]]; then
 				task_id="$folder_task_id"
@@ -135,7 +148,7 @@ _hcom_launch_configured_role() {
 	fi
 
 	if [[ -n "$task_id" ]]; then
-		_hcom_read_task_team hcom "$original_directory" "$task_id" || return 1
+		_hcom_read_task_team "$command_name" "$original_directory" "$task_id" || return 1
 		team_project_tag="${reply[1]}"
 		team_label="${reply[2]}"
 	fi
@@ -143,11 +156,11 @@ _hcom_launch_configured_role() {
 	# With --task, the launch folder is the task's registered worktree. The team is read
 	# first so that an unknown task is reported as unknown, not as missing a worktree.
 	if [[ -z "$working_directory" ]]; then
-		_hcom_get_launch_checkout hcom "$original_directory" "$task_id" || return 1
+		_hcom_get_launch_checkout "$command_name" "$original_directory" "$task_id" || return 1
 		working_directory="${reply[1]}"
 
 		if [[ -z "$working_directory" ]]; then
-			printf 'hcom: task %s has no registered worktree.\n' "$task_id" >&2
+			_hcom_command_error "$command_name" 'task ' "$task_id" ' has no registered worktree.'
 			return 1
 		fi
 	fi
@@ -162,6 +175,7 @@ _hcom_launch_configured_role() {
 	done
 
 	local -a launch_arguments=(  # Options for the role launch, shared by both launch forms below.
+		--command "$command_name"
 		--tool "${role_config[1]}"
 		--tag "${role_config[2]}"
 		--model "${role_config[3]}"

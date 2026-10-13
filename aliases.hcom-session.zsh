@@ -36,7 +36,7 @@ _hcom_resolve_agent() {
 	local role  # Role taken from the final segment of the resolved tag.
 
 	if ! _hcom_is_cvcv_name "$name"; then
-		printf "hcom: '%s' is not a valid agent name\n" "$name" >&2
+		_hcom_command_error agent:resume '' "'$name'" ' is not a valid agent name'
 		return 1
 	fi
 

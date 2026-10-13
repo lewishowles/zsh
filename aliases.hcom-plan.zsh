@@ -82,6 +82,7 @@ function plan:claude() {
 	fi
 
 	HCOM_TEAM_LABEL=plan-claude _hcom_launch_role \
+		--command plan:claude \
 		--tool claude \
 		--tag orchestrator \
 		--model opus \
@@ -113,6 +114,7 @@ function plan:codex() {
 	fi
 
 	HCOM_TEAM_LABEL=plan-codex _hcom_launch_role \
+		--command plan:codex \
 		--tool codex \
 		--tag orchestrator \
 		--model gpt-6-astra \

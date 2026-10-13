@@ -26,7 +26,7 @@ codex() {
 	fi
 
 	local account_directory  # Config directory for the second account; empty on the default account.
-	account_directory="$(_hcom_quota_account_directory codex)"
+	account_directory="$(_hcom_quota_account_directory codex codex)"
 
 	if [[ -n "$account_directory" ]]; then
 		CODEX_HOME="$account_directory" command codex "$@"
@@ -57,7 +57,7 @@ claude() {
 	fi
 
 	local account_directory  # Config directory for the second account; empty on the default account.
-	account_directory="$(_hcom_quota_account_directory claude)"
+	account_directory="$(_hcom_quota_account_directory claude claude)"
 
 	if [[ -n "$account_directory" ]]; then
 		CLAUDE_CONFIG_DIR="$account_directory" command claude --permission-mode auto "$@"
@@ -207,9 +207,3 @@ agents:setup:global() {
 # @desc  Set up agent files (Claude + Codex) for the current project
 # @cat   agents
 alias agents:setup="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --both"
-# @desc  Initialise WORKSPACE.md for the current project
-# @cat   agents
-alias agents:workspace="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --write-workspace"
-# @desc  Force-regenerate WORKSPACE.md for the current project
-# @cat   agents
-alias agents:workspace:force="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --force-workspace"

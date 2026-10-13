@@ -70,7 +70,6 @@ _hcom_quota_claude() {
 #
 # @param  {string}  command_name
 #     The public command shown for an unknown provider.
-#     Role launchers pass hcom to keep their existing plain message.
 # @param  {string}  provider
 #     claude assigns orchestrator/reviewer; codex assigns implementer/scout.
 _hcom_quota_allocate() {
@@ -95,11 +94,7 @@ _hcom_quota_allocate() {
 	case "$provider" in
 		claude|codex) ;;
 		*)
-			if [[ "$command_name" == hcom ]]; then
-				printf 'hcom: unknown quota provider: %s\n' "$provider" >&2
-			else
-				_hcom_team_option_error "$command_name" 'unknown quota provider: ' "$provider"
-			fi
+			_hcom_command_error "$command_name" 'unknown quota provider: ' "$provider"
 			return 1
 			;;
 	esac
@@ -183,13 +178,16 @@ _hcom_quota_allocate() {
 # on the default account rather than stopping; the allocator's diagnostic still reaches the
 # terminal, so a single session can be moved by hand.
 #
+# @param  {string}  command_name
+#     The public command shown in quota errors.
 # @param  {string}  provider
 #     "codex" or "claude", which also picks the second-account directory.
 _hcom_quota_account_directory() {
-	local provider="$1"  # Provider whose accounts are compared.
+	local command_name="$1"  # Public command responsible for the launch.
+	local provider="$2"  # Provider whose accounts are compared.
 	local allocation  # Allocator output: heavier account, lighter account, exhausted flag.
 
-	if ! allocation="$(_hcom_quota_allocate hcom "$provider")"; then
+	if ! allocation="$(_hcom_quota_allocate "$command_name" "$provider")"; then
 		return 0
 	fi
 
