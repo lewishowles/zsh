@@ -300,6 +300,28 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `team:codex` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |
 | `team:stop` | [--team <label> | --task <id>] [--dir <path>] | Stop the exact hcom team for a directory, label, or task |
 
+### nav
+
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `goto:agents` |  | Open the agent configuration directory |
+| `goto:airops` |  | Open the AirOps Admin root |
+| `goto:anpr` |  | Open the Gatekeeper Admin root |
+| `goto:blog` |  | Open the blog project |
+| `goto:boilerplate` |  | Open the boilerplate project |
+| `goto:boilersuit` |  | Open the Boilersuit macOS app project |
+| `goto:cli` |  | Open the CLI style library project |
+| `goto:components` |  | Open the Vue component library project |
+| `goto:helpers` |  | Open the JavaScript helper library project |
+| `goto:howles` |  | Open the primary website project |
+| `goto:lint` |  | Open the central linting project |
+| `goto:sketch` |  | Open the Sketch plugins root |
+| `goto:testing` |  | Open the testing helper library project |
+| `goto:timer` |  | Open the Lew Timer macOS app project |
+| `goto:tools` |  | Open the dev tools project |
+| `goto:usage` |  | Open the Lew Usage macOS app project |
+| `goto:zsh` |  | Open the ZSH config repo |
+
 ### package
 
 | Command | Parameters | Description |
