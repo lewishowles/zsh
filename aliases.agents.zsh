@@ -204,6 +204,3 @@ agents:setup:global() {
 	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-global.sh" --both \
 		--claude-dir "$HOME/.claude-2" --codex-dir "$HOME/.codex-2" "$@"
 }
-# @desc  Set up agent files (Claude + Codex) for the current project
-# @cat   agents
-alias agents:setup="$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-project.sh --both"
