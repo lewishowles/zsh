@@ -91,9 +91,12 @@ _hcom_account_environment() {
 #     The public command named in errors.
 # @param  {string}  role_tags
 #     Pipe-separated full role tags that the launch would use.
+# @param  {string}  collision_message
+#     Optional refusal that replaces the default one, so the caller can name the team that is running.
 _hcom_refuse_live_tags() {
 	local command_name="$1"  # Public command responsible for the launch.
 	local role_tags="$2"  # Full role tags that the launch would use.
+	local collision_message="${3:-}"  # Team-specific refusal used when a role tag is live.
 	local agents_json  # Current live agent records from HCOM.
 	local tag  # One role tag to check for a collision.
 	local agent_name  # The name of the live agent that already holds the tag.
@@ -109,7 +112,11 @@ _hcom_refuse_live_tags() {
 		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
 			agent_name="$(jq -r --arg tag "$tag" 'first(.[] | select(.tag == $tag) | .name) // empty' <<<"$agents_json")"
 			[[ -n "$agent_name" ]] || agent_name='a live agent'
-			_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '.'
+			if [[ -n "$collision_message" ]]; then
+				_hcom_command_error "$command_name" "$collision_message"
+			else
+				_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '.'
+			fi
 			return 1
 		fi
 	done

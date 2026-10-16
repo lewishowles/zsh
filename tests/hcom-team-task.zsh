@@ -25,6 +25,10 @@ fail() {
 cat > "$fixture_dir/bin/progress" <<'STUB'
 #!/usr/bin/env zsh
 if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress && "$5" == --all && "$6" == --json ]]; then
+	if [[ -n "${HCOM_FIXTURE_ONLY_TASK_ID:-}" ]]; then
+		print -r -- "{\"ok\":true,\"data\":{\"items\":[{\"id\":\"$HCOM_FIXTURE_ONLY_TASK_ID\"}]}}"
+		exit 0
+	fi
 	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B"},{"id":"tsk_a_B"}]}}'
 	exit 0
 fi
@@ -331,6 +335,7 @@ _hcom_stop_team_tags() {
 #     Foreground orchestrator arguments.
 _hcom_run_team_orchestrator() {
 	launched_orchestrator_directory="$3"
+	launched_orchestrator_prompt="$4"
 	return 0
 }
 
@@ -361,6 +366,7 @@ replaced_terminal_ids=""  # Prior pane IDs passed to the pane boundary.
 stopped_team_tags=""  # Prior tags passed to the stop boundary.
 launched_pane_directory=""  # Folder given to the role panes; empty means the original checkout.
 launched_orchestrator_directory=""  # Folder given to the orchestrator; empty means the original checkout.
+launched_orchestrator_prompt=""  # Continuation prompt given to the orchestrator.
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if cont --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'cont launched a duplicate task team'
@@ -421,13 +427,33 @@ _hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves afte
 
 # A started task without a recorded checkout must stay in its original checkout.
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
-prior_pane_calls="$pane_calls"  # Pane count before refusal cases.
-if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes 2>"$error_file"; then
-	fail 'in-progress task without a checkout launched'
-fi
-expected_refusal=$'\nteam:codex: task tsk_a_B has no managed checkout, so its work is in the original checkout.\nteam:codex: if it is the root team\'s task, carry on with that team; otherwise run resume --task tsk_a_B there once no other team is working in it.'  # Both lines of the in-progress task refusal.
-[[ "$(<"$error_file")" == "$expected_refusal" ]] || fail 'in-progress task refusal pointed to the wrong command'
-[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'in-progress task refusal came after pane creation'
+export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'sole in-progress task did not continue'
+[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'sole in-progress task left the original checkout'
+[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'sole in-progress task did not use the resume prompt'
+unset HCOM_FIXTURE_ONLY_TASK_ID
+
+: > "$HCOM_FIXTURE_WORKTREE_CALLS"
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'started task without a checkout did not continue'
+[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'started task left the original checkout'
+[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* && "$launched_orchestrator_prompt" != *'Continue task tsk_a_B.'* ]] || fail 'started task did not use the resume prompt'
+[[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_a_B\nget tsk_A_B\nget tsk_a_B' ]] || fail 'started task created or skipped a checkout lookup'
+
+prior_pane_calls="$pane_calls"  # Pane count before live-team refusal cases.
+print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+assert_command_error 'team:codex: the root team is running in the original checkout; continue there, or stop it and run team:codex again.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes
+[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'live root team reached pane creation'
+
+print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+assert_command_error 'team:codex: task tsk_A_B is running in the original checkout; continue there, or stop it and run team:codex again.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes
+[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'live task team reached pane creation'
+
+mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B"
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'task in another checkout blocked continuation'
+[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'another task checkout changed the selected checkout'
+mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default without checkout'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'in-progress default without checkout left the original directory'

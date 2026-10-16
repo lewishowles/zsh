@@ -335,6 +335,11 @@ _hcom_launch_team() {
 	local ensure_task_id=""  # Ready task that needs a managed checkout created.
 	local git_changes  # Git's short status for a ready default task.
 	local checkout_json  # Progress response when creating a managed checkout.
+	local root_team_tags  # Exact role tags for the team in the original checkout.
+	local tasks_json  # Progress response listing every in-progress task.
+	local other_task_ids  # IDs of in-progress tasks other than the requested task.
+	local other_task_id  # In-progress task checked for a managed checkout and live team.
+	local other_team_project_tag other_team_label other_team_tags  # Address and role tags for another task's team.
 
 	if [[ -n "$requested_task_id" ]]; then
 		_hcom_read_task_team "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
@@ -369,10 +374,33 @@ _hcom_launch_team() {
 			else
 				# A started task without its own checkout keeps its work in the original
 				# checkout. A new checkout starts from the last commit and would miss
-				# uncommitted work, so point the user back to the original checkout.
-				_hcom_command_error "$command_name" 'task ' "$requested_task_id" ' has no managed checkout, so its work is in the original checkout.'
-				_hcom_command_error_line "$command_name" "if it is the root team's task, carry on with that team; otherwise run " 'resume' ' --task ' "$requested_task_id" ' there once no other team is working in it.'
-				return 1
+				# uncommitted work, so only continue when neither the unlabelled root team
+				# nor another task's team is using that checkout. A root team started with
+				# --label is not detected yet.
+				root_team_tags="$(HCOM_TEAM_PROJECT_TAG="" _hcom_team_tags "$command_name" "$team_scope_directory" "")" || return 1
+				_hcom_refuse_live_tags "$command_name" "$root_team_tags" "the root team is running in the original checkout; continue there, or stop it and run $command_name again." || return 1
+				if ! tasks_json="$(cd "$team_scope_directory" && progress task list --status in-progress --all --json 2>/dev/null)" \
+					|| ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
+					_hcom_command_error "$command_name" 'could not list in-progress tasks in ' "$team_scope_directory" '.'
+					return 1
+				fi
+
+				other_task_ids="$(jq -r --arg task_id "$requested_task_id" '.data.items[] | select(.id != $task_id) | .id' <<<"$tasks_json")" || return 1
+				for other_task_id in "${(@f)other_task_ids}"; do
+					[[ -z "$other_task_id" ]] && continue
+
+					# A task with its own checkout works elsewhere, so only teams without one can clash here.
+					_hcom_get_launch_checkout "$command_name" "$team_scope_directory" "$other_task_id" || return 1
+					[[ -n "${reply[1]}" ]] && continue
+
+					_hcom_read_task_team "$command_name" "$team_scope_directory" "$other_task_id" || return 1
+					other_team_project_tag="${reply[1]}"
+					other_team_label="${reply[2]}"
+					other_team_tags="$(HCOM_TEAM_PROJECT_TAG="$other_team_project_tag" _hcom_team_tags "$command_name" "$team_scope_directory" "$other_team_label")" || return 1
+					_hcom_refuse_live_tags "$command_name" "$other_team_tags" "task $other_task_id is running in the original checkout; continue there, or stop it and run $command_name again." || return 1
+				done
+
+				launch_mode=resume
 			fi
 		elif (( continuation_task_needs_start )); then
 			if ! git_changes="$(git -C "$team_scope_directory" status --short)"; then
