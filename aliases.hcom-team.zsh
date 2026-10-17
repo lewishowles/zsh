@@ -438,6 +438,10 @@ _hcom_launch_team() {
 		team_project_tag="$(_hcom_scoped_tag "$command_name" "$team_scope_directory")" || return 1
 	fi
 
+	# Note the pane that ran the command before checkout creation or the quota wait.
+	local origin_terminal_id  # Ghostty ID of the pane that started this team.
+	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id "$command_name")" || return 1
+
 	if [[ -n "$ensure_task_id" ]]; then
 		checkout_json="$(cd "$team_scope_directory" && progress worktree ensure "$ensure_task_id" --json 2>/dev/null)"
 		_hcom_check_checkout_response "$command_name" "$checkout_json" "$ensure_task_id"
@@ -625,7 +629,7 @@ _hcom_launch_team() {
 	# status, propagated so the command reports the real pane-launch failure.
 	# Accounts and providers were paired to roles above; the orchestrator's own
 	# pair is passed separately below.
-	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" || return $?
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$origin_terminal_id" || return $?
 	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
 	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
 
@@ -639,6 +643,49 @@ _hcom_launch_team() {
 	# up teammates on return; its exit status is this function's result.
 	# It takes the account and provider reserved for it above.
 	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
+}
+
+# Prints the ID of the focused Ghostty pane, so the team can still open beside
+# it if the human switches tabs while the launch waits for quota. Stops with an
+# error when Ghostty is not running, is not the frontmost app, or has no window.
+#
+# @param  {string}  command_name
+#     The public team command named in the failure message.
+_hcom_focused_ghostty_terminal_id() {
+	local command_name="$1"  # Public command responsible for the pane lookup.
+	local terminal_id  # Focused pane ID or a refusal returned by Ghostty.
+
+	if ! pgrep -ix ghostty >/dev/null 2>&1; then
+		_hcom_command_error "$command_name" 'Ghostty is not running.'
+		return 1
+	fi
+
+	terminal_id="$(/usr/bin/osascript \
+		-e 'tell application "Ghostty"' \
+		-e 'if not frontmost then return "not-frontmost"' \
+		-e 'if (count of windows) = 0 then return "no-windows"' \
+		-e 'get id of focused terminal of selected tab of front window' \
+		-e 'end tell' 2>/dev/null)" || {
+		_hcom_command_error "$command_name" 'could not read the focused Ghostty pane.'
+		return 1
+	}
+
+	case "$terminal_id" in
+		not-frontmost)
+			_hcom_command_error "$command_name" 'run this team command from a Ghostty terminal.'
+			return 1
+			;;
+		no-windows)
+			_hcom_command_error "$command_name" 'open a Ghostty terminal first.'
+			return 1
+			;;
+		'')
+			_hcom_command_error "$command_name" 'could not read the focused Ghostty pane.'
+			return 1
+			;;
+	esac
+
+	print -r -- "$terminal_id"
 }
 
 # Shows the task and chunk a team will continue and asks the user to confirm
@@ -940,6 +987,8 @@ _hcom_select_resume_task() {
 #     Provider the implementer account belongs to, claude or codex. Defaults to codex.
 # @param  {string}  scout_provider
 #     Provider the scout account belongs to, claude or codex. Defaults to codex.
+# @param  {string}  origin_terminal_id
+#     Ghostty ID of the pane that ran the team command, noted before the quota wait.
 _hcom_team_create_panes() {
 	local command_name="$1"  # Public command responsible for the pane launch.
 	shift
@@ -955,6 +1004,7 @@ _hcom_team_create_panes() {
 	local reviewer_provider="${10:-claude}"  # Provider whose config directory the reviewer account names.
 	local implementer_provider="${11:-codex}"  # Provider whose config directory the implementer account names.
 	local scout_provider="${12:-codex}"  # Provider whose config directory the scout account names.
+	local origin_terminal_id="${13}"  # Ghostty ID of the launching pane.
 
 	local working_directory_suffix=""  # Optional shell-quoted directory argument for typed pane commands.
 	if [[ -n "$working_directory" ]]; then
@@ -1012,7 +1062,8 @@ _hcom_team_create_panes() {
 			"$reviewer_command" \
 			"$implementer_command" \
 			"$scout_command" \
-			"$previous_terminal_ids"
+			"$previous_terminal_ids" \
+			"$origin_terminal_id"
 	)"
 	local osascript_exit_code=$?  # Result of creating and wiring the Ghostty panes.
 
