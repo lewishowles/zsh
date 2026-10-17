@@ -230,7 +230,7 @@ print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTUR
 if _hcom_refuse_live_tags team "$team_tags" 2>"$error_file"; then
 	fail 'live role tag did not block launch'
 fi
-[[ "$(<"$error_file")" == $'\n'"team: peer already holds ${team_tags%%|*}." ]] || fail 'duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"team: peer already holds ${team_tags%%|*}. Switch to that agent, or stop it with \"hcom kill peer\" and run team again." ]] || fail 'duplicate refusal text'
 
 # Records whether a single role reaches the launch boundary.
 #
@@ -251,7 +251,7 @@ print -r -- "[{\"tag\":\"$scout_tag\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGEN
 if _hcom_launch_role --command scout --tool codex --tag scout --model fixture --role-file scout.md 2>"$error_file"; then
 	fail 'duplicate single role launched'
 fi
-[[ "$(<"$error_file")" == $'\n'"scout: peer already holds $scout_tag." ]] || fail 'single-role duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"scout: peer already holds $scout_tag. Switch to that agent, or stop it with \"hcom kill peer\" and run scout again." ]] || fail 'single-role duplicate refusal text'
 [[ "$role_invoke_calls" == 0 ]] || fail 'duplicate single role reached the launch boundary'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 _hcom_launch_role --command scout --tool codex --tag scout --model fixture --role-file scout.md || fail 'single role with no live duplicate did not launch'
@@ -267,7 +267,7 @@ print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTUR
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'duplicate task team launched'
 fi
-[[ "$(<"$error_file")" == $'\n'"team:codex: peer already holds ${team_tags%%|*}." ]] || fail 'launcher duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"team:codex: peer already holds ${team_tags%%|*}. Switch to that agent, or stop it with \"hcom kill peer\" and run team:codex again." ]] || fail 'launcher duplicate refusal text'
 [[ ! -e "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" ]] || fail 'duplicate task team created a checkout'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_unknown --yes 2>"$error_file"; then
@@ -315,10 +315,19 @@ _hcom_team_create_panes() {
 	shift
 	replaced_terminal_ids="$6"
 	launched_pane_directory="$4"
+	launched_origin_terminal_id="${13}"
 	pane_calls=$((pane_calls + 1))
 	local resolved_tags  # Tags derived using the launch's project scope.
 	resolved_tags="$(_hcom_team_tags "$command_name" "${4:-$PWD}" "$5")"
 	reply=("$resolved_tags" "new|panes")
+}
+
+# Supplies the launching pane ID without contacting Ghostty.
+#
+# @param  {string}  command_name
+#     Public command requesting the pane ID.
+_hcom_focused_ghostty_terminal_id() {
+	print -r -- 'fixture-origin-pane'
 }
 
 # Records the tags that an ordinary relaunch would stop.
@@ -365,22 +374,23 @@ pane_calls=0  # Number of pane boundaries reached by test launches.
 replaced_terminal_ids=""  # Prior pane IDs passed to the pane boundary.
 stopped_team_tags=""  # Prior tags passed to the stop boundary.
 launched_pane_directory=""  # Folder given to the role panes; empty means the original checkout.
+launched_origin_terminal_id=""  # Origin pane ID passed to the layout boundary.
 launched_orchestrator_directory=""  # Folder given to the orchestrator; empty means the original checkout.
 launched_orchestrator_prompt=""  # Continuation prompt given to the orchestrator.
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if cont --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'cont launched a duplicate task team'
 fi
-[[ "$(<"$error_file")" == $'\n'"cont: peer already holds ${team_tags%%|*}." && "$pane_calls" == 0 ]] || fail 'cont refusal lost its name or reached the pane boundary'
+[[ "$(<"$error_file")" == $'\n'"cont: peer already holds ${team_tags%%|*}. Switch to that agent, or stop it with \"hcom kill peer\" and run cont again." && "$pane_calls" == 0 ]] || fail 'cont refusal lost its name or reached the pane boundary'
 if resume --task tsk_A_B 2>"$error_file"; then
 	fail 'resume launched a duplicate task team'
 fi
-[[ "$(<"$error_file")" == $'\n'"resume: peer already holds ${team_tags%%|*}." && "$pane_calls" == 0 ]] || fail 'resume refusal lost its name or reached the pane boundary'
+[[ "$(<"$error_file")" == $'\n'"resume: peer already holds ${team_tags%%|*}. Switch to that agent, or stop it with \"hcom kill peer\" and run resume again." && "$pane_calls" == 0 ]] || fail 'resume refusal lost its name or reached the pane boundary'
 print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team team:codex unused unused unused unused 2>"$error_file"; then
 	fail 'duplicate root team launched'
 fi
-[[ "$(<"$error_file")" == $'\n'"team:codex: peer already holds ${root_tags%%|*}." ]] || fail 'root-team duplicate refusal text'
+[[ "$(<"$error_file")" == $'\n'"team:codex: peer already holds ${root_tags%%|*}. Switch to that agent, or stop it with \"hcom kill peer\" and run team:codex again." ]] || fail 'root-team duplicate refusal text'
 [[ "$pane_calls" == 0 && -z "$stopped_team_tags" ]] || fail 'duplicate root team created panes or stopped agents'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
@@ -389,6 +399,7 @@ HCOM_TEAM_TERMINAL_IDS='old|panes'  # Existing ordinary team panes.
 HCOM_ACTIVE_TEAM_TASK_ID=''  # Existing team is not task-scoped.
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'manual team relaunch'
 [[ "$stopped_team_tags" == 'old-root-orchestrator|old-root-reviewer' && "$replaced_terminal_ids" == 'old|panes' ]] || fail 'manual team did not replace prior root'
+[[ "$launched_origin_terminal_id" == 'fixture-origin-pane' ]] || fail 'launch did not pass the origin pane ID as argument 13'
 manual_team_tags="$(_hcom_team_tags team "$PWD" blue)"  # Exact tags stored for the ordinary manual team.
 stopped_team_tags=''
 _hcom_launch_team team:codex unused unused unused unused || fail 'root relaunch'
