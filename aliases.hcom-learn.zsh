@@ -129,9 +129,17 @@ _hcom_learning_launch() {
 	local context="$5"  # Optional trusted user context for the learning task.
 	local -a learning_context  # Scout tag and learner prompt from _hcom_learning_context.
 	local working_directory="$PWD"  # Directory shared by the learner and its Scout.
+	local repository_tag  # Repository portion of the learner's role tag.
+	local learner_tag  # Exact tag used by the learner role.
+	local -a learner_config=("${(@s:|:)HCOM_ROLE_CONFIG[$learner_role]}")  # Tool, tag, model, prompts and effort for the learner role.
 
 	_hcom_learning_context "$command_name" "$provider" "$source_input" "$context" || return 1
 	learning_context=("${reply[@]}")
+	repository_tag="$(_hcom_scoped_tag "$command_name" "$working_directory")" || return 1
+	learner_tag="${repository_tag}-learn-${provider}-${learner_config[2]}"
+	# Check both tags before opening any pane, so a clash leaves nothing behind
+	# and the cleanup below never stops another session's Scout.
+	_hcom_refuse_live_tags "$command_name" "${learner_tag}|${learning_context[1]}" || return 1
 
 	_hcom_learning_open_scout "$command_name" "$provider" "$working_directory"
 	local layout_exit_code=$?  # Exit status from opening the Scout pane.

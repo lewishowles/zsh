@@ -111,11 +111,13 @@ _hcom_refuse_live_tags() {
 	for tag in "${exact_tags[@]}"; do
 		if jq -e --arg tag "$tag" 'any(.[]; .tag == $tag)' >/dev/null 2>&1 <<<"$agents_json"; then
 			agent_name="$(jq -r --arg tag "$tag" 'first(.[] | select(.tag == $tag) | .name) // empty' <<<"$agents_json")"
-			[[ -n "$agent_name" ]] || agent_name='a live agent'
 			if [[ -n "$collision_message" ]]; then
 				_hcom_command_error "$command_name" "$collision_message"
+			elif [[ -n "$agent_name" ]]; then
+				_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '. Switch to that agent, or stop it with "' "hcom kill ${agent_name}" '" and run ' "$command_name" ' again.'
 			else
-				_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '.'
+				# Without a name, stopping by tag still clears the clash.
+				_hcom_command_error "$command_name" 'a live agent already holds ' "$tag" '. Stop it with "' "hcom kill tag:${tag}" '" and run ' "$command_name" ' again.'
 			fi
 			return 1
 		fi
