@@ -5,8 +5,10 @@ if (( $+aliases[team] )); then
 	unalias team
 fi
 
-# Continues the next task or the task named by the first argument.
-# @desc  Continue a complete hcom team with the next task or a task ID
+# Continues the task named by the first argument, otherwise the only in-progress
+# task, or the next ready task when none is in progress. A started or blocked
+# task with a saved handoff resumes from it.
+# @desc  Continue a complete hcom team from a task's saved handoff or the next task
 # @cat   hcom
 #
 # @param  {string}  ...
@@ -18,23 +20,6 @@ cont() {
 	fi
 
 	_hcom_launch_team cont orchestrator reviewer implementer scout continue "$@"
-}
-if (( $+aliases[resume] )); then
-	unalias resume
-fi
-
-# @desc  Resume a complete hcom team from the stored handoff or a task ID
-# @cat   hcom
-#
-# @param  {string}  ...
-#     An optional task ID followed by the team resume options.
-resume() {
-	if [[ $# -gt 0 && "$1" != -* ]]; then
-		_hcom_launch_team resume orchestrator reviewer implementer scout resume --task "$1" "${@:2}"
-		return
-	fi
-
-	_hcom_launch_team resume orchestrator reviewer implementer scout resume "$@"
 }
 # @desc  Resume a complete hcom team from the clipboard handoff
 # @cat   hcom

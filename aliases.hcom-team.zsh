@@ -206,7 +206,9 @@ _hcom_clear_team_scope() {
 # @param  {string}  resume_task_id
 #     The task whose saved handoff the resume prompt points the orchestrator at.
 # @param  {string}  selected_task_id
-#     The task named with --task, which the prompt puts ahead of `progress next`.
+#     The task the human named, or the only in-progress task, which the prompt
+#     tells the orchestrator to continue; empty when the team takes the next
+#     ready task.
 # @param  {string}  working_directory
 #     The checkout whose Progress project lists the other in-progress tasks.
 _hcom_team_continuation_prompt() {
@@ -214,7 +216,7 @@ _hcom_team_continuation_prompt() {
 	local launch_mode="$2"  # Continuation mode that determines where the orchestrator starts from.
 	local task_needs_start="${3:-0}"  # Whether the selected task has not started yet.
 	local resume_task_id="${4:-}"  # Task whose handoff a resumed team reads.
-	local selected_task_id="${5:-}"  # Explicit task that takes precedence over progress next.
+	local selected_task_id="${5:-}"  # Named or only in-progress task the orchestrator continues.
 	local working_directory="${6:-$PWD}"  # Checkout used to list the project's in-progress tasks.
 	local tasks_json  # In-progress task records in the selected project.
 	local other_task_ids  # Comma-separated IDs of the other in-progress tasks.
@@ -300,7 +302,7 @@ _hcom_team_continuation_prompt() {
 # @param  {string}  scout_launcher
 #     Function that starts the scout pane.
 # @param  {string}  ...
-#     The remaining team arguments: an optional resume|continue|handover|handoff
+#     The remaining team arguments: an optional continue|handover|handoff
 #     token followed by named options.
 _hcom_launch_team() {
 	local command_name="$1"  # Public command name used in diagnostics.
@@ -330,8 +332,10 @@ _hcom_launch_team() {
 	local launch_team_tags=""  # Exact role tags checked before pane creation.
 	local requested_task_status=""  # Progress status of the explicitly selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
-	local continuation_task_id=""  # Task selected by the default continuation preview.
+	local continuation_task_id=""  # Task the team continues, first from the in-progress lookup and then from the preview.
+	local selected_task_id=""  # Named or only in-progress task that the preview shows and the continuation prompt names.
 	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
+	local continuation_has_handoff=0  # Whether the selected task has a saved handoff.
 	local ensure_task_id=""  # Ready task that needs a managed checkout created.
 	local git_changes  # Git's short status for a ready default task.
 	local checkout_json  # Progress response when creating a managed checkout.
@@ -349,15 +353,28 @@ _hcom_launch_team() {
 		launch_team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$command_name" "$team_scope_directory" "$team_label")" || return 1
 		_hcom_refuse_live_tags "$command_name" "$launch_team_tags" || return 1
 		if [[ "$launch_mode" == continue ]]; then
-			if [[ "$requested_task_status" != ready && "$requested_task_status" != in-progress ]]; then
-				_hcom_command_error "$command_name" 'task ' "$requested_task_id" ' has status ' "${requested_task_status:-none}" '; only ' 'ready or in-progress' ' tasks can continue.'
+			if [[ "$requested_task_status" != ready && "$requested_task_status" != in-progress && "$requested_task_status" != blocked ]]; then
+				_hcom_command_error "$command_name" 'task ' "$requested_task_id" ' has status ' "${requested_task_status:-none}" '; only ' 'ready, in-progress, or blocked' ' tasks can continue.'
 				return 1
 			fi
 		fi
 	fi
 
 	if [[ "$launch_mode" == continue ]]; then
-		_hcom_preview_team_continuation "$command_name" "$team_scope_directory" "$skip_confirmation" "$requested_task_id"
+		if [[ "$requested_task_status" == in-progress || "$requested_task_status" == blocked || -z "$requested_task_id" ]]; then
+			_hcom_select_in_progress_task "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
+			continuation_task_id="${reply[1]}"
+			continuation_has_handoff="${reply[2]}"
+		fi
+
+		if [[ "$requested_task_status" == blocked && "$continuation_has_handoff" == 0 ]]; then
+			_hcom_command_error "$command_name" 'blocked task ' "$requested_task_id" ' has no saved handoff to resume.'
+			return 1
+		fi
+
+		selected_task_id="${requested_task_id:-$continuation_task_id}"
+
+		_hcom_preview_team_continuation "$command_name" "$team_scope_directory" "$skip_confirmation" "$selected_task_id"
 		case "$?" in
 			0) ;;
 			2) return 0 ;;
@@ -399,8 +416,6 @@ _hcom_launch_team() {
 					other_team_tags="$(HCOM_TEAM_PROJECT_TAG="$other_team_project_tag" _hcom_team_tags "$command_name" "$team_scope_directory" "$other_team_label")" || return 1
 					_hcom_refuse_live_tags "$command_name" "$other_team_tags" "task $other_task_id is running in the original checkout; continue there, or stop it and run $command_name again." || return 1
 				done
-
-				launch_mode=resume
 			fi
 		elif (( continuation_task_needs_start )); then
 			if ! git_changes="$(git -C "$team_scope_directory" status --short)"; then
@@ -423,14 +438,9 @@ _hcom_launch_team() {
 		fi
 	fi
 
-	if [[ "$launch_mode" == resume ]]; then
-		_hcom_select_resume_task "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
-		resume_task_id="${reply[1]}"
-		# A task started in the original checkout has no recorded checkout, so it resumes there.
-		_hcom_get_launch_checkout "$command_name" "$team_scope_directory" "$resume_task_id" || return 1
-		if [[ -n "${reply[1]}" ]]; then
-			working_directory="${reply[1]}"
-		fi
+	if (( continuation_has_handoff )); then
+		launch_mode=resume
+		resume_task_id="$continuation_task_id"
 	fi
 
 	if [[ -z "$requested_task_id" ]]; then
@@ -457,7 +467,7 @@ _hcom_launch_team() {
 
 	if [[ -n "$launch_mode" ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
-		continuation_prompt="$(_hcom_team_continuation_prompt "$command_name" "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$requested_task_id" "$team_scope_directory")" || return 1
+		continuation_prompt="$(_hcom_team_continuation_prompt "$command_name" "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$selected_task_id" "$team_scope_directory")" || return 1
 
 		if [[ -n "$initial_prompt" ]]; then
 			initial_prompt="${continuation_prompt}"$'\n\n'"Note from the human:"$'\n'"${initial_prompt}"
@@ -689,8 +699,8 @@ _hcom_focused_ghostty_terminal_id() {
 }
 
 # Shows the task and chunk a team will continue and asks the user to confirm
-# before launch. Previews the named task when one is given, otherwise the
-# project's next task.
+# before launch. Previews the selected task when there is one (the task the
+# human named, or the only in-progress task), otherwise the project's next task.
 #
 # Returns 0 when the continuation may start, 1 when progress cannot be previewed
 # or confirmation cannot be requested, and 2 when the user declines to start.
@@ -705,12 +715,13 @@ _hcom_focused_ghostty_terminal_id() {
 # @param  {integer}  skip_confirmation
 #     1 to start without prompting, or 0 to ask before starting.
 # @param  {string}  selected_task_id
-#     Optional named task to preview instead of the default next task.
+#     The task the human named, or the only in-progress task, to preview
+#     instead of the project's next task; empty for the next task.
 _hcom_preview_team_continuation() {
 	local command_name="$1"  # Public command responsible for the preview.
 	local working_directory="$2"  # Directory where progress next must run.
 	local skip_confirmation="$3"  # Whether to skip the interactive prompt.
-	local selected_task_id="${4:-}"  # Named task whose own record is previewed.
+	local selected_task_id="${4:-}"  # Selected task whose own record is previewed.
 	local project_directory="${working_directory%/}"  # Directory without a trailing slash for fallback naming.
 	local project_name="${project_directory##*/}"  # Fallback project name for an unavailable progress response.
 	local progress_json  # The previewed task, its project, and its active chunk, shaped like progress next output.
@@ -863,23 +874,26 @@ _hcom_preview_team_continuation() {
 	reply=("$task_needs_start" "$task_id" "$task_status")
 }
 
-# Chooses the task a resumed team picks up and shows its saved handoff.
+# Chooses the task a team continues and shows its saved handoff.
 #
-# Uses the requested task when one is given. Otherwise uses the project's only
-# in-progress task, and lists the candidates instead of guessing when there are
-# none or several. Returns 1 before any panes launch when the task cannot be
-# found or has no saved handoff. On success, sets reply=(task_id).
+# Uses the requested task when one is given, otherwise the project's only
+# in-progress task. Returns 1 before any panes launch when jq is unavailable,
+# tasks cannot be listed, the handoff cannot be read, or several tasks are in
+# progress (and lists those tasks). On success, sets reply=(task_id has_handoff):
+# the task ID is empty when no task is in progress, and has_handoff is 1 only
+# when the task has a saved handoff to show.
 #
 # @param  {string}  command_name
-#     The public command shown in resume errors.
+#     The public command shown in task selection errors.
 # @param  {string}  working_directory
 #     Directory where the team's progress records are read.
 # @param  {string}  requested_task_id
 #     The task named with --task, or empty to find the in-progress task.
-_hcom_select_resume_task() {
-	local command_name="$1"  # Public command responsible for the resume.
+_hcom_select_in_progress_task() {
+	local command_name="$1"  # Public command responsible for the continuation.
 	local working_directory="$2"  # Directory where progress commands must run.
-	local task_id="$3"  # Task whose handoff the team resumes.
+	local task_id="$3"  # Requested task, or the sole in-progress task.
+	local has_handoff=0  # Whether the selected task has saved handoff details.
 	local tasks_json  # In-progress tasks returned by progress task list.
 	local task_count  # Number of in-progress tasks in the project.
 	local listed_task_id  # The ID of one task in the list shown when several tasks are in progress.
@@ -890,20 +904,20 @@ _hcom_select_resume_task() {
 	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the next step readable on wide terminals.
 
 	if ! command -v jq >/dev/null 2>&1; then
-		_hcom_command_error "$command_name" '' 'jq' ' is required to find the task to resume.'
+		_hcom_command_error "$command_name" '' 'jq' ' is required to find the task to continue.'
 		return 1
 	fi
 
 	if [[ -z "$task_id" ]]; then
-		if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --json 2>/dev/null)"; then
+		if ! tasks_json="$(cd "$working_directory" && progress task list --status in-progress --all --json 2>/dev/null)"; then
 			_hcom_command_error "$command_name" 'progress task list failed in ' "$working_directory" '.'
 			return 1
 		fi
 
 		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
 		if (( task_count == 0 )); then
-			_hcom_command_error "$command_name" 'no task is in progress, so there is no handoff to resume. Use ' 'cont' ' to start the next task.'
-			return 1
+			reply=("" 0)
+			return 0
 		fi
 
 		if (( task_count > 1 )); then
@@ -928,9 +942,10 @@ _hcom_select_resume_task() {
 	fi
 
 	if ! jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
-		_hcom_command_error "$command_name" 'task ' "$task_id" ' has no saved handoff to resume.'
-		return 1
+		reply=("$task_id" 0)
+		return 0
 	fi
+	has_handoff=1
 
 	current_goal="$(jq -r '.data.current_goal // ""' <<<"$context_json")"
 	next_step="$(jq -r '.data.next_step // ""' <<<"$context_json")"
@@ -952,7 +967,7 @@ _hcom_select_resume_task() {
 
 	print
 
-	reply=("$task_id")
+	reply=("$task_id" "$has_handoff")
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
@@ -1191,7 +1206,7 @@ _hcom_run_team_orchestrator() {
 # @param  {string}  command_name
 #     Public command name used in error output.
 # @param  {string}  ...
-#     The remaining team arguments: an optional resume|continue|handover|handoff
+#     The remaining team arguments: an optional continue|handover|handoff
 #     token followed by named options.
 _hcom_parse_team_args() {
 	local command_name="$1"  # Public command name used in diagnostics.
@@ -1199,7 +1214,7 @@ _hcom_parse_team_args() {
 	local launch_mode=""  # Optional continuation behaviour for the orchestrator.
 
 	case "${1:-}" in
-		resume|continue|handover)
+		continue|handover)
 			launch_mode="$1"
 			shift
 			;;
@@ -1214,7 +1229,7 @@ _hcom_parse_team_args() {
 	local skip_confirmation=0  # Whether to start a continuation without prompting.
 	local working_directory=""  # Explicit project directory for the team.
 	local initial_prompt=""  # The --message text, used as the first prompt or appended to a mode's instruction.
-	local task_id=""  # The --task identifier of the task whose handoff a resumed team reads.
+	local task_id=""  # The --task identifier of the task this team continues.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--dir)
@@ -1274,7 +1289,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_command_error "$command_name" 'usage: ' "$command_name [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]"
+		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]"
 		return 1
 	fi
 
@@ -1287,8 +1302,8 @@ _hcom_parse_team_args() {
 		return 1
 	fi
 
-	if [[ -n "$task_id" ]] && [[ "$launch_mode" != resume && "$launch_mode" != continue ]]; then
-		_hcom_command_error "$command_name" '' '--task' ' only works with ' 'resume or continue' '.'
+	if [[ -n "$task_id" ]] && [[ "$launch_mode" != continue ]]; then
+		_hcom_command_error "$command_name" '' '--task' ' only works with ' 'continue' '.'
 		return 1
 	fi
 
@@ -1300,28 +1315,28 @@ _hcom_parse_team_args() {
 	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
 }
 
-# @desc  Start, resume, continue, or hand over the complete hcom team
+# @desc  Start, continue, or hand over the complete hcom team
 # @cat   hcom
 #
-# Usage: team [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 team() {
 	_hcom_launch_team team orchestrator reviewer implementer scout "$@"
 }
 
-# @desc  Start, resume, continue, or hand over the complete Codex hcom team
+# @desc  Start, continue, or hand over the complete Codex hcom team
 # @cat   hcom
 #
-# Usage: team:codex [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 team:codex() {
 	_hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout "$@"
 }
 
-# @desc  Start, resume, continue, or hand over the complete Claude hcom team
+# @desc  Start, continue, or hand over the complete Claude hcom team
 # @cat   hcom
 #
-# Usage: team:claude [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
 #
 team:claude() {
 	_hcom_launch_team team:claude orchestrator reviewer implementer:claude scout:claude "$@"

@@ -188,7 +188,7 @@ Reports:
 | `aliases.hcom-team.zsh`    | Ghostty team layout and configured HCOM role launchers.                                                                       |
 | `aliases.hcom-learn.zsh`   | Source-learning learner and Scout launchers.                                                                                  |
 | `aliases.hcom-plan.zsh`    | HCOM plan-review launchers and planning-peer prompts.                                                                         |
-| `aliases.hcom-session.zsh` | HCOM agent resolution and session resume commands.                                                                            |
+| `aliases.hcom-session.zsh` | HCOM agent resolution and stopped-agent session commands.                                                                     |
 | `aliases.project.zsh`      | `dev`, `build`, `lint` and `test:*` project commands.                                                                         |
 | `aliases.packages.zsh`     | `deps:*` dependency helpers and `package:*` functions for local `@lewishowles/*` development.                                 |
 | `aliases.tools.zsh`        | Tool aliases, file listings, repository helpers, SVG optimisation and agent setup commands.                                   |
@@ -271,7 +271,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `agent:resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
-| `cont` |  | Continue a complete hcom team with the next task or a task ID |
+| `cont` |  | Continue a complete hcom team from a task's saved handoff or the next task |
 | `handoff` |  | Resume a complete hcom team from the clipboard handoff |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
@@ -289,14 +289,13 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
 | `plan:claude` | <task-name> | Start a Claude planning-peer review of a given task name or path |
 | `plan:codex` | <task-name> | Start a Codex planning-peer review of a given task name or path |
-| `resume` |  | Resume a complete hcom team from the stored handoff or a task ID |
 | `reviewer` |  | Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `team` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete hcom team |
-| `team:claude` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Claude hcom team |
-| `team:codex` | [resume|continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, resume, continue, or hand over the complete Codex hcom team |
+| `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, continue, or hand over the complete hcom team |
+| `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, continue, or hand over the complete Claude hcom team |
+| `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, continue, or hand over the complete Codex hcom team |
 | `team:stop` | [--team <label> | --task <id>] [--dir <path>] | Stop the exact hcom team for a directory, label, or task |
 
 ### nav
