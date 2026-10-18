@@ -665,12 +665,11 @@ _hcom_focused_ghostty_terminal_id() {
 	local command_name="$1"  # Public command responsible for the pane lookup.
 	local terminal_id  # Focused pane ID or a refusal returned by Ghostty.
 
-	if ! pgrep -ix ghostty >/dev/null 2>&1; then
-		_hcom_command_error "$command_name" 'Ghostty is not running.'
-		return 1
-	fi
-
+	# Ask macOS whether the app is running instead of using pgrep, which cannot
+	# see Ghostty's process. The check sits outside the tell block so a closed
+	# Ghostty is reported rather than launched.
 	terminal_id="$(/usr/bin/osascript \
+		-e 'if application "Ghostty" is not running then return "not-running"' \
 		-e 'tell application "Ghostty"' \
 		-e 'if not frontmost then return "not-frontmost"' \
 		-e 'if (count of windows) = 0 then return "no-windows"' \
@@ -681,6 +680,10 @@ _hcom_focused_ghostty_terminal_id() {
 	}
 
 	case "$terminal_id" in
+		not-running)
+			_hcom_command_error "$command_name" 'Ghostty is not running.'
+			return 1
+			;;
 		not-frontmost)
 			_hcom_command_error "$command_name" 'run this team command from a Ghostty terminal.'
 			return 1
