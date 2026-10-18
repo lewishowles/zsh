@@ -43,6 +43,99 @@ _hcom_quota_claude() {
 	_hcom_quota_probe claude "$1" 600
 }
 
+# @desc  Show five-hour and weekly quota left on both Claude and Codex accounts
+# @cat   agent
+# @needs python3
+#
+# Prints a table with one row per provider and account, using the same quota cache as
+# team start-up. An account that can't be read shows as unavailable, and the other rows
+# still print. Colour is checked here rather than at load time so piped output is plain.
+# A Claude window that hasn't started yet shows an estimated reset time.
+agent:usage() {
+	local provider  # Provider currently being displayed.
+	local account  # Account currently being displayed.
+	local label  # Name shown at the start of a row.
+	local quota_line  # The probe's six quota values on one line.
+	local remaining  # A percentage left, matched to its colour.
+	local session_percent  # Rounded five-hour percentage shown in the table.
+	local week_percent  # Rounded weekly percentage shown in the table.
+	local session_reset  # Local five-hour reset time.
+	local week_reset  # Local weekly reset time.
+	local today  # Local date used to omit the weekday for today's resets.
+	local bold='' dim='' normal=''  # Terminal styles, empty for plain output.
+	local green='' yellow='' red=''  # Percentage colours, empty for plain output.
+	local -a quota_values  # The probe's session and weekly fields.
+	local -a colours  # Colours chosen for the two remaining percentages.
+
+	if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+		bold=$'\033[1m'
+		dim=$'\033[2m'
+		normal=$'\033[0m'
+		green="$GREEN"
+		yellow="$YELLOW"
+		red="$RED"
+	fi
+
+	today="$(date '+%Y-%m-%d')"
+	printf '%s%-12s  %-7s  %-12s  %-9s  %s%s\n' "$bold" '' '5h left' 'resets' 'week left' 'resets' "$normal"
+
+	for provider in claude codex; do
+		for account in default 2; do
+			label="$provider"
+			if [[ "$account" == 2 ]]; then
+				label+=' (2)'
+			fi
+
+			if quota_line="$("_hcom_quota_$provider" "$account" 2>/dev/null)" &&
+				read -rA quota_values <<< "$quota_line" &&
+				(( ${#quota_values} == 6 )) &&
+				session_reset="$(_agent_usage_reset "${quota_values[2]}" "$today")" &&
+				week_reset="$(_agent_usage_reset "${quota_values[5]}" "$today")"; then
+				printf -v session_percent '%.0f' "${quota_values[1]}"
+				printf -v week_percent '%.0f' "${quota_values[4]}"
+				colours=()
+				for remaining in "$session_percent" "$week_percent"; do
+					if (( remaining >= 50 )); then
+						colours+=("$green")
+					elif (( remaining >= 20 )); then
+						colours+=("$yellow")
+					else
+						colours+=("$red")
+					fi
+				done
+
+				printf '%-12s  %s%-7s%s  %s%-12s%s  %s%-9s%s  %s%s%s\n' \
+					"$label" "${colours[1]}" "${session_percent}%" "$normal" \
+					"$dim" "$session_reset" "$normal" \
+					"${colours[2]}" "${week_percent}%" "$normal" \
+					"$dim" "$week_reset" "$normal"
+			else
+				printf '%-12s  %sunavailable%s\n' "$label" "$dim" "$normal"
+			fi
+		done
+	done
+}
+
+# Prints a reset time as HH:MM when it falls today, or as the weekday and HH:MM when it
+# is later. Returns 1 when the timestamp can't be read.
+#
+# @param  {number}  reset_timestamp
+#     Unix timestamp returned by the quota probe.
+# @param  {string}  today
+#     Current local date in YYYY-MM-DD form.
+_agent_usage_reset() {
+	local reset_timestamp="${1%%.*}"  # Whole seconds, because macOS date -r rejects fractions.
+	local today="$2"  # Current local date.
+	local reset_date  # Local date of the reset.
+
+	reset_date="$(date -r "$reset_timestamp" '+%Y-%m-%d' 2>/dev/null)" || return 1
+	if [[ "$reset_date" == "$today" ]]; then
+		date -r "$reset_timestamp" '+%H:%M'
+	else
+		date -r "$reset_timestamp" '+%a %H:%M'
+	fi
+}
+
 # Prints the account ID for the heavier role, then the lighter one, then 1 when the provider
 # has no usable quota left. Ties favour default.
 #
