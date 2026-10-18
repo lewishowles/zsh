@@ -93,10 +93,13 @@ _hcom_account_environment() {
 #     Pipe-separated full role tags that the launch would use.
 # @param  {string}  collision_message
 #     Optional refusal that replaces the default one, so the caller can name the team that is running.
+# @param  {string}  extra_hint
+#     Optional advice added to the end of the default refusal. It is not used when collision_message is given.
 _hcom_refuse_live_tags() {
 	local command_name="$1"  # Public command responsible for the launch.
 	local role_tags="$2"  # Full role tags that the launch would use.
 	local collision_message="${3:-}"  # Team-specific refusal used when a role tag is live.
+	local extra_hint="${4:-}"  # Advice appended only to the default refusal.
 	local agents_json  # Current live agent records from HCOM.
 	local tag  # One role tag to check for a collision.
 	local agent_name  # The name of the live agent that already holds the tag.
@@ -114,10 +117,10 @@ _hcom_refuse_live_tags() {
 			if [[ -n "$collision_message" ]]; then
 				_hcom_command_error "$command_name" "$collision_message"
 			elif [[ -n "$agent_name" ]]; then
-				_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '. Switch to that agent, or stop it with "' "hcom kill ${agent_name}" '" and run ' "$command_name" ' again.'
+				_hcom_command_error "$command_name" '' "$agent_name" ' already holds ' "$tag" '. Switch to that agent, or stop it with "' "hcom kill ${agent_name}" '" and run ' "$command_name" " again.${extra_hint}"
 			else
 				# Without a name, stopping by tag still clears the clash.
-				_hcom_command_error "$command_name" 'a live agent already holds ' "$tag" '. Stop it with "' "hcom kill tag:${tag}" '" and run ' "$command_name" ' again.'
+				_hcom_command_error "$command_name" 'a live agent already holds ' "$tag" '. Stop it with "' "hcom kill tag:${tag}" '" and run ' "$command_name" " again.${extra_hint}"
 			fi
 			return 1
 		fi

@@ -123,6 +123,7 @@ export ZSH_CONFIG_ROOT="$repo_root"
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
 source "$repo_root/aliases.hcom-core.zsh"
+source "$repo_root/aliases.hcom-workflow.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
 source "$repo_root/aliases.hcom-roles.zsh"
 source "$repo_root/aliases.hcom-learn.zsh"
@@ -272,7 +273,7 @@ assert_command_error 'scout: unknown option: --bad' scout --bad
 assert_command_error 'scout: task tsk_A_B has no registered worktree.' scout --task tsk_A_B
 assert_command_error "agent:resume: 'bad' is not a valid agent name" _hcom_resolve_agent bad
 mkdir -p "$fixture_dir/---"
-assert_command_error "learn:codex: cannot derive a tag from directory: $fixture_dir/---" zsh -c 'source "$1/aliases.hcom-core.zsh"; source "$1/aliases.hcom-learn.zsh"; cd "$2"; _hcom_learning_context learn:codex codex source ""' -- "$repo_root" "$fixture_dir/---"
+assert_command_error "learn:codex: cannot derive a tag from directory: $fixture_dir/---" zsh -c 'source "$1/aliases.hcom-core.zsh"; source "$1/aliases.hcom-learn.zsh"; cd "$2"; _hcom_learning_context learn:codex learn-codex source ""' -- "$repo_root" "$fixture_dir/---"
 
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes 2>"$error_file"; then
@@ -618,4 +619,63 @@ claude --fixture-claude || fail 'Claude solo fixture launch failed'
 expected_solo_calls="$(printf '%s\n' 'codex codex' "codex $HOME/.codex-2 --fixture-codex" 'claude claude' "claude $HOME/.claude-2 --permission-mode auto --fixture-claude")"  # Quota requests and stubbed tool launches in order.
 [[ "$(<"$HCOM_FIXTURE_SOLO_CALLS")" == "$expected_solo_calls" ]] || fail 'solo launchers lost the quota provider or second account'
 
-print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, stop targeting, and solo quota selection'
+# Records the paired Scout pane command without opening Ghostty.
+#
+# @param  {string}  layout_script
+#     Layout requested by the learner launcher.
+# @param  {string}  launch_command
+#     Command the learner would type into the Scout pane.
+_hcom_workflow_launch_layout() {
+	learner_pane_calls=$((learner_pane_calls + 1))
+	learner_scout_command="$2"
+}
+
+# Records the learner role and team label without starting an agent.
+#
+# @param  {string}  role
+#     Learner role selected by the public launcher.
+# @param  {string}  ...
+#     Role launch arguments following the configured role.
+_hcom_launch_configured_role() {
+	launched_learner_role="$1"
+	learner_team_label="$HCOM_TEAM_LABEL"
+}
+
+learner_pane_calls=0  # Number of Scout panes requested by learner launches.
+learner_scout_command=""  # Most recent command typed into the Scout pane.
+launched_learner_role=""  # Most recent learner role sent to the launch boundary.
+learner_team_label=""  # Most recent learner team label sent to the launch boundary.
+learner_repository_tag="$(_hcom_scoped_tag learn:codex "$PWD")"  # Repository tag shared by fixture learners.
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+
+for provider in claude codex; do
+	learn:$provider --team blue fixture-source fixture-context || fail "labelled $provider learner did not launch"
+	[[ "$learner_team_label" == "learn-$provider-blue" && "$learner_scout_command" == *"HCOM_TEAM_LABEL=learn-$provider-blue scout "* ]] || fail "labelled $provider learner and Scout use different labels"
+	[[ "$launched_learner_role" == "learner-$provider" ]] || fail "labelled $provider launcher selected the wrong role"
+
+	learn:$provider fixture-source || fail "unlabelled $provider learner did not launch"
+	[[ "$learner_team_label" == "learn-$provider" && "$learner_scout_command" == *"HCOM_TEAM_LABEL=learn-$provider scout "* ]] || fail "unlabelled $provider learner tags changed"
+done
+
+print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+prior_learner_pane_calls="$learner_pane_calls"  # Pane count before duplicate and input errors.
+assert_command_error "learn:codex: peer already holds ${learner_repository_tag}-learn-codex-orchestrator. Switch to that agent, or stop it with \"hcom kill peer\" and run learn:codex again. Rerun with --team <label> to start another learner team." learn:codex fixture-source
+[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'unlabelled duplicate opened a Scout pane'
+
+print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-blue-scout\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+assert_command_error "learn:codex: peer already holds ${learner_repository_tag}-learn-codex-blue-scout. Switch to that agent, or stop it with \"hcom kill peer\" and run learn:codex again. Choose a different --team label to start another learner team." learn:codex --team blue fixture-source
+[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'labelled duplicate opened a Scout pane'
+print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-blue-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+assert_command_error "learn:codex: peer already holds ${learner_repository_tag}-learn-codex-blue-orchestrator. Switch to that agent, or stop it with \"hcom kill peer\" and run learn:codex again. Choose a different --team label to start another learner team." learn:codex --team blue fixture-source
+[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'labelled learner duplicate opened a Scout pane'
+
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+assert_command_error $'learn:codex: invalid team label: Bad_Label\nlearn:codex: use lowercase letters, numbers, and internal hyphens.\nlearn:codex: usage: learn:codex [--team <label>] <source> [context]' learn:codex --team Bad_Label fixture-source
+assert_command_error $'learn:codex: --team requires a label.\nlearn:codex: usage: learn:codex [--team <label>] <source> [context]' learn:codex --team
+if learn:codex --team blue 2>"$error_file"; then
+	fail 'learner accepted a label without source material'
+fi
+[[ "$(<"$error_file")" == 'learn:codex: usage: learn:codex [--team <label>] <source> [context]' ]] || fail 'missing learner source omitted usage'
+[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'invalid learner arguments opened a Scout pane'
+
+print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, stop targeting, solo quota selection, and learner team labels'

@@ -1,4 +1,40 @@
-# Shared helpers for the hcom plan and insights-review launchers.
+# Shared helpers for the hcom plan, learning, and insights-review launchers.
+
+# Reads an optional leading `--team <label>` and sets `reply` to the label, which is
+# empty when none was given, followed by the remaining arguments. Prints the caller's
+# usage and returns 1 when the label is missing or invalid.
+#
+# @param  {string}  command_name
+#     Public command name used in validation errors.
+# @param  {string}  usage
+#     Usage line to print when the label is missing or invalid.
+# @param  {string}  ...
+#     Launcher arguments, optionally starting with --team and its label.
+_hcom_parse_labelled_args() {
+	local command_name="$1"  # Public command name used in validation errors.
+	local usage="$2"  # Caller-specific usage line.
+	local team_label=""  # Optional label for the team being launched.
+	shift 2
+	reply=()
+
+	if [[ "${1:-}" == --team ]]; then
+		if (( $# < 2 )); then
+			_hcom_command_error "$command_name" '--team requires a label.'
+			printf '%s\n' "$usage" >&2
+			return 1
+		fi
+
+		team_label="$2"
+		if ! _hcom_validate_team_label "$team_label" "$command_name"; then
+			printf '%s\n' "$usage" >&2
+			return 1
+		fi
+
+		shift 2
+	fi
+
+	reply=("$team_label" "$@")
+}
 
 # Validates a launcher's prompt template file, then returns its contents with one
 # placeholder replaced by a shell-quoted value. Returns 1 if the file is missing or
