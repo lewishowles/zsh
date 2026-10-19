@@ -33,7 +33,11 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 		print -r -- "{\"ok\":true,\"data\":{\"items\":[{\"id\":\"$HCOM_FIXTURE_ONLY_TASK_ID\"}]}}"
 		exit 0
 	fi
-	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B","title":"First task"},{"id":"tsk_a_B","title":"Other task"}]}}'
+	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B","title":"First task","updated_at":"2026-10-18T10:00:00Z"},{"id":"tsk_a_B","title":"Other task","updated_at":"2026-10-19T10:00:00Z"}]}}'
+	exit 0
+fi
+if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == ready && "$5" == --all && "$6" == --json ]]; then
+	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_ready_two","title":"Second ready task","position":2},{"id":"tsk_A-B","title":"Earlier ready task","position":1}]}}'
 	exit 0
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; then
@@ -92,6 +96,7 @@ case "$3" in
 	tsk_A_B) task_slug=continue-parallel-task-teams ;;
 	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_chunks='[{"id":"chk_active","title":"Active chunk","status":"active","description":"These details explain the current work in enough words to fill more than three narrow terminal lines while keeping the final part hidden from view."},{"id":"chk_pending","title":"Pending chunk","status":"pending"}]' ;;
 	tsk_A-B) task_slug=third-task ;;
+	tsk_ready_two) task_slug=second-ready-task ;;
 	tsk_bad_slug) task_slug='Bad_Task' ;;
 	tsk_blocked) task_slug=blocked-task; task_status=blocked ;;
 	tsk_needs_decision) task_slug=decision-task; task_status=needs-decision ;;
@@ -346,16 +351,18 @@ named_prompt="$(_hcom_team_continuation_prompt team continue 1 '' tsk_A_B "$fixt
 named_started_prompt="$(_hcom_team_continuation_prompt team continue 0 '' tsk_a_B "$fixture_dir/project")" || fail 'named in-progress prompt builds'
 [[ "$named_started_prompt" == *'Other in-progress task IDs: tsk_A_B.'* && "$named_started_prompt" != *'progress task start'* ]] || fail 'named in-progress prompt restarts the task'
 # Check the real selector before the launch fixture replaces it.
+_hcom_select_in_progress_task team "$fixture_dir/project" tsk_a_B || fail 'selector refused an explicitly named task'
+[[ "${reply[1]}" == tsk_a_B && "${reply[2]}" == 0 ]] || fail 'selector treated an explicitly named task as a picker choice'
 export HCOM_FIXTURE_NO_ACTIVE_TASKS=1
 _hcom_select_in_progress_task team "$fixture_dir/project" '' || fail 'selector refused an empty in-progress list'
-[[ -z "${reply[1]}" && "${#reply}" == 1 ]] || fail 'selector returned a task when none is in progress'
+[[ -z "${reply[1]}" && "${reply[2]}" == 0 ]] || fail 'selector returned a task when none is in progress'
 unset HCOM_FIXTURE_NO_ACTIVE_TASKS
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_select_in_progress_task team "$fixture_dir/project" '' || fail 'selector refused a task without a handoff'
-[[ "${reply[1]}" == tsk_a_B && "${#reply}" == 1 ]] || fail 'selector returned more than the selected task ID'
+[[ "${reply[1]}" == tsk_a_B && "${reply[2]}" == 0 ]] || fail 'selector reported a picker for the sole in-progress task'
 export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_select_in_progress_task team "$fixture_dir/project" '' > "$fixture_dir/selector-preview" || fail 'selector refused a task with a handoff'
-[[ "${reply[1]}" == tsk_a_B && "${#reply}" == 1 && ! -s "$fixture_dir/selector-preview" ]] || fail 'selector printed the handoff or returned more than the task ID'
+[[ "${reply[1]}" == tsk_a_B && "${reply[2]}" == 0 && ! -s "$fixture_dir/selector-preview" ]] || fail 'selector printed the handoff or reported a picker'
 unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
 
 # Runs the real selector inside a pseudo-terminal and sends each answer only
@@ -363,8 +370,8 @@ unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
 cat > "$fixture_dir/select-task.zsh" <<'STUB'
 source "$ZSH_CONFIG_ROOT/aliases.hcom-core.zsh"
 source "$ZSH_CONFIG_ROOT/aliases.hcom-team.zsh"
-if _hcom_select_in_progress_task cont "$HCOM_FIXTURE_PROJECT_DIR" ''; then
-	print -r -- "SELECTED:${reply[1]}"
+if _hcom_select_in_progress_task "${HCOM_FIXTURE_SELECTOR_COMMAND:-cont}" "$HCOM_FIXTURE_PROJECT_DIR" '' "${HCOM_FIXTURE_FORCE_PICKER:-0}"; then
+	print -r -- "SELECTED:${reply[1]}:${reply[2]}"
 else
 	print -r -- 'CANCELLED'
 fi
@@ -379,17 +386,18 @@ switch -- [lindex $argv 0] {
 	invalid-then-pick {
 		expect -re {Which task\? }
 		send -- "9\r"
-		expect -re {Choose a number from 1 to 2}
+		expect -re {Choose a number from 1 to 4}
 		expect -re {Which task\? }
-		send -- "2\r"
-		expect -re {SELECTED:tsk_a_B}
+		send -- "1\r"
+		expect -re {SELECTED:tsk_a_B:1}
 	}
 	cancel-numbered {
 		expect -re {Which task\? }
 		send -- "\r"
 		expect -re {CANCELLED}
 	}
-	pick-fzf { expect -re {SELECTED:tsk_a_B} }
+	pick-fzf { expect -re {SELECTED:tsk_a_B:1} }
+	pick-ready { expect -re {SELECTED:tsk_A-B:1} }
 	cancel-fzf { expect -re {CANCELLED} }
 }
 expect {
@@ -400,24 +408,35 @@ STUB
 # A PATH that hides any installed fzf but keeps the fixture commands and jq.
 numbered_path="$fixture_dir/bin:${$(command -v jq):h}:/usr/bin:/bin:/usr/sbin:/sbin"
 numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" invalid-then-pick)" || fail 'numbered selector process failed'
-[[ "$numbered_output" == *'1. First task  tsk_A_B'* && "$numbered_output" == *'2. Other task  tsk_a_B'* && "$numbered_output" == *'Choose a number from 1 to 2'* && "$numbered_output" == *'SELECTED:tsk_a_B'* ]] || fail 'numbered selector did not re-ask and choose the second task'
+[[ "$numbered_output" == *'1. Other task  tsk_a_B'* && "$numbered_output" == *'2. First task  tsk_A_B'* && "$numbered_output" == *'Choose a number from 1 to 4'* && "$numbered_output" == *'SELECTED:tsk_a_B:1'* ]] || fail 'numbered selector did not order and choose the tasks'
 numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'numbered cancellation process failed'
-[[ "$numbered_output" == *'No task chosen.'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'SELECTED:'* ]] || fail 'empty answer did not report numbered cancellation'
+[[ "$numbered_output" == *$'Other task\r\n  cont tsk_a_B'* && "$numbered_output" == *$'Earlier ready task\r\n  cont tsk_A-B'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'SELECTED:'* ]] || fail 'empty answer did not print continuation commands'
+numbered_output="$(env PATH="$numbered_path" HCOM_FIXTURE_SELECTOR_COMMAND=team:codex NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'team selector cancellation process failed'
+[[ "$numbered_output" == *$'Other task\r\n  team:codex continue --task tsk_a_B'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'  cont tsk_a_B'* ]] || fail 'team selector cancellation did not print its own continuation command'
 
 # Stands in for fzf: records the rows it was shown, then picks the second task,
 # or exits as if Esc was pressed when HCOM_FIXTURE_FZF_CANCEL is 1.
 cat > "$fixture_dir/bin/fzf" <<'STUB'
 #!/usr/bin/env zsh
 cat > "$HCOM_FIXTURE_FZF_INPUT"
+print -r -- "$*" > "$HCOM_FIXTURE_FZF_ARGS"
 [[ "${HCOM_FIXTURE_FZF_CANCEL:-0}" == 1 ]] && exit 130
+if [[ "${HCOM_FIXTURE_FZF_READY:-0}" == 1 ]]; then
+	print -r -- $'tsk_A-B\tEarlier ready task'
+	exit 0
+fi
 print -r -- $'tsk_a_B\tOther task'
 STUB
 chmod +x "$fixture_dir/bin/fzf"
 export HCOM_FIXTURE_FZF_INPUT="$fixture_dir/fzf-input"
+export HCOM_FIXTURE_FZF_ARGS="$fixture_dir/fzf-args"
 fzf_output="$(env NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-fzf)" || fail 'fzf selector process failed'
-[[ "$fzf_output" == *'SELECTED:tsk_a_B'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A_B\tFirst task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tOther task'* ]] || fail 'fzf selector did not show and choose the in-progress tasks'
+[[ "$fzf_output" == *'SELECTED:tsk_a_B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == $'tsk_a_B\tOther task\ntsk_A_B\tFirst task\ntsk_A-B\tEarlier ready task\ntsk_ready_two\tSecond ready task' ]] || fail 'fzf selector did not order active and ready tasks'
+[[ "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--preview '* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'_hcom_preview_team_continuation'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'aliases.hcom-team.zsh'* ]] || fail 'fzf selector did not wire the continue screen preview'
+fzf_output="$(env HCOM_FIXTURE_FORCE_PICKER=1 HCOM_FIXTURE_FZF_READY=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-ready)" || fail 'declined-task picker process failed'
+[[ "$fzf_output" == *'SELECTED:tsk_A-B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tOther task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A-B\tEarlier ready task'* ]] || fail 'declined-task picker lost the suggested task or a ready choice'
 fzf_output="$(env HCOM_FIXTURE_FZF_CANCEL=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-fzf)" || fail 'fzf cancellation process failed'
-[[ "$fzf_output" == *'No task chosen.'* && "$fzf_output" == *'CANCELLED'* && "$fzf_output" != *'SELECTED:'* ]] || fail 'fzf cancellation did not report cancellation'
+[[ "$fzf_output" == *$'Other task\r\n  cont tsk_a_B'* && "$fzf_output" == *$'Second ready task\r\n  cont tsk_ready_two'* && "$fzf_output" == *'CANCELLED'* && "$fzf_output" != *'SELECTED:'* ]] || fail 'fzf cancellation did not print continuation commands'
 
 # Stdin comes from /dev/null so the refusal is tested even when the suite runs in a terminal.
 if _hcom_select_in_progress_task cont "$fixture_dir/project" '' </dev/null 2>"$error_file"; then
@@ -487,6 +506,9 @@ _hcom_quota_allocate() {
 # Picks the named task, or the fixture's only in-progress task, and reports a
 # handoff when HCOM_FIXTURE_HAS_HANDOFF is 1. Refuses like the real selector
 # when HCOM_FIXTURE_SEVERAL_TASKS is 1 and no task is named.
+# HCOM_FIXTURE_PICKER_TASK_ID chooses a task; HCOM_FIXTURE_PICKER_CANCEL cancels.
+# HCOM_FIXTURE_PICKER_AFTER_DECLINE makes the picker answer only after a
+# declined preview. The second reply element is 1 for a picker choice, 0 otherwise.
 #
 # @param  {string}  command_name
 #     The public command requesting the continuation.
@@ -494,13 +516,20 @@ _hcom_quota_allocate() {
 #     Checkout selected for the team.
 # @param  {string}  task_id
 #     Named task selected for continuation.
+# @param  {integer}  force_picker
+#     1 when the caller reopens the picker after a declined preview.
 _hcom_select_in_progress_task() {
+	if [[ -z "$3" && ( -n "${HCOM_FIXTURE_PICKER_TASK_ID:-}" || "${HCOM_FIXTURE_PICKER_CANCEL:-0}" == 1 ) && ( "${HCOM_FIXTURE_PICKER_AFTER_DECLINE:-0}" == 0 || "${4:-0}" == 1 ) ]]; then
+		[[ "${HCOM_FIXTURE_PICKER_CANCEL:-0}" == 1 ]] && return 2
+		reply=("$HCOM_FIXTURE_PICKER_TASK_ID" 1)
+		return 0
+	fi
 	if [[ -z "$3" && "${HCOM_FIXTURE_SEVERAL_TASKS:-0}" == 1 ]]; then
 		_hcom_command_error "$1" '2 tasks are in progress; choose one with --task:'
 		return 1
 	fi
 
-	reply=("${3:-${HCOM_FIXTURE_ONLY_TASK_ID:-}}")
+	reply=("${3:-${HCOM_FIXTURE_ONLY_TASK_ID:-}}" 0)
 }
 
 pane_calls=0  # Number of pane boundaries reached by test launches.
@@ -560,6 +589,54 @@ unset HCOM_FIXTURE_HAS_HANDOFF
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_A_B.'* ]] || fail 'ready task did not use the continue prompt'
+
+# A picker choice enters the same named-task path and skips the confirmation.
+export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B
+prior_pane_calls="$pane_calls"
+_hcom_launch_team team:codex unused unused unused unused continue || fail 'picker choice did not launch a ready task'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B.'* ]] || fail 'picker choice missed the named ready-task launch path'
+unset HCOM_FIXTURE_PICKER_TASK_ID
+export HCOM_FIXTURE_PICKER_CANCEL=1
+prior_pane_calls="$pane_calls"
+_hcom_launch_team team:codex unused unused unused unused continue || fail 'cancelled picker after several tasks returned an error'
+[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'cancelled picker after several tasks opened a pane'
+unset HCOM_FIXTURE_PICKER_CANCEL
+
+# Declining a preview opens the picker, then launches its ready choice once.
+functions -c _hcom_preview_team_continuation _hcom_saved_preview_team_continuation
+# Declines the first, prompted preview and accepts the picker's unprompted
+# launch, logging each answer so the test can count the previews.
+#
+# @param  {string}  command_name
+#     Public command requesting the preview.
+# @param  {string}  working_directory
+#     Directory where progress records would be read.
+# @param  {integer}  skip_confirmation
+#     0 for the prompted preview, which is declined, or 1 after a picker choice.
+# @param  {string}  selected_task_id
+#     Task returned as the one to start.
+_hcom_preview_team_continuation() {
+	if [[ "$3" == 0 ]]; then
+		print -r -- decline >> "$fixture_dir/preview-calls"
+		return 2
+	fi
+	print -r -- accepted >> "$fixture_dir/preview-calls"
+	reply=(1 "$4" ready 0)
+}
+export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B HCOM_FIXTURE_PICKER_AFTER_DECLINE=1
+: > "$fixture_dir/preview-calls"
+prior_pane_calls="$pane_calls"
+_hcom_launch_team team:codex unused unused unused unused continue || fail 'declined preview did not launch the chosen task'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$(<"$fixture_dir/preview-calls")" == $'decline\naccepted' ]] || fail 'declined preview reopened confirmation or launched more than once'
+unset HCOM_FIXTURE_PICKER_TASK_ID HCOM_FIXTURE_PICKER_AFTER_DECLINE
+export HCOM_FIXTURE_PICKER_CANCEL=1 HCOM_FIXTURE_PICKER_AFTER_DECLINE=1
+: > "$fixture_dir/preview-calls"
+prior_pane_calls="$pane_calls"
+_hcom_launch_team team:codex unused unused unused unused continue || fail 'cancelled picker after a declined preview returned an error'
+[[ "$pane_calls" == "$prior_pane_calls" && "$(<"$fixture_dir/preview-calls")" == decline ]] || fail 'cancelled picker after a declined preview opened a pane or repeated the preview'
+unset HCOM_FIXTURE_PICKER_CANCEL HCOM_FIXTURE_PICKER_AFTER_DECLINE
+functions -c _hcom_saved_preview_team_continuation _hcom_preview_team_continuation
+unfunction _hcom_saved_preview_team_continuation
 
 # An in-progress task with a handoff uses its recorded checkout and resume prompt.
 print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B"

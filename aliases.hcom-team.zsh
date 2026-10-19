@@ -344,6 +344,8 @@ _hcom_launch_team() {
 	local other_task_ids  # IDs of in-progress tasks other than the requested task.
 	local other_task_id  # In-progress task checked for a managed checkout and live team.
 	local other_team_project_tag other_team_label other_team_tags  # Address and role tags for another task's team.
+	local picker_chosen=0  # Whether a task was chosen from the interactive picker.
+	local -a chosen_task_args  # Arguments that relaunch the team on the chosen task, as cont <task-id> --yes would.
 
 	if [[ -n "$requested_task_id" ]]; then
 		_hcom_read_task_team "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
@@ -362,18 +364,48 @@ _hcom_launch_team() {
 
 	if [[ "$launch_mode" == continue ]]; then
 		if [[ "$requested_task_status" == in-progress || "$requested_task_status" == blocked || -z "$requested_task_id" ]]; then
-			_hcom_select_in_progress_task "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
+			_hcom_select_in_progress_task "$command_name" "$team_scope_directory" "$requested_task_id"
+			case "$?" in
+				0) ;;
+				2) return 0 ;;
+				*) return 1 ;;
+			esac
 			continuation_task_id="${reply[1]}"
+			picker_chosen="${reply[2]:-0}"
 		fi
 
 		selected_task_id="${requested_task_id:-$continuation_task_id}"
 
-		_hcom_preview_team_continuation "$command_name" "$team_scope_directory" "$skip_confirmation" "$selected_task_id"
-		case "$?" in
-			0) ;;
-			2) return 0 ;;
-			*) return 1 ;;
-		esac
+		if (( ! picker_chosen )); then
+			_hcom_preview_team_continuation "$command_name" "$team_scope_directory" "$skip_confirmation" "$selected_task_id"
+			case "$?" in
+				0) ;;
+				2)
+					_hcom_select_in_progress_task "$command_name" "$team_scope_directory" '' 1
+					case "$?" in
+						0) selected_task_id="${reply[1]}"; picker_chosen=1 ;;
+						2) return 0 ;;
+						*) return 1 ;;
+					esac
+					;;
+				*) return 1 ;;
+			esac
+		fi
+
+		# A chosen task launches as cont <task-id> would, so it gets the same checks
+		# for its checkout and live team without asking a second time.
+		if (( picker_chosen )); then
+			chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes)
+			if [[ -n "$initial_prompt" ]]; then
+				chosen_task_args+=(--message "$initial_prompt")
+			fi
+			if (( keep_agents )); then
+				chosen_task_args+=(--keep-agents)
+			fi
+			_hcom_launch_team "$command_name" "$orchestrator_launcher" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "${chosen_task_args[@]}"
+			return $?
+		fi
+
 		continuation_task_needs_start="${reply[1]:-0}"
 		continuation_task_id="${reply[2]:-}"
 		continuation_has_handoff="${reply[4]:-0}"
@@ -854,7 +886,6 @@ _hcom_preview_team_continuation() {
 
 		if ! read -r -k 1 "confirmation?Start this task? ${answer_hint} "; then
 			print
-			print -r -- 'Not started.'
 			return 2
 		fi
 
@@ -866,7 +897,6 @@ _hcom_preview_team_continuation() {
 		case "$confirmation" in
 			$'\n'|[yY]) ;;
 			*)
-				print -r -- 'Not started.'
 				return 2
 				;;
 		esac
@@ -933,32 +963,42 @@ _hcom_print_continuation_row() {
 
 # Chooses the task a team continues.
 #
-# Uses the requested task when one is given, otherwise the project's only
-# in-progress task. When several tasks are in progress, the human picks one in
-# fzf, or from a numbered list when fzf is not installed. Returns 1 before any
-# panes launch when jq is unavailable, tasks cannot be listed, the human
-# cancels the choice, or several tasks are in progress without a terminal to
-# ask in (and lists those tasks). Cancelling also prints "No task chosen." On
-# success, reply contains only the task ID, which is empty when no task is in
-# progress.
+# A named task is used as it is. Otherwise the project's only in-progress task
+# is used, or no task when none is in progress. A task picker opens when
+# several tasks are in progress, or when the human declined the suggested task.
+# The picker lists in-progress tasks, most recently updated first, then ready
+# tasks in queue order, and uses fzf when it is installed or a numbered list
+# when it is not.
+#
+# Returns 0 with reply=(task_id picker_chosen): the task ID, empty when nothing
+# is in progress, and 1 when the human chose it in the picker or 0 otherwise.
+# Returns 1 when jq is missing, the tasks cannot be listed, there are no
+# in-progress or ready tasks to choose, or a choice needs a terminal. Returns 2
+# when the human cancels the picker, after printing a command for each task.
 #
 # @param  {string}  command_name
 #     The public command shown in task selection errors.
 # @param  {string}  working_directory
 #     Directory where the team's progress records are read.
 # @param  {string}  requested_task_id
-#     The task named with --task, or empty to find the in-progress task.
+#     The task named with --task, or empty to find one.
+# @param  {integer}  force_picker
+#     1 to open the picker even when one task is in progress, after the human
+#     declined it; pass an empty requested_task_id with it.
 _hcom_select_in_progress_task() {
 	local command_name="$1"  # Public command responsible for the continuation.
 	local working_directory="$2"  # Directory where progress commands must run.
-	local task_id="$3"  # Requested task, or the sole in-progress task.
+	local task_id="$3"  # The named task, the only in-progress task, or the task chosen in the picker.
+	local force_picker="${4:-0}"  # Whether to open the picker because the human declined the suggested task.
 	local tasks_json  # In-progress tasks returned by progress task list.
+	local ready_tasks_json  # Ready tasks returned by a separate progress query.
 	local task_count  # Number of in-progress tasks in the project.
-	local listed_task_id  # The ID of one task in the list shown when several tasks are in progress.
+	local listed_task_id  # The ID of one task while a task list is printed or read into the numbered picker.
 	local listed_task_title  # The title shown beside that task's ID.
 	local selected_task  # The row picked in fzf, or the number typed at the prompt.
-	local task_rows  # One tab-separated ID and title per in-progress task, shared by the no-terminal list and both pickers.
+	local task_rows  # One tab-separated ID and title per task, for the no-terminal list, both pickers and the commands printed on cancel.
 	local task_number  # The number shown beside one task in the numbered list.
+	local preview_command  # The command fzf runs to show the highlighted task's continue screen. It runs in a fresh shell, so it loads the shared environment (for the cli-style text helpers) as well as the HCOM files.
 	local -a task_ids task_titles  # The IDs and titles behind each number in the list.
 
 	if ! command -v jq >/dev/null 2>&1; then
@@ -971,17 +1011,21 @@ _hcom_select_in_progress_task() {
 			_hcom_command_error "$command_name" 'progress task list failed in ' "$working_directory" '.'
 			return 1
 		fi
+		if ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
+			_hcom_command_error "$command_name" 'could not read in-progress tasks in ' "$working_directory" '.'
+			return 1
+		fi
 
 		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
-		if (( task_count == 0 )); then
-			reply=("")
+		if (( task_count == 0 && ! force_picker )); then
+			reply=("" 0)
 			return 0
 		fi
 
-		if (( task_count > 1 )); then
-			task_rows="$(jq -r '.data.items[] | [.id, .title] | @tsv' <<<"$tasks_json")"
+		if (( task_count > 1 || force_picker )); then
 			# Without a terminal nobody can answer a prompt, so list the tasks and stop.
 			if [[ ! -t 0 ]]; then
+				task_rows="$(jq -r '.data.items[] | [.id, .title] | @tsv' <<<"$tasks_json")"
 				_hcom_command_error "$command_name" '' "$task_count" ' tasks are in progress; choose one with ' '--task' ':'
 				while IFS=$'\t' read -r listed_task_id listed_task_title; do
 					if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
@@ -992,9 +1036,23 @@ _hcom_select_in_progress_task() {
 				done <<<"$task_rows"
 				return 1
 			fi
+			if ! ready_tasks_json="$(cd "$working_directory" && progress task list --status ready --all --json 2>/dev/null)" \
+				|| ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$ready_tasks_json"; then
+				_hcom_command_error "$command_name" 'could not list ready tasks in ' "$working_directory" '.'
+				return 1
+			fi
+			task_rows="$(jq -nr --argjson active "$tasks_json" --argjson ready "$ready_tasks_json" '
+				($active.data.items | sort_by(.updated_at // "") | reverse) +
+				($ready.data.items | sort_by(.position // 0)) |
+				.[] | [.id, .title] | @tsv')"
+			if [[ -z "$task_rows" ]]; then
+				_hcom_command_error "$command_name" 'no in-progress or ready tasks to choose in ' "$working_directory" '.'
+				return 1
+			fi
 
 			if command -v fzf >/dev/null 2>&1; then
-				selected_task="$(fzf --delimiter=$'\t' --with-nth=2,1 --prompt='Which task? ' <<<"$task_rows")" || selected_task=''
+				preview_command="zsh -c 'source \"\$1/environment.zsh\"; source \"\$1/aliases.hcom-core.zsh\"; source \"\$1/aliases.hcom-team.zsh\"; _hcom_preview_team_continuation \"\$2\" \"\$3\" 1 \"\$4\"' _ ${(q)ZSH_CONFIG_ROOT} ${(q)command_name} ${(q)working_directory} {1}"
+				selected_task="$(fzf --delimiter=$'\t' --with-nth=2,1 --prompt='Which task? ' --preview "$preview_command" <<<"$task_rows")" || selected_task=''
 				[[ -n "$selected_task" ]] && task_id="${selected_task%%$'\t'*}"
 			else
 				while IFS=$'\t' read -r listed_task_id listed_task_title; do
@@ -1017,15 +1075,25 @@ _hcom_select_in_progress_task() {
 			fi
 
 			if [[ -z "$task_id" ]]; then
-				printf 'No task chosen.\n' >&2
-				return 1
+				while IFS=$'\t' read -r listed_task_id listed_task_title; do
+					printf '%s\n' "$listed_task_title" >&2
+					if [[ "$command_name" == cont ]]; then
+						printf '  cont %s\n' "$listed_task_id" >&2
+					else
+						printf '  %s continue --task %s\n' "$command_name" "$listed_task_id" >&2
+					fi
+				done <<<"$task_rows"
+				return 2
 			fi
+
+			reply=("$task_id" 1)
+			return 0
 		else
 			task_id="$(jq -r '.data.items[0].id' <<<"$tasks_json")"
 		fi
 	fi
 
-	reply=("$task_id")
+	reply=("$task_id" 0)
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.
