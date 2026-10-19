@@ -934,10 +934,13 @@ _hcom_print_continuation_row() {
 # Chooses the task a team continues.
 #
 # Uses the requested task when one is given, otherwise the project's only
-# in-progress task. Returns 1 before any panes launch when jq is unavailable,
-# tasks cannot be listed, or several tasks are in progress (and lists those
-# tasks). On success, reply contains only the task ID, which is empty when no
-# task is in progress.
+# in-progress task. When several tasks are in progress, the human picks one in
+# fzf, or from a numbered list when fzf is not installed. Returns 1 before any
+# panes launch when jq is unavailable, tasks cannot be listed, the human
+# cancels the choice, or several tasks are in progress without a terminal to
+# ask in (and lists those tasks). Cancelling also prints "No task chosen." On
+# success, reply contains only the task ID, which is empty when no task is in
+# progress.
 #
 # @param  {string}  command_name
 #     The public command shown in task selection errors.
@@ -953,6 +956,10 @@ _hcom_select_in_progress_task() {
 	local task_count  # Number of in-progress tasks in the project.
 	local listed_task_id  # The ID of one task in the list shown when several tasks are in progress.
 	local listed_task_title  # The title shown beside that task's ID.
+	local selected_task  # The row picked in fzf, or the number typed at the prompt.
+	local task_rows  # One tab-separated ID and title per in-progress task, shared by the no-terminal list and both pickers.
+	local task_number  # The number shown beside one task in the numbered list.
+	local -a task_ids task_titles  # The IDs and titles behind each number in the list.
 
 	if ! command -v jq >/dev/null 2>&1; then
 		_hcom_command_error "$command_name" '' 'jq' ' is required to find the task to continue.'
@@ -972,18 +979,50 @@ _hcom_select_in_progress_task() {
 		fi
 
 		if (( task_count > 1 )); then
-			_hcom_command_error "$command_name" '' "$task_count" ' tasks are in progress; choose one with ' '--task' ':'
-			jq -r '.data.items[] | [.id, .title] | @tsv' <<<"$tasks_json" | while IFS=$'\t' read -r listed_task_id listed_task_title; do
-				if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
-					printf '  %s  %s\n' "$(FORCE_COLOR=1 cli_style_span "$listed_task_id" info)" "$listed_task_title" >&2
-				else
-					printf '  %s  %s\n' "$listed_task_id" "$listed_task_title" >&2
-				fi
-			done
-			return 1
-		fi
+			task_rows="$(jq -r '.data.items[] | [.id, .title] | @tsv' <<<"$tasks_json")"
+			# Without a terminal nobody can answer a prompt, so list the tasks and stop.
+			if [[ ! -t 0 ]]; then
+				_hcom_command_error "$command_name" '' "$task_count" ' tasks are in progress; choose one with ' '--task' ':'
+				while IFS=$'\t' read -r listed_task_id listed_task_title; do
+					if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
+						printf '  %s  %s\n' "$(FORCE_COLOR=1 cli_style_span "$listed_task_id" info)" "$listed_task_title" >&2
+					else
+						printf '  %s  %s\n' "$listed_task_id" "$listed_task_title" >&2
+					fi
+				done <<<"$task_rows"
+				return 1
+			fi
 
-		task_id="$(jq -r '.data.items[0].id' <<<"$tasks_json")"
+			if command -v fzf >/dev/null 2>&1; then
+				selected_task="$(fzf --delimiter=$'\t' --with-nth=2,1 --prompt='Which task? ' <<<"$task_rows")" || selected_task=''
+				[[ -n "$selected_task" ]] && task_id="${selected_task%%$'\t'*}"
+			else
+				while IFS=$'\t' read -r listed_task_id listed_task_title; do
+					task_ids+=("$listed_task_id")
+					task_titles+=("$listed_task_title")
+				done <<<"$task_rows"
+				for (( task_number = 1; task_number <= ${#task_ids}; task_number++ )); do
+					printf '  %s. %s  %s\n' "$task_number" "${task_titles[$task_number]}" "${task_ids[$task_number]}" >&2
+				done
+
+				# An empty answer cancels; anything else that is not a listed number asks again.
+				while read -r 'selected_task?Which task? '; do
+					[[ -n "$selected_task" ]] || break
+					if [[ "$selected_task" == <-> ]] && (( selected_task >= 1 && selected_task <= ${#task_ids} )); then
+						task_id="${task_ids[$selected_task]}"
+						break
+					fi
+					printf 'Choose a number from 1 to %s, or press Enter to cancel.\n' "${#task_ids}" >&2
+				done
+			fi
+
+			if [[ -z "$task_id" ]]; then
+				printf 'No task chosen.\n' >&2
+				return 1
+			fi
+		else
+			task_id="$(jq -r '.data.items[0].id' <<<"$tasks_json")"
+		fi
 	fi
 
 	reply=("$task_id")

@@ -33,7 +33,7 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 		print -r -- "{\"ok\":true,\"data\":{\"items\":[{\"id\":\"$HCOM_FIXTURE_ONLY_TASK_ID\"}]}}"
 		exit 0
 	fi
-	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B"},{"id":"tsk_a_B"}]}}'
+	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B","title":"First task"},{"id":"tsk_a_B","title":"Other task"}]}}'
 	exit 0
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; then
@@ -357,6 +357,73 @@ export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_select_in_progress_task team "$fixture_dir/project" '' > "$fixture_dir/selector-preview" || fail 'selector refused a task with a handoff'
 [[ "${reply[1]}" == tsk_a_B && "${#reply}" == 1 && ! -s "$fixture_dir/selector-preview" ]] || fail 'selector printed the handoff or returned more than the task ID'
 unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
+
+# Runs the real selector inside a pseudo-terminal and sends each answer only
+# after its prompt appears.
+cat > "$fixture_dir/select-task.zsh" <<'STUB'
+source "$ZSH_CONFIG_ROOT/aliases.hcom-core.zsh"
+source "$ZSH_CONFIG_ROOT/aliases.hcom-team.zsh"
+if _hcom_select_in_progress_task cont "$HCOM_FIXTURE_PROJECT_DIR" ''; then
+	print -r -- "SELECTED:${reply[1]}"
+else
+	print -r -- 'CANCELLED'
+fi
+STUB
+export HCOM_FIXTURE_PROJECT_DIR="$fixture_dir/project"
+export HCOM_FIXTURE_SELECTOR_SCRIPT="$fixture_dir/select-task.zsh"
+cat > "$fixture_dir/select-task.expect" <<'STUB'
+#!/usr/bin/expect -f
+set timeout 5
+spawn -noecho /bin/zsh $env(HCOM_FIXTURE_SELECTOR_SCRIPT)
+switch -- [lindex $argv 0] {
+	invalid-then-pick {
+		expect -re {Which task\? }
+		send -- "9\r"
+		expect -re {Choose a number from 1 to 2}
+		expect -re {Which task\? }
+		send -- "2\r"
+		expect -re {SELECTED:tsk_a_B}
+	}
+	cancel-numbered {
+		expect -re {Which task\? }
+		send -- "\r"
+		expect -re {CANCELLED}
+	}
+	pick-fzf { expect -re {SELECTED:tsk_a_B} }
+	cancel-fzf { expect -re {CANCELLED} }
+}
+expect {
+	eof {}
+	timeout { close; exit 1 }
+}
+STUB
+# A PATH that hides any installed fzf but keeps the fixture commands and jq.
+numbered_path="$fixture_dir/bin:${$(command -v jq):h}:/usr/bin:/bin:/usr/sbin:/sbin"
+numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" invalid-then-pick)" || fail 'numbered selector process failed'
+[[ "$numbered_output" == *'1. First task  tsk_A_B'* && "$numbered_output" == *'2. Other task  tsk_a_B'* && "$numbered_output" == *'Choose a number from 1 to 2'* && "$numbered_output" == *'SELECTED:tsk_a_B'* ]] || fail 'numbered selector did not re-ask and choose the second task'
+numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'numbered cancellation process failed'
+[[ "$numbered_output" == *'No task chosen.'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'SELECTED:'* ]] || fail 'empty answer did not report numbered cancellation'
+
+# Stands in for fzf: records the rows it was shown, then picks the second task,
+# or exits as if Esc was pressed when HCOM_FIXTURE_FZF_CANCEL is 1.
+cat > "$fixture_dir/bin/fzf" <<'STUB'
+#!/usr/bin/env zsh
+cat > "$HCOM_FIXTURE_FZF_INPUT"
+[[ "${HCOM_FIXTURE_FZF_CANCEL:-0}" == 1 ]] && exit 130
+print -r -- $'tsk_a_B\tOther task'
+STUB
+chmod +x "$fixture_dir/bin/fzf"
+export HCOM_FIXTURE_FZF_INPUT="$fixture_dir/fzf-input"
+fzf_output="$(env NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-fzf)" || fail 'fzf selector process failed'
+[[ "$fzf_output" == *'SELECTED:tsk_a_B'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A_B\tFirst task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tOther task'* ]] || fail 'fzf selector did not show and choose the in-progress tasks'
+fzf_output="$(env HCOM_FIXTURE_FZF_CANCEL=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-fzf)" || fail 'fzf cancellation process failed'
+[[ "$fzf_output" == *'No task chosen.'* && "$fzf_output" == *'CANCELLED'* && "$fzf_output" != *'SELECTED:'* ]] || fail 'fzf cancellation did not report cancellation'
+
+# Stdin comes from /dev/null so the refusal is tested even when the suite runs in a terminal.
+if _hcom_select_in_progress_task cont "$fixture_dir/project" '' </dev/null 2>"$error_file"; then
+	fail 'non-interactive selector accepted several tasks'
+fi
+[[ "$(<"$error_file")" == *'2 tasks are in progress; choose one with --task:'* && "$(<"$error_file")" == *'tsk_A_B  First task'* && "$(<"$error_file")" == *'tsk_a_B  Other task'* && "$(<"$error_file")" != *'No task chosen.'* ]] || fail 'non-interactive selector did not list task IDs without a cancellation message'
 _hcom_parse_team_stop_args --task tsk_A_B --dir "$fixture_dir/tsk_A__B" || fail 'stop --task parses'
 _hcom_resolve_team_stop_scope "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
 [[ "${reply[1]}" == "$team_tags" ]] || fail 'stop targets different tags'
@@ -500,6 +567,12 @@ export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'named in-progress task with a handoff'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named in-progress task ignored its recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'named in-progress task did not use the resume prompt'
+# The public cont command launches the task it is given, under that task's team label.
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+prior_pane_calls="$pane_calls"
+cont tsk_a_B --yes || fail 'public cont task ID did not launch'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_a_B && "$HCOM_ACTIVE_TEAM_LABEL" == another-task ]] || fail 'public cont task ID selected the wrong task or team label'
+[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'public cont task ID lost the selected task handoff'
 # A blocked task can resume only when a saved handoff exists.
 print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_blocked"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_blocked --yes || fail 'blocked task with a handoff did not resume'
