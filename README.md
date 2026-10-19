@@ -287,9 +287,9 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
 | `orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `orchestrator:codex` |  | Start the Codex Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `plan` | <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
-| `plan:claude` | <task-name> | Start a Claude planning-peer review of a given task name or path |
-| `plan:codex` | <task-name> | Start a Codex planning-peer review of a given task name or path |
+| `plan` | [--team <label>] <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
+| `plan:claude` | [--team <label>] <task-name> | Start a Claude planning-peer review of a given task name or path |
+| `plan:codex` | [--team <label>] <task-name> | Start a Codex planning-peer review of a given task name or path |
 | `reviewer` |  | Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |

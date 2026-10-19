@@ -678,4 +678,72 @@ fi
 [[ "$(<"$error_file")" == 'learn:codex: usage: learn:codex [--team <label>] <source> [context]' ]] || fail 'missing learner source omitted usage'
 [[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'invalid learner arguments opened a Scout pane'
 
-print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, stop targeting, solo quota selection, and learner team labels'
+source "$repo_root/aliases.hcom-plan.zsh"
+
+# Records the commands plan types into each Ghostty pane, without opening any pane.
+#
+# @param  {string}  script_path
+#     The AppleScript that would build the layout, ignored here.
+# @param  {string}  codex_command
+#     The command for the Codex planning pane.
+# @param  {string}  scout_claude_command
+#     The command for the Claude Scout pane.
+# @param  {string}  scout_codex_command
+#     The command for the Codex Scout pane.
+function /usr/bin/osascript() {
+	plan_osascript_calls=$((plan_osascript_calls + 1))
+	recorded_codex_command="$2"
+	recorded_scout_claude_command="$3"
+	recorded_scout_codex_command="$4"
+}
+
+# Records each planning peer's team label without starting an agent.
+#
+# @param  {string}  ...
+#     Role launch options, ignored by this recorder.
+_hcom_launch_role() {
+	plan_peer_team_labels+=("$HCOM_TEAM_LABEL")
+}
+
+plan_osascript_calls=0  # Number of Ghostty layouts requested by plan launches.
+recorded_codex_command=""  # Most recent command typed into the Codex planning pane.
+recorded_scout_claude_command=""  # Most recent command typed into the Claude Scout pane.
+recorded_scout_codex_command=""  # Most recent command typed into the Codex Scout pane.
+plan_peer_team_labels=()  # Team labels each planning peer launched with, oldest first.
+plan_repository_tag="$(_hcom_scoped_tag plan "$PWD")"  # Repository tag shared by fixture planners.
+
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+plan --team blue fixture-task || fail 'labelled plan did not launch'
+[[ "$recorded_codex_command" == *'plan:codex --team blue fixture-task' && "$recorded_scout_claude_command" == *'HCOM_TEAM_LABEL=plan-claude-blue scout' && "$recorded_scout_codex_command" == *'HCOM_TEAM_LABEL=plan-codex-blue scout' ]] || fail 'labelled plan commands lost the label'
+[[ "${plan_peer_team_labels[-1]}" == plan-claude-blue ]] || fail 'labelled plan:claude used the wrong team label'
+
+plan fixture-task || fail 'unlabelled plan did not launch'
+[[ "$recorded_codex_command" == *'plan:codex fixture-task' && "$recorded_scout_claude_command" == *'HCOM_TEAM_LABEL=plan-claude scout' && "$recorded_scout_codex_command" == *'HCOM_TEAM_LABEL=plan-codex scout' ]] || fail 'unlabelled plan commands changed'
+[[ "${plan_peer_team_labels[-1]}" == plan-claude ]] || fail 'unlabelled plan:claude team label changed'
+
+plan:claude --team blue fixture-task || fail 'labelled plan:claude did not launch'
+[[ "${plan_peer_team_labels[-1]}" == plan-claude-blue ]] || fail 'plan:claude ignored the label'
+plan:codex --team blue fixture-task || fail 'labelled plan:codex did not launch'
+[[ "${plan_peer_team_labels[-1]}" == plan-codex-blue ]] || fail 'plan:codex ignored the label'
+
+prior_plan_osascript_calls="$plan_osascript_calls"  # Layout count before duplicate and input errors.
+print -r -- "[{\"tag\":\"${plan_repository_tag}-plan-codex-scout\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+assert_command_error "plan: peer already holds ${plan_repository_tag}-plan-codex-scout. Switch to that agent, or stop it with \"hcom kill peer\" and run plan again. Rerun with --team <label> to start another planning review." plan fixture-task
+print -r -- "[{\"tag\":\"${plan_repository_tag}-plan-claude-blue-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+assert_command_error "plan: peer already holds ${plan_repository_tag}-plan-claude-blue-orchestrator. Switch to that agent, or stop it with \"hcom kill peer\" and run plan again. Choose a different --team label to start another planning review." plan --team blue fixture-task
+[[ "$plan_osascript_calls" == "$prior_plan_osascript_calls" ]] || fail 'duplicate plan opened panes'
+
+print -r -- "[{\"tag\":\"${plan_repository_tag}-plan-claude-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+plan --team blue fixture-task || fail 'labelled plan was refused beside a live unlabelled planning team'
+[[ "$plan_osascript_calls" == "$((prior_plan_osascript_calls + 1))" ]] || fail 'labelled plan beside a live unlabelled team did not open panes'
+prior_plan_osascript_calls="$plan_osascript_calls"
+
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+assert_command_error $'plan: invalid team label: Bad_Label\nplan: use lowercase letters, numbers, and internal hyphens.\nplan: usage: plan [--team <label>] <task-name>' plan --team Bad_Label fixture-task
+if plan --team blue 2>"$error_file"; then
+	fail 'plan accepted a label without a task name'
+fi
+[[ "$(<"$error_file")" == 'plan: usage: plan [--team <label>] <task-name>' ]] || fail 'missing plan task omitted usage'
+[[ "$plan_osascript_calls" == "$prior_plan_osascript_calls" ]] || fail 'invalid plan arguments opened panes'
+
+print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, and planning duplicates and team labels'
