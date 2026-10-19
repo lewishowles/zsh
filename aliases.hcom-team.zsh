@@ -364,12 +364,6 @@ _hcom_launch_team() {
 		if [[ "$requested_task_status" == in-progress || "$requested_task_status" == blocked || -z "$requested_task_id" ]]; then
 			_hcom_select_in_progress_task "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
 			continuation_task_id="${reply[1]}"
-			continuation_has_handoff="${reply[2]}"
-		fi
-
-		if [[ "$requested_task_status" == blocked && "$continuation_has_handoff" == 0 ]]; then
-			_hcom_command_error "$command_name" 'blocked task ' "$requested_task_id" ' has no saved handoff to resume.'
-			return 1
 		fi
 
 		selected_task_id="${requested_task_id:-$continuation_task_id}"
@@ -382,6 +376,7 @@ _hcom_launch_team() {
 		esac
 		continuation_task_needs_start="${reply[1]:-0}"
 		continuation_task_id="${reply[2]:-}"
+		continuation_has_handoff="${reply[4]:-0}"
 		if [[ -n "$requested_task_id" ]]; then
 			_hcom_get_launch_checkout "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
 			if [[ -n "${reply[1]}" ]]; then
@@ -701,15 +696,17 @@ _hcom_focused_ghostty_terminal_id() {
 	print -r -- "$terminal_id"
 }
 
-# Shows the task and chunk a team will continue and asks the user to confirm
-# before launch. Previews the selected task when there is one (the task the
-# human named, or the only in-progress task), otherwise the project's next task.
+# Shows the task, chunk and saved next steps a team will continue, then asks the
+# user to confirm before launch. Previews the selected task when there is one
+# (the task the human named, or the only in-progress task), otherwise the
+# project's next task.
 #
-# Returns 0 when the continuation may start, 1 when progress cannot be previewed
-# or confirmation cannot be requested, and 2 when the user declines to start.
-# On success, sets reply=(task_needs_start task_id task_status). The launcher
-# uses them to ask the orchestrator to start a ready task and review its chunks
-# first, and to pick the task's checkout.
+# Returns 0 when the continuation may start, 1 when progress or the handoff
+# cannot be read, a blocked task has no handoff to resume, or confirmation
+# cannot be requested, and 2 when the user declines to start. On success, sets
+# reply=(task_needs_start task_id task_status has_handoff). The launcher uses
+# them to ask the orchestrator to start a ready task and review its chunks
+# first, to resume from the handoff, and to pick the task's checkout.
 #
 # @param  {string}  command_name
 #     The public command shown in preview errors.
@@ -740,7 +737,9 @@ _hcom_preview_team_continuation() {
 	local chunk_title  # Title of the next progress chunk.
 	local chunk_id  # Identifier of the next progress chunk.
 	local description  # Description of the task or chunk being previewed.
-	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the description readable on wide terminals.
+	local context_json  # Saved handoff for the selected task.
+	local has_handoff=0  # Whether the selected task has saved handoff details.
+	local next_step  # Next steps from the saved handoff.
 	local confirmation=""  # Single key entered at the start prompt.
 	local answer_hint="[Y/n]"  # The key hint at the end of the start prompt.
 
@@ -807,39 +806,38 @@ _hcom_preview_team_continuation() {
 		description="$(jq -r '.data.chunk.description // ""' <<<"$progress_json")"
 	fi
 
-	if (( wrap_width < 1 )); then
-		wrap_width=1
+	# A ready task starts fresh, so any handoff left on it is not shown or used.
+	if [[ "$task_status" != ready ]]; then
+		if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
+			|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
+			_hcom_command_error "$command_name" 'could not read the handoff for task ' "$task_id" '.'
+			return 1
+		fi
+		if jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
+			has_handoff=1
+			next_step="$(jq -r '.data.next_step // ""' <<<"$context_json")"
+		fi
+	fi
+	if [[ "$task_status" == blocked && "$has_handoff" == 0 ]]; then
+		_hcom_command_error "$command_name" 'blocked task ' "$task_id" ' has no saved handoff to resume.'
+		return 1
 	fi
 
-	# The chunk is what the team will work on, so it gets the colour. Without
-	# one, the task takes its place and the missing-chunk message stands out.
 	print
+	_hcom_print_continuation_row Task "$task_title" info bold
+	_hcom_print_continuation_row '' "$task_status · $project_name" muted
 	if (( task_has_no_chunks )); then
-		cli_style_span "$task_title" info
-		if [[ -n "$task_id" ]]; then
-			cli_style_span "$task_id" muted --weight normal
-		fi
-		if [[ -n "$selected_task_id" ]]; then
-			cli_style_span "Status: $task_status" muted --weight normal
-		fi
-		cli_style_span "$no_chunk_message" warning
+		_hcom_print_continuation_row Chunk "$no_chunk_message" warning
 	else
-		cli_style_span "$task_title" muted --weight normal
-		if [[ -n "$selected_task_id" ]]; then
-			cli_style_span "$task_id" muted --weight normal
-			cli_style_span "Status: $task_status" muted --weight normal
-		fi
-		cli_style_span "$chunk_title" info
-		if [[ -n "$chunk_id" ]]; then
-			cli_style_span "$chunk_id" muted --weight normal
-		fi
+		_hcom_print_continuation_row Chunk "$chunk_title"
 	fi
-
+	if [[ -n "$next_step" ]]; then
+		_hcom_print_continuation_row Next "$next_step"
+	fi
 	if [[ -n "$description" ]]; then
-		print
-		cli_style_span "$(printf '%s\n' "$description" | fold -s -w "$wrap_width")" muted --weight normal
+		_hcom_print_continuation_row Details "$description" muted normal 3
 	fi
-
+	_hcom_print_continuation_row '' "Task: $task_id${chunk_id:+  Chunk: $chunk_id}" muted
 	print
 
 	if (( ! skip_confirmation )); then
@@ -874,17 +872,72 @@ _hcom_preview_team_continuation() {
 		esac
 	fi
 
-	reply=("$task_needs_start" "$task_id" "$task_status")
+	reply=("$task_needs_start" "$task_id" "$task_status" "$has_handoff")
 }
 
-# Chooses the task a team continues and shows its saved handoff.
+# Prints one row of the continue screen: the label in the accent colour, then
+# the body, wrapped so every further line sits under the first.
+#
+# @param  {string}  label
+#     The label for the first line, or empty to continue the row above.
+# @param  {string}  body
+#     Text to print beside the label. Each of its lines starts a new output line.
+# @param  {string}  tone
+#     The cli_style_span style for the body, or empty to print it plainly.
+# @param  {string}  weight
+#     The cli_style_span weight for a styled body; normal unless given.
+# @param  {number}  max_lines
+#     The most wrapped lines to show, ending the last with an ellipsis when the
+#     body runs longer; every line shows when it is 0 or not given.
+_hcom_print_continuation_row() {
+	local label="$1"  # Label occupying the fixed first column.
+	local body="$2"  # Body text, which may contain newlines.
+	local tone="${3:-}"  # Optional body colour.
+	local weight="${4:-normal}"  # Optional body weight.
+	local max_lines="${5:-0}"  # Line limit for the body, or 0 for no limit.
+	local label_text  # Styled label with its padding.
+	local body_line  # One body line to print.
+	local first_line=1  # Whether the label belongs on this line.
+	local label_column_width=9  # Width of the label column, which the hanging indent matches.
+	local screen_width=${COLUMNS:-80}  # Terminal width, capped at 80 columns. A non-interactive shell can report 0.
+	local wrap_width  # Columns left for the body beside the label.
+	local wrapped_body  # Body with each line folded to the available width.
+	local -a body_lines  # Folded lines, cut to the line limit when one is given.
+
+	if (( screen_width <= label_column_width || screen_width > 80 )); then
+		screen_width=80
+	fi
+	wrap_width=$((screen_width - label_column_width))
+	wrapped_body="$(printf '%s\n' "$body" | fold -s -w "$wrap_width")"
+	body_lines=("${(@f)wrapped_body}")
+	if (( max_lines > 0 && ${#body_lines} > max_lines )); then
+		body_lines=("${(@)body_lines[1,$((max_lines - 1))]}" "${body_lines[$max_lines][1,$((wrap_width - 1))]}…")
+	fi
+
+	if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+		local -x FORCE_COLOR=1
+	fi
+	label_text="$(cli_style_span "$(printf '%-*s' "$((label_column_width - 1))" "$label")" info)"
+	for body_line in "${body_lines[@]}"; do
+		if [[ -n "$tone" ]]; then
+			body_line="$(cli_style_span "$body_line" "$tone" --weight "$weight")"
+		fi
+		if (( first_line )); then
+			printf '%s %s\n' "$label_text" "$body_line"
+			first_line=0
+		else
+			printf '%*s%s\n' "$label_column_width" '' "$body_line"
+		fi
+	done
+}
+
+# Chooses the task a team continues.
 #
 # Uses the requested task when one is given, otherwise the project's only
 # in-progress task. Returns 1 before any panes launch when jq is unavailable,
-# tasks cannot be listed, the handoff cannot be read, or several tasks are in
-# progress (and lists those tasks). On success, sets reply=(task_id has_handoff):
-# the task ID is empty when no task is in progress, and has_handoff is 1 only
-# when the task has a saved handoff to show.
+# tasks cannot be listed, or several tasks are in progress (and lists those
+# tasks). On success, reply contains only the task ID, which is empty when no
+# task is in progress.
 #
 # @param  {string}  command_name
 #     The public command shown in task selection errors.
@@ -896,15 +949,10 @@ _hcom_select_in_progress_task() {
 	local command_name="$1"  # Public command responsible for the continuation.
 	local working_directory="$2"  # Directory where progress commands must run.
 	local task_id="$3"  # Requested task, or the sole in-progress task.
-	local has_handoff=0  # Whether the selected task has saved handoff details.
 	local tasks_json  # In-progress tasks returned by progress task list.
 	local task_count  # Number of in-progress tasks in the project.
 	local listed_task_id  # The ID of one task in the list shown when several tasks are in progress.
 	local listed_task_title  # The title shown beside that task's ID.
-	local context_json  # Handoff returned by progress context get.
-	local current_goal  # The goal recorded in the handoff.
-	local next_step  # The next step recorded in the handoff.
-	local wrap_width=$(( ${COLUMNS:-80} < 80 ? ${COLUMNS:-80} : 80 ))  # Fold width that keeps the next step readable on wide terminals.
 
 	if ! command -v jq >/dev/null 2>&1; then
 		_hcom_command_error "$command_name" '' 'jq' ' is required to find the task to continue.'
@@ -919,7 +967,7 @@ _hcom_select_in_progress_task() {
 
 		task_count="$(jq -r '.data.items | length' <<<"$tasks_json")"
 		if (( task_count == 0 )); then
-			reply=("" 0)
+			reply=("")
 			return 0
 		fi
 
@@ -938,39 +986,7 @@ _hcom_select_in_progress_task() {
 		task_id="$(jq -r '.data.items[0].id' <<<"$tasks_json")"
 	fi
 
-	if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
-		|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
-		_hcom_command_error "$command_name" 'could not read the handoff for task ' "$task_id" '.'
-		return 1
-	fi
-
-	if ! jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
-		reply=("$task_id" 0)
-		return 0
-	fi
-	has_handoff=1
-
-	current_goal="$(jq -r '.data.current_goal // ""' <<<"$context_json")"
-	next_step="$(jq -r '.data.next_step // ""' <<<"$context_json")"
-
-	if (( wrap_width < 1 )); then
-		wrap_width=1
-	fi
-
-	print
-	if [[ -n "$current_goal" ]]; then
-		cli_style_span "$(printf '%s\n' "$current_goal" | fold -s -w "$wrap_width")" info
-	fi
-	cli_style_span "$task_id" muted --weight normal
-
-	if [[ -n "$next_step" ]]; then
-		print
-		cli_style_span "$(printf 'Next: %s\n' "$next_step" | fold -s -w "$wrap_width")" muted --weight normal
-	fi
-
-	print
-
-	reply=("$task_id" "$has_handoff")
+	reply=("$task_id")
 }
 
 # Builds the typed teammate pane commands and creates the Ghostty layout.

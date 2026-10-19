@@ -37,8 +37,13 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 	exit 0
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; then
+	print -r -- "$4" >> "$HCOM_FIXTURE_CONTEXT_CALLS"
 	if [[ "${HCOM_FIXTURE_HAS_HANDOFF:-0}" == 1 ]]; then
-		print -r -- '{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"Read the saved handoff"}}'
+		if [[ "${HCOM_FIXTURE_LONG_NEXT_STEP:-0}" == 1 ]]; then
+			print -r -- '{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"Read the saved handoff carefully and resume the selected task with enough detail to wrap this single step under its label while keeping every displayed line within the terminal width."}}'
+		else
+			print -r -- '{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\n2. Resume the task"}}'
+		fi
 	else
 		print -r -- '{"ok":true,"data":null}'
 	fi
@@ -85,7 +90,7 @@ task_title='Selected task'  # Title the preview shows for the named task.
 task_chunks='[]'  # Chunk records returned with the task, as JSON.
 case "$3" in
 	tsk_A_B) task_slug=continue-parallel-task-teams ;;
-	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_chunks='[{"id":"chk_active","title":"Active chunk","status":"active"},{"id":"chk_pending","title":"Pending chunk","status":"pending"}]' ;;
+	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_chunks='[{"id":"chk_active","title":"Active chunk","status":"active","description":"These details explain the current work in enough words to fill more than three narrow terminal lines while keeping the final part hidden from view."},{"id":"chk_pending","title":"Pending chunk","status":"pending"}]' ;;
 	tsk_A-B) task_slug=third-task ;;
 	tsk_bad_slug) task_slug='Bad_Task' ;;
 	tsk_blocked) task_slug=blocked-task; task_status=blocked ;;
@@ -94,7 +99,7 @@ case "$3" in
 	*) print -r -- '{"ok":false}'; exit 1 ;;
 esac
 [[ "$3" == "${HCOM_FIXTURE_FINISHED_TASK_ID:-}" ]] && task_status=done
-print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"chunks\":$task_chunks,\"project\":{\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
+print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
 STUB
 
 # Reports controlled changes in the original checkout.
@@ -116,6 +121,7 @@ chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/g
 export PATH="$fixture_dir/bin:$PATH"
 export HCOM_FIXTURE_AGENTS="$fixture_dir/agents.json"
 export HCOM_FIXTURE_WORKTREE_CALLS="$fixture_dir/worktree-calls"
+export HCOM_FIXTURE_CONTEXT_CALLS="$fixture_dir/context-calls"
 export HCOM_FIXTURE_WORKTREE_STATE_DIR="$fixture_dir/worktree-state"
 export HCOM_FIXTURE_WORKTREE_ROOT="$fixture_dir"
 export HCOM_FIXTURE_GIT_DIRTY=0
@@ -139,12 +145,40 @@ cli_style_span() {
 
 # Preview text for a ready named task.
 named_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_A_B)" || fail 'named task preview builds'
-[[ "$named_preview" == *'Selected task'* && "$named_preview" == *'tsk_A_B'* && "$named_preview" == *'Status: ready'* ]] || fail 'named preview omits the selected task details'
+[[ "$named_preview" == *'Task     Selected task'* && "$named_preview" == *'         ready · Fixture'* && "$named_preview" == *'Chunk    Chunks have not been planned yet.'* && "$named_preview" == *'Task: tsk_A_B'* ]] || fail 'named preview omits labelled task details'
+[[ "$named_preview" != *'Next     '* ]] || fail 'named preview shows a next step without a handoff'
 [[ "$named_preview" != *'Fixture task'* ]] || fail 'named preview shows the default task'
 # Preview text for a started named task with an active chunk.
 started_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'started task preview builds'
-[[ "$started_preview" == *'Other task'* && "$started_preview" == *'tsk_a_B'* && "$started_preview" == *'Status: in-progress'* ]] || fail 'started preview omits the selected task status'
-[[ "$started_preview" == *'Active chunk'* && "$started_preview" == *'chk_active'* && "$started_preview" != *'Pending chunk'* ]] || fail 'started preview skipped the active chunk'
+[[ "$started_preview" == *'Task     Other task'* && "$started_preview" == *'         in-progress · Fixture'* ]] || fail 'started preview omits the selected task status'
+[[ "$started_preview" == *'Chunk    Active chunk'* && "$started_preview" == *'Task: tsk_a_B  Chunk: chk_active'* && "$started_preview" != *'Pending chunk'* ]] || fail 'started preview skipped the active chunk'
+export HCOM_FIXTURE_HAS_HANDOFF=1
+handoff_preview="$(COLUMNS=45 _hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'handoff preview builds'
+[[ "$handoff_preview" == *'Next     1. Read the saved handoff'*$'\n''         2. Resume the task'* ]] || fail 'next steps do not hang beneath their label'
+[[ "$handoff_preview" == *'Details  '*$'\n''         '*$'\n''         '*…* && "$handoff_preview" != *'hidden from view'* ]] || fail 'details preview is not cut to three lines'
+[[ "$handoff_preview" != *'Continue the fixture task'* ]] || fail 'handoff goal repeats the task title'
+printf '%s\n' "$handoff_preview" | awk -F 'tsk_a_B' 'NF > 0 { count += NF - 1 } END { exit count != 1 }' || fail 'handoff preview repeats the task ID'
+printf '%s\n' "$handoff_preview" | awk -F 'Active chunk' 'NF > 0 { count += NF - 1 } END { exit count != 1 }' || fail 'handoff preview repeats the chunk title'
+export HCOM_FIXTURE_LONG_NEXT_STEP=1
+long_next_preview="$(COLUMNS=80 _hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'long next step preview builds'
+next_block="${long_next_preview#*Next     }"  # The Next row's text, without its label.
+next_block="${next_block%%$'\n'Details*}"
+next_lines=("${(@f)next_block}")  # Next row lines after the first label has been removed.
+[[ "${#next_lines}" -gt 1 ]] || fail 'long next step did not wrap'
+for continuation_line in "${next_lines[@]:1}"; do
+	[[ "$continuation_line" == '         '* && "${#continuation_line}" -le 80 ]] || fail 'long next step lost its hanging indent or exceeded 80 columns'
+done
+for continuation_line in "${(@f)long_next_preview}"; do
+	[[ "${#continuation_line}" -le 80 ]] || fail 'continuation preview exceeded 80 columns'
+done
+unset HCOM_FIXTURE_LONG_NEXT_STEP
+unset HCOM_FIXTURE_HAS_HANDOFF
+
+export HCOM_FIXTURE_HAS_HANDOFF=1
+: > "$HCOM_FIXTURE_CONTEXT_CALLS"
+ready_handoff_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_A_B)" || fail 'ready task with a leftover handoff previews'
+[[ "$ready_handoff_preview" != *'Next     '* && ! -s "$HCOM_FIXTURE_CONTEXT_CALLS" ]] || fail 'ready task preview read or showed a leftover handoff'
+unset HCOM_FIXTURE_HAS_HANDOFF
 
 _hcom_parse_team_args team continue --task tsk_A_B --yes || fail 'continue --task parses'
 [[ "${reply[1]}" == continue && "${reply[7]}" == tsk_A_B ]] || fail 'continue keeps the requested task'
@@ -314,14 +348,14 @@ named_started_prompt="$(_hcom_team_continuation_prompt team continue 0 '' tsk_a_
 # Check the real selector before the launch fixture replaces it.
 export HCOM_FIXTURE_NO_ACTIVE_TASKS=1
 _hcom_select_in_progress_task team "$fixture_dir/project" '' || fail 'selector refused an empty in-progress list'
-[[ -z "${reply[1]}" && "${reply[2]}" == 0 ]] || fail 'selector returned a task when none is in progress'
+[[ -z "${reply[1]}" && "${#reply}" == 1 ]] || fail 'selector returned a task when none is in progress'
 unset HCOM_FIXTURE_NO_ACTIVE_TASKS
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_select_in_progress_task team "$fixture_dir/project" '' || fail 'selector refused a task without a handoff'
-[[ "${reply[1]}" == tsk_a_B && "${reply[2]}" == 0 ]] || fail 'selector misreported a task without a handoff'
+[[ "${reply[1]}" == tsk_a_B && "${#reply}" == 1 ]] || fail 'selector returned more than the selected task ID'
 export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_select_in_progress_task team "$fixture_dir/project" '' > "$fixture_dir/selector-preview" || fail 'selector refused a task with a handoff'
-[[ "${reply[1]}" == tsk_a_B && "${reply[2]}" == 1 ]] || fail 'selector misreported a task with a handoff'
+[[ "${reply[1]}" == tsk_a_B && "${#reply}" == 1 && ! -s "$fixture_dir/selector-preview" ]] || fail 'selector printed the handoff or returned more than the task ID'
 unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
 _hcom_parse_team_stop_args --task tsk_A_B --dir "$fixture_dir/tsk_A__B" || fail 'stop --task parses'
 _hcom_resolve_team_stop_scope "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
@@ -399,7 +433,7 @@ _hcom_select_in_progress_task() {
 		return 1
 	fi
 
-	reply=("${3:-${HCOM_FIXTURE_ONLY_TASK_ID:-}}" "${HCOM_FIXTURE_HAS_HANDOFF:-0}")
+	reply=("${3:-${HCOM_FIXTURE_ONLY_TASK_ID:-}}")
 }
 
 pane_calls=0  # Number of pane boundaries reached by test launches.
@@ -447,7 +481,11 @@ _hcom_launch_team team:codex unused unused unused unused || fail 'root after tas
 stopped_team_tags=''
 # A ready named task creates its checkout once and gives it to every role.
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
+export HCOM_FIXTURE_HAS_HANDOFF=1
+: > "$HCOM_FIXTURE_CONTEXT_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
+[[ ! -s "$HCOM_FIXTURE_CONTEXT_CALLS" && "$launched_orchestrator_prompt" != *'progress context get --task tsk_A_B --json'* ]] || fail 'ready task launch read a leftover handoff'
+unset HCOM_FIXTURE_HAS_HANDOFF
 [[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A_B ]] || fail 'task team replaced prior ordinary team'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'named task did not look up then create its checkout'
