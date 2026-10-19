@@ -1,7 +1,7 @@
 # Chooses HCOM accounts from session and weekly quota using the standalone Python helper.
 
 # Provides EPOCHSECONDS, the current Unix time, which the pace calculation subtracts from
-# a reset timestamp to find how much of a weekly window is still to run.
+# a reset timestamp to find how much of a quota window is still to run.
 zmodload -F zsh/datetime p:EPOCHSECONDS
 
 # Prints one account's cached or fresh quota; failures include a diagnostic on stderr.
@@ -43,7 +43,7 @@ _hcom_quota_claude() {
 	_hcom_quota_probe claude "$1" 600
 }
 
-# @desc  Show five-hour and weekly quota left on both Claude and Codex accounts
+# @desc  Show five-hour and weekly quota used on both Claude and Codex accounts
 # @cat   agent
 # @needs python3
 #
@@ -51,33 +51,29 @@ _hcom_quota_claude() {
 # team start-up. An account that can't be read shows as unavailable, and the other rows
 # still print. Colour is checked here rather than at load time so piped output is plain.
 # A Claude window that hasn't started yet shows an estimated reset time.
+#
+# Each window uses the Claude status line's pace bar: the filled cells are the share
+# used, the tick marks how far through the window the clock is, and the colour turns
+# from green to red as usage gets ahead of the clock.
 agent:usage() {
 	local provider  # Provider currently being displayed.
 	local account  # Account currently being displayed.
 	local label  # Name shown at the start of a row.
 	local quota_line  # The probe's six quota values on one line.
-	local remaining  # A percentage left, matched to its colour.
-	local session_percent  # Rounded five-hour percentage shown in the table.
-	local week_percent  # Rounded weekly percentage shown in the table.
-	local session_reset  # Local five-hour reset time.
-	local week_reset  # Local weekly reset time.
-	local today  # Local date used to omit the weekday for today's resets.
+	local session_window  # The five-hour pace bar, percentage used and reset time.
+	local week_window  # The weekly pace bar, percentage used and reset time.
 	local bold='' dim='' normal=''  # Terminal styles, empty for plain output.
-	local green='' yellow='' red=''  # Percentage colours, empty for plain output.
+	local colour=0  # Whether the terminal can show the pace colours.
 	local -a quota_values  # The probe's session and weekly fields.
-	local -a colours  # Colours chosen for the two remaining percentages.
 
 	if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+		colour=1
 		bold=$'\033[1m'
 		dim=$'\033[2m'
 		normal=$'\033[0m'
-		green="$GREEN"
-		yellow="$YELLOW"
-		red="$RED"
 	fi
 
-	today="$(date '+%Y-%m-%d')"
-	printf '%s%-12s  %-7s  %-12s  %-9s  %s%s\n' "$bold" '' '5h left' 'resets' 'week left' 'resets' "$normal"
+	printf '%s%-12s  %-33s%s%s\n' "$bold" '' '5h used' 'week used' "$normal"
 
 	for provider in claude codex; do
 		for account in default 2; do
@@ -89,26 +85,9 @@ agent:usage() {
 			if quota_line="$("_hcom_quota_$provider" "$account" 2>/dev/null)" &&
 				read -rA quota_values <<< "$quota_line" &&
 				(( ${#quota_values} == 6 )) &&
-				session_reset="$(_agent_usage_reset "${quota_values[2]}" "$today")" &&
-				week_reset="$(_agent_usage_reset "${quota_values[5]}" "$today")"; then
-				printf -v session_percent '%.0f' "${quota_values[1]}"
-				printf -v week_percent '%.0f' "${quota_values[4]}"
-				colours=()
-				for remaining in "$session_percent" "$week_percent"; do
-					if (( remaining >= 50 )); then
-						colours+=("$green")
-					elif (( remaining >= 20 )); then
-						colours+=("$yellow")
-					else
-						colours+=("$red")
-					fi
-				done
-
-				printf '%-12s  %s%-7s%s  %s%-12s%s  %s%-9s%s  %s%s%s\n' \
-					"$label" "${colours[1]}" "${session_percent}%" "$normal" \
-					"$dim" "$session_reset" "$normal" \
-					"${colours[2]}" "${week_percent}%" "$normal" \
-					"$dim" "$week_reset" "$normal"
+				session_window="$(_agent_usage_window "$(( 100 - quota_values[1] ))" "${quota_values[2]}" "${quota_values[3]}" "$colour")" &&
+				week_window="$(_agent_usage_window "$(( 100 - quota_values[4] ))" "${quota_values[5]}" "${quota_values[6]}" "$colour")"; then
+				printf '%-12s  %s    %s\n' "$label" "$session_window" "$week_window"
 			else
 				printf '%-12s  %sunavailable%s\n' "$label" "$dim" "$normal"
 			fi
@@ -116,24 +95,82 @@ agent:usage() {
 	done
 }
 
-# Prints a reset time as HH:MM when it falls today, or as the weekday and HH:MM when it
-# is later. Returns 1 when the timestamp can't be read.
+# Prints one quota window the way the Claude status line draws it: a ten-cell pace bar,
+# the percentage used and the reset time. Copied from render_window in Agents
+# src/adapters/claude/statusline.sh, so change both together. Returns 1 when the reset
+# time or window length can't be read.
 #
+# @param  {number}  used
+#     Percentage of the window already used.
 # @param  {number}  reset_timestamp
-#     Unix timestamp returned by the quota probe.
-# @param  {string}  today
-#     Current local date in YYYY-MM-DD form.
-_agent_usage_reset() {
-	local reset_timestamp="${1%%.*}"  # Whole seconds, because macOS date -r rejects fractions.
-	local today="$2"  # Current local date.
-	local reset_date  # Local date of the reset.
+#     Unix time when the window resets, or zero when unknown.
+# @param  {number}  window_seconds
+#     Length of the window in seconds.
+# @param  {integer}  colour
+#     One for terminal colour, zero for plain output.
+# @param  {integer}  now
+#     Current Unix time. Tests pass a fixed value.
+_agent_usage_window() {
+	local used="$1"  # Percentage used in this window.
+	local reset_timestamp="${2%%.*}"  # Whole seconds, because macOS date -r rejects fractions.
+	local window_seconds="$3"  # Window duration in seconds.
+	local colour="$4"  # 1 for terminal colour, 0 for plain text.
+	local now="${5:-$EPOCHSECONDS}"  # Current time, or the fixed time a test passes.
+	local reset_text=''  # Local reset time, empty when unknown.
 
-	reset_date="$(date -r "$reset_timestamp" '+%Y-%m-%d' 2>/dev/null)" || return 1
-	if [[ "$reset_date" == "$today" ]]; then
-		date -r "$reset_timestamp" '+%H:%M'
-	else
-		date -r "$reset_timestamp" '+%a %H:%M'
+	[[ "$reset_timestamp" == <-> && "$window_seconds" == <-> && "$window_seconds" != 0 ]] || return 1
+	if (( reset_timestamp != 0 )); then
+		reset_text="$(date -r "$reset_timestamp" '+%a %H:%M' 2>/dev/null)" || return 1
+		reset_text="${reset_text:l}"
 	fi
+
+	# The bar is drawn in awk for its floating-point maths and to stay close to
+	# render_window. The differences are the colour switch, the fixed widths that keep the
+	# table columns aligned and the missing label. esc colours text when colour is on, dim
+	# greys it, clamp keeps a value in range, and hue picks the pace colour from green
+	# through amber to red.
+	awk -v used="$used" -v resets="$reset_timestamp" -v window="$window_seconds" -v now="$now" -v colour="$colour" -v reset_text="$reset_text" '
+	function esc(r, g, b, s) { if (!colour) return s; return sprintf("%c[38;2;%d;%d;%dm%s%c[0m", 27, r, g, b, s, 27) }
+	function dim(s) { return esc(110, 110, 125, s) }
+	function clamp(x, lo, hi) { if (x < lo) return lo; if (x > hi) return hi; return x }
+	function hue(t,    r, g, b) {
+		if (t < 0.5) { r = 90 + t * 2 * 155; g = 220 - t * 2 * 30; b = 160 - t * 2 * 90 }
+		else { r = 245; g = 190 - (t - 0.5) * 2 * 110; b = 70 + (t - 0.5) * 2 * 30 }
+		return int(r) SUBSEP int(g) SUBSEP int(b)
+	}
+	BEGIN {
+		if (resets == 0) {
+			clock = -1
+		} else {
+			left = resets - now; if (left < 0) left = 0
+			elapsed = clamp(window - left, 0, window)
+			clock = elapsed / window * 100
+		}
+
+		tone = (clock < 0) ? clamp(used, 0, 100) / 100 : clamp(0.5 - (clock - used) / 50, 0, 1)
+		split(hue(tone), rgb, SUBSEP)
+		r = rgb[1]; g = rgb[2]; b = rgb[3]
+
+		cells = 10
+		filled = int(clamp(used, 0, 100) / 100 * cells + 0.5)
+		if (clock < 0) { at = -1 }
+		else { at = clamp(int(clock / 100 * cells), 0, cells - 1) }
+
+		bar = ""
+		for (i = 0; i < cells; i++) {
+			if (i == at) bar = bar esc(235, 235, 245, "┃")
+			else if (i < filled) bar = bar esc(r, g, b, "█")
+			else bar = bar dim("░")
+		}
+
+		out = bar " " esc(r, g, b, sprintf("%4s", sprintf("%d%%", used + 0.5)))
+
+		if (resets != 0) out = out dim("  ↻  " reset_text)
+		else out = out sprintf("%14s", "")
+
+		printf "%s", out
+	}
+	'
 }
 
 # Prints the account ID for the heavier role, then the lighter one, then 1 when the provider
