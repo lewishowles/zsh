@@ -66,6 +66,48 @@ _hcom_read_task_team() {
 	reply=("$project_slug" "$task_slug" "$task_status")
 }
 
+# Finds an unfinished quick task for a label or creates one, returning its ID in reply.
+# Prints the Progress error and returns 1 when listing or adding fails.
+#
+# @param  {string}  command_name
+#     The public command shown when Progress fails.
+# @param  {string}  working_directory
+#     Directory Progress uses to find the project.
+# @param  {string}  team_label
+#     Validated label used in the quick task's slug and title.
+# @param  {string}  initial_prompt
+#     The human's note, used as the task overview when supplied.
+_hcom_find_or_create_quick_task() {
+	local command_name="$1"  # Public command named in error messages.
+	local working_directory="$2"  # Directory Progress uses to find the project.
+	local team_label="$3"  # Label shared by the team and quick task.
+	local initial_prompt="$4"  # The human's note for the task overview.
+	local task_slug="quick-$team_label"  # Slug that repeat launches with the same label look up.
+	local tasks_json  # All project tasks, including finished ones.
+	local task_id  # ID of an unfinished matching task or the new task.
+	local added_json  # Progress response for task creation.
+	local progress_message  # Error returned by Progress.
+
+	if ! tasks_json="$(cd "$working_directory" && progress task list --all --json 2>/dev/null)" || ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
+		progress_message="$(jq -r '.error.message // empty' <<<"$tasks_json" 2>/dev/null)"
+		_hcom_command_error "$command_name" '' "${progress_message:-could not list tasks in $working_directory.}"
+		return 1
+	fi
+
+	task_id="$(jq -r --arg slug "$task_slug" '[.data.items[] | select(.slug == $slug and .status != "done") | .id][0] // empty' <<<"$tasks_json")"
+	if [[ -z "$task_id" ]]; then
+		if ! added_json="$(cd "$working_directory" && progress task add --slug "$task_slug" --title "Quick: $team_label" --overview "${initial_prompt:-Quick work for $team_label.}" --done-when 'The human says this quick work is done.' --json 2>/dev/null)" || ! jq -e '.ok == true and (.data.id | type == "string") and (.data.id | length > 0)' >/dev/null 2>&1 <<<"$added_json"; then
+			progress_message="$(jq -r '.error.message // empty' <<<"$added_json" 2>/dev/null)"
+			_hcom_command_error "$command_name" '' "${progress_message:-could not create quick task $task_slug.}"
+			return 1
+		fi
+
+		task_id="$(jq -r '.data.id' <<<"$added_json")"
+	fi
+
+	reply=("$task_id")
+}
+
 # Checks a Progress worktree response for a task and sets reply to the
 # checkout's folder when that folder exists.
 #
@@ -282,6 +324,9 @@ _hcom_team_continuation_prompt() {
 #   orchestrator | implementer
 #   reviewer     | scout
 #
+# A team label with no mode and no task finds or creates the label's quick task
+# and launches the team for that task instead.
+#
 # Prints a labelled start notice when a team label is supplied and returns the
 # foreground orchestrator's exit status. Validation, pane-launch, and
 # both-providers-exhausted failures return their own non-zero status. The
@@ -345,7 +390,20 @@ _hcom_launch_team() {
 	local other_task_id  # In-progress task checked for a managed checkout and live team.
 	local other_team_project_tag other_team_label other_team_tags  # Address and role tags for another task's team.
 	local picker_chosen=0  # Whether a task was chosen from the interactive picker.
-	local -a chosen_task_args  # Arguments that relaunch the team on the chosen task, as cont <task-id> --yes would.
+	local -a chosen_task_args  # Arguments that relaunch the team on a picked or quick task, as cont <task-id> --yes would.
+
+	if [[ -n "$team_label" && -z "$launch_mode" && -z "$requested_task_id" ]]; then
+		_hcom_find_or_create_quick_task "$command_name" "$team_scope_directory" "$team_label" "$initial_prompt" || return 1
+		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes)
+		if [[ -n "$initial_prompt" ]]; then
+			chosen_task_args+=(--message "$initial_prompt")
+		fi
+		if (( keep_agents )); then
+			chosen_task_args+=(--keep-agents)
+		fi
+		_hcom_launch_team "$command_name" "$orchestrator_launcher" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "${chosen_task_args[@]}"
+		return $?
+	fi
 
 	if [[ -n "$requested_task_id" ]]; then
 		_hcom_read_task_team "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
@@ -1441,28 +1499,31 @@ _hcom_parse_team_args() {
 	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
 }
 
-# @desc  Start, continue, or hand over the complete hcom team
+# @desc  Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
 #
 # Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Without a mode, --team <label> creates or reuses a quick task.
 #
 team() {
 	_hcom_launch_team team orchestrator reviewer implementer scout "$@"
 }
 
-# @desc  Start, continue, or hand over the complete Codex hcom team
+# @desc  Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
 #
 # Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Without a mode, --team <label> creates or reuses a quick task.
 #
 team:codex() {
 	_hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout "$@"
 }
 
-# @desc  Start, continue, or hand over the complete Claude hcom team
+# @desc  Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
 #
 # Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Without a mode, --team <label> creates or reuses a quick task.
 #
 team:claude() {
 	_hcom_launch_team team:claude orchestrator reviewer implementer:claude scout:claude "$@"

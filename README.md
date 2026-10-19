@@ -294,9 +294,9 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, continue, or hand over the complete hcom team |
-| `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, continue, or hand over the complete Claude hcom team |
-| `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start, continue, or hand over the complete Codex hcom team |
+| `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over |
+| `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over |
+| `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over |
 | `team:stop` | [--team <label> | --task <id>] [--dir <path>] | Stop the exact hcom team for a directory, label, or task |
 
 ### nav

@@ -10,7 +10,7 @@ unset HCOM_TEAM_LABEL HCOM_TEAM_PROJECT_TAG
 repo_root="${0:A:h:h}"  # Repository containing the alias files under test.
 fixture_dir="$(mktemp -d)"  # Isolated command stubs and agent-list data.
 trap 'rm -rf "$fixture_dir"' EXIT
-mkdir -p "$fixture_dir/bin" "$fixture_dir/project" "$fixture_dir/worktree-state" "$fixture_dir/tsk_A__B" "$fixture_dir/tsk_a_B" "$fixture_dir/tsk_A_-B"
+mkdir -p "$fixture_dir/bin" "$fixture_dir/project" "$fixture_dir/worktree-state" "$fixture_dir/tsk_A__B" "$fixture_dir/tsk_a_B" "$fixture_dir/tsk_A_-B" "$fixture_dir/tsk_quick"
 
 # Fails with a focused assertion message.
 #
@@ -24,6 +24,25 @@ fail() {
 # Supplies task records and active-task IDs without consulting the real project.
 cat > "$fixture_dir/bin/progress" <<'STUB'
 #!/usr/bin/env zsh
+if [[ "$1" == task && "$2" == list && "$3" == --all && "$4" == --json ]]; then
+	print -r -- "task list --all" >> "$HCOM_FIXTURE_QUICK_CALLS"
+	case "${HCOM_FIXTURE_QUICK_STATE:-new}" in
+		unfinished) print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_quick","slug":"quick-blue","status":"in-progress"}]}}' ;;
+		finished) print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_old_quick","slug":"quick-blue","status":"done"}]}}' ;;
+		list-error) print -r -- '{"ok":false,"error":{"message":"task list unavailable"}}'; exit 1 ;;
+		*) print -r -- '{"ok":true,"data":{"items":[]}}' ;;
+	esac
+	exit 0
+fi
+if [[ "$1" == task && "$2" == add ]]; then
+	print -r -- "task add $*" >> "$HCOM_FIXTURE_QUICK_CALLS"
+	if [[ "${HCOM_FIXTURE_QUICK_ADD_ERROR:-0}" == 1 ]]; then
+		print -r -- '{"ok":false,"error":{"message":"task slug already exists"}}'
+		exit 1
+	fi
+	print -r -- '{"ok":true,"data":{"id":"tsk_quick"}}'
+	exit 0
+fi
 if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress && "$5" == --all && "$6" == --json ]]; then
 	if [[ "${HCOM_FIXTURE_NO_ACTIVE_TASKS:-0}" == 1 ]]; then
 		print -r -- '{"ok":true,"data":{"items":[]}}'
@@ -101,6 +120,7 @@ case "$3" in
 	tsk_blocked) task_slug=blocked-task; task_status=blocked ;;
 	tsk_needs_decision) task_slug=decision-task; task_status=needs-decision ;;
 	tsk_done) task_slug=finished-task; task_status=done ;;
+	tsk_quick) task_slug=quick-blue; task_title='Quick: blue'; [[ "${HCOM_FIXTURE_QUICK_STATE:-new}" == unfinished ]] && task_status=in-progress ;;
 	*) print -r -- '{"ok":false}'; exit 1 ;;
 esac
 [[ "$3" == "${HCOM_FIXTURE_FINISHED_TASK_ID:-}" ]] && task_status=done
@@ -126,6 +146,7 @@ chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/g
 export PATH="$fixture_dir/bin:$PATH"
 export HCOM_FIXTURE_AGENTS="$fixture_dir/agents.json"
 export HCOM_FIXTURE_WORKTREE_CALLS="$fixture_dir/worktree-calls"
+export HCOM_FIXTURE_QUICK_CALLS="$fixture_dir/quick-calls"
 export HCOM_FIXTURE_CONTEXT_CALLS="$fixture_dir/context-calls"
 export HCOM_FIXTURE_WORKTREE_STATE_DIR="$fixture_dir/worktree-state"
 export HCOM_FIXTURE_WORKTREE_ROOT="$fixture_dir"
@@ -559,13 +580,13 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 HCOM_ACTIVE_TEAM_TAGS='old-root-orchestrator|old-root-reviewer'  # Existing ordinary team tags.
 HCOM_TEAM_TERMINAL_IDS='old|panes'  # Existing ordinary team panes.
 HCOM_ACTIVE_TEAM_TASK_ID=''  # Existing team is not task-scoped.
-_hcom_launch_team team:codex unused unused unused unused --team blue || fail 'manual team relaunch'
-[[ "$stopped_team_tags" == 'old-root-orchestrator|old-root-reviewer' && "$replaced_terminal_ids" == 'old|panes' ]] || fail 'manual team did not replace prior root'
+_hcom_launch_team team:codex unused unused unused unused || fail 'ordinary team relaunch'
+[[ "$stopped_team_tags" == 'old-root-orchestrator|old-root-reviewer' && "$replaced_terminal_ids" == 'old|panes' ]] || fail 'ordinary team did not replace prior root'
 [[ "$launched_origin_terminal_id" == 'fixture-origin-pane' ]] || fail 'launch did not pass the origin pane ID as argument 13'
-manual_team_tags="$(_hcom_team_tags team "$PWD" blue)"  # Exact tags stored for the ordinary manual team.
+ordinary_team_tags="$(_hcom_team_tags team "$PWD" '')"  # Exact tags stored for the ordinary team.
 stopped_team_tags=''
 _hcom_launch_team team:codex unused unused unused unused || fail 'root relaunch'
-[[ "$stopped_team_tags" == "$manual_team_tags" && "$replaced_terminal_ids" == 'new|panes' ]] || fail 'root did not replace prior manual team'
+[[ "$stopped_team_tags" == "$ordinary_team_tags" && "$replaced_terminal_ids" == 'new|panes' ]] || fail 'root did not replace prior ordinary team'
 
 stopped_team_tags=''
 HCOM_ACTIVE_TEAM_TASK_ID=tsk_A_B
@@ -589,6 +610,43 @@ unset HCOM_FIXTURE_HAS_HANDOFF
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_A_B.'* ]] || fail 'ready task did not use the continue prompt'
+
+# A label creates its quick task and launches through the named-task checkout path.
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+: > "$HCOM_FIXTURE_WORKTREE_CALLS"
+_hcom_launch_team team:codex unused unused unused unused --team blue --message 'Investigate the prompt' || fail 'labelled quick task launch'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '*'--slug quick-blue --title Quick: blue --overview Investigate the prompt --done-when The human says this quick work is done. --json'* ]] || fail 'quick task creation lost its details'
+[[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick && "$HCOM_ACTIVE_TEAM_TAGS" == 'zsh-config-quick-blue-orchestrator|zsh-config-quick-blue-reviewer|zsh-config-quick-blue-implementer|zsh-config-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_quick" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_quick" ]] || fail 'quick task team opened outside its checkout'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick.'* && "$launched_orchestrator_prompt" == *'Note from the human:'*'Investigate the prompt'* ]] || fail 'quick task prompt lost the task ID or human note'
+[[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_quick\nensure tsk_quick' ]] || fail 'quick task did not create its checkout'
+
+# An unfinished quick task with the same label is reused without adding another.
+export HCOM_FIXTURE_QUICK_STATE=unfinished
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+_hcom_launch_team team:codex unused unused unused unused --team blue || fail 'unfinished quick task reuse'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick ]] || fail 'unfinished quick task was added again'
+
+# A finished quick task is ignored, so the launcher asks Progress for a new one.
+export HCOM_FIXTURE_QUICK_STATE=finished
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+_hcom_launch_team team:codex unused unused unused unused --team blue || fail 'finished quick task replacement'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '* ]] || fail 'finished quick task was reused'
+
+# A failed task add prints the Progress error and opens no panes.
+export HCOM_FIXTURE_QUICK_ADD_ERROR=1
+prior_pane_calls="$pane_calls"
+assert_command_error 'team:codex: task slug already exists' _hcom_launch_team team:codex unused unused unused unused --team blue
+[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'failed quick task add opened panes'
+unset HCOM_FIXTURE_QUICK_STATE HCOM_FIXTURE_QUICK_ADD_ERROR
+
+# A failed task list prints the Progress error and opens no panes.
+export HCOM_FIXTURE_QUICK_STATE=list-error
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+prior_pane_calls="$pane_calls"
+assert_command_error 'team:codex: task list unavailable' _hcom_launch_team team:codex unused unused unused unused --team blue
+[[ "$pane_calls" == "$prior_pane_calls" && "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' ]] || fail 'failed quick task list added a task or opened panes'
+unset HCOM_FIXTURE_QUICK_STATE
 
 # A picker choice enters the same named-task path and skips the confirmation.
 export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B
@@ -934,4 +992,4 @@ fi
 [[ "$(<"$error_file")" == 'plan: usage: plan [--team <label>] <task-name>' ]] || fail 'missing plan task omitted usage'
 [[ "$plan_osascript_calls" == "$prior_plan_osascript_calls" ]] || fail 'invalid plan arguments opened panes'
 
-print -r -- 'PASS: task address, checkout selection, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, and planning duplicates and team labels'
+print -r -- 'PASS: task address, checkout selection, quick tasks, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, and planning duplicates and team labels'
