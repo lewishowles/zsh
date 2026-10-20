@@ -33,15 +33,17 @@ insights() {
 
 	local quoted_report_path="${(q)report_path}"  # Shell-quoted report path for the typed launch command.
 
-	# Ghostty panes start fresh shells that don't inherit this shell's
-	# exported env, so an active account override must ride along in the
-	# typed command line instead.
+	# Ghostty panes start fresh shells without this shell's exported env, and
+	# can open in another project's folder if the human switches tabs while
+	# they open. Each typed command therefore changes into the launch folder
+	# and carries any active account override. Changing folder also lets a
+	# relative report path find the report.
 	local account_env
 	account_env="$(_hcom_account_environment)"
 
-	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
-	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude scout"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex scout"  # Command for the Codex scout pane.
+	local reviewer_codex_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
+	local scout_claude_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude scout"  # Command for the Claude scout pane.
+	local scout_codex_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex scout"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \

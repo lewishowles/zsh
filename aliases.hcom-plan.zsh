@@ -52,15 +52,16 @@ plan() {
 	fi
 	local quoted_task_name="${(q)task_name}"  # Shell-quoted task name for the typed launch command.
 
-	# Ghostty panes start fresh shells that don't inherit this shell's
-	# exported env, so an active account override must ride along in the
-	# typed command line instead.
+	# Ghostty panes start fresh shells without this shell's exported env, and
+	# can open in another project's folder if the human switches tabs while
+	# they open. Each typed command therefore changes into the launch folder
+	# and carries any active account override.
 	local account_env  # Optional account override to include in each fresh Ghostty shell.
 	account_env="$(_hcom_account_environment)"
 
-	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 plan:codex ${label:+--team ${label} }$quoted_task_name"  # Command for the Codex planning pane.
-	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$claude_team_label scout"  # Command for the Claude scout pane.
-	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$codex_team_label scout"  # Command for the Codex scout pane.
+	local plan_codex_command="cd ${(q)PWD} && ${account_env}HCOM_PLANNING_WORKFLOW=1 plan:codex ${label:+--team ${label} }$quoted_task_name"  # Command for the Codex planning pane.
+	local scout_claude_command="cd ${(q)PWD} && ${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$claude_team_label scout"  # Command for the Claude scout pane.
+	local scout_codex_command="cd ${(q)PWD} && ${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$codex_team_label scout"  # Command for the Codex scout pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \
