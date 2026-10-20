@@ -7,8 +7,6 @@ on run arguments
 	set scoutCommand to item 1 of arguments
 
 	tell application "Ghostty"
-		activate
-
 		if (count of windows) = 0 then
 			error "Open a Ghostty terminal first."
 		end if
