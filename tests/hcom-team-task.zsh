@@ -230,7 +230,7 @@ ready_handoff_preview="$(_hcom_preview_team_continuation team "$fixture_dir/proj
 unset HCOM_FIXTURE_HAS_HANDOFF
 
 _hcom_parse_team_args team continue --task tsk_A_B --yes || fail 'continue --task parses'
-[[ "${reply[1]}" == continue && "${reply[7]}" == tsk_A_B ]] || fail 'continue keeps the requested task'
+[[ "${reply[1]}" == continue && "${reply[6]}" == tsk_A_B ]] || fail 'continue keeps the requested task'
 _hcom_parse_team_args team:codex continue --task tsk_A_B --yes || fail 'Codex variant parses'
 _hcom_parse_team_args team:claude continue --task tsk_A_B --yes || fail 'Claude variant parses'
 _hcom_parse_team_args team continue --task tsk_A_B || fail 'continue --task parses without --yes'
@@ -238,7 +238,7 @@ if _hcom_parse_team_args team continue --task tsk_A_B --team other 2>/dev/null; 
 	fail '--task and --team must clash'
 fi
 _hcom_parse_team_args team continue --yes || fail 'plain continue parses'
-[[ -z "${reply[2]}" && -z "${reply[7]}" ]] || fail 'plain continue retains root scope'
+[[ -z "${reply[2]}" && -z "${reply[6]}" ]] || fail 'plain continue retains root scope'
 
 # Checks that a launcher rejects the call with status 1 and exactly this
 # uncoloured error after a blank line. Stderr is redirected to a file.
@@ -271,19 +271,12 @@ assert_command_error 'team: --team requires a label.' _hcom_parse_team_args team
 assert_command_error 'team: invalid team label: Bad_Label'$'\n''team: use lowercase letters, numbers, and internal hyphens.' _hcom_parse_team_args team --team Bad_Label
 assert_command_error 'team: --task requires a task ID.' _hcom_parse_team_args team continue --task
 assert_command_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
-assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]' _hcom_parse_team_args team extra
+assert_command_error 'team: unknown option: --keep-agents' _hcom_parse_team_args team --keep-agents
+assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]' _hcom_parse_team_args team extra
 assert_command_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team continue --task tsk_A_B --team other
 assert_command_error 'team: --task only works with continue.' _hcom_parse_team_args team --task tsk_A_B
 assert_command_error "team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args team --dir "$fixture_dir/missing"
-assert_command_error 'team:stop: --dir requires a directory.' _hcom_parse_team_stop_args --dir
-assert_command_error 'team:stop: --team requires a label.' _hcom_parse_team_stop_args --team
-assert_command_error 'team:stop: --task requires a task ID.' _hcom_parse_team_stop_args --task
-assert_command_error 'team:stop: --task requires a task ID.' team:stop --task
-assert_command_error "team:stop: could not read task tsk_unknown in $PWD." team:stop --task tsk_unknown
-assert_command_error 'team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
-assert_command_error 'team:stop: usage: team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
-assert_command_error 'team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
-assert_command_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope team:stop 1 "$fixture_dir/missing" ''
+assert_command_error "team:done: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope team:done "$fixture_dir/missing" tsk_A_B
 export HCOM_FIXTURE_NO_NEXT_TASK=1  # Makes the progress stub return no task for the continuation error check.
 assert_command_error 'cont: nothing to continue in Fixture.' _hcom_preview_team_continuation cont "$fixture_dir/project" 1
 unset HCOM_FIXTURE_NO_NEXT_TASK
@@ -318,6 +311,8 @@ fi
 
 team_tags="$(HCOM_TEAM_PROJECT_TAG="$project_tag" _hcom_team_tags team "$fixture_dir/project" "$team_label")"  # Role tags for the selected task.
 [[ "$team_tags" == "$project_tag-$team_label-orchestrator|"* ]] || fail 'role tags do not share task address'
+_hcom_resolve_team_stop_scope team:done "$fixture_dir/project" tsk_A_B || fail 'task stop scope resolves'
+[[ "${reply[1]}" == "$team_tags" ]] || fail 'task stop targets different tags'
 root_tags="$(_hcom_team_tags team "$PWD" '')"  # Existing unlabelled root role tags.
 [[ "$root_tags" != "$team_tags" ]] || fail 'task team collides with root team'
 
@@ -487,9 +482,6 @@ if _hcom_select_in_progress_task cont "$fixture_dir/project" '' </dev/null 2>"$e
 	fail 'non-interactive selector accepted several tasks'
 fi
 [[ "$(<"$error_file")" == *'2 tasks are in progress; choose one with --task:'* && "$(<"$error_file")" == *'tsk_A_B  First task'* && "$(<"$error_file")" == *'tsk_a_B  Other task'* && "$(<"$error_file")" != *'No task chosen.'* ]] || fail 'non-interactive selector did not list task IDs without a cancellation message'
-_hcom_parse_team_stop_args --task tsk_A_B --dir "$fixture_dir/tsk_A__B" || fail 'stop --task parses'
-_hcom_resolve_team_stop_scope team:stop "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
-[[ "${reply[1]}" == "$team_tags" ]] || fail 'stop targets different tags'
 
 # Stubs the final launch boundary; no fixture case can open a terminal.
 #
@@ -823,15 +815,11 @@ HCOM_FIXTURE_GIT_DIRTY=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'dirty-root continuation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'dirty-root roles did not use the checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'dirty-root default changed the root tags'
-_hcom_resolve_team_stop_scope team:stop 1 "$PWD" '' || fail 'root stop scope resolves after dirty-root continuation'
-[[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after dirty-root continuation'
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_A_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default continuation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'in-progress default ignored the recorded checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'in-progress default changed the root tags'
-_hcom_resolve_team_stop_scope team:stop 1 "$PWD" '' || fail 'root stop scope resolves after in-progress continuation'
-[[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after in-progress continuation'
 HCOM_FIXTURE_NEXT_STATUS=ready
 unset HCOM_FIXTURE_ONLY_TASK_ID
 HCOM_FIXTURE_GIT_DIRTY=0

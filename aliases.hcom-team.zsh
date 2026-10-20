@@ -361,8 +361,7 @@ _hcom_team_continuation_prompt() {
 # foreground orchestrator's exit status. Validation, pane-launch, and
 # both-providers-exhausted failures return their own non-zero status. The
 # function stores the new team scope, replaces a previous same-shell team when
-# both prior tags and pane IDs exist, and cleans up teammate agents and panes
-# unless --keep-agents is supplied.
+# both prior tags and pane IDs exist, and cleans up teammate agents and panes.
 # A local INT trap lets normal exit and Ctrl-C use the same cleanup path.
 #
 # @param  {string}  command_name
@@ -397,11 +396,10 @@ _hcom_launch_team() {
 	_hcom_parse_team_args "$command_name" "$@" || return 1
 	local launch_mode="${reply[1]}"  # Optional continuation behaviour for the orchestrator.
 	local team_label="${reply[2]}"  # Optional label parsed from the launch options.
-	local keep_agents="${reply[3]}"  # Whether cleanup should leave agents and panes running.
-	local working_directory="${reply[4]}"  # Project directory for the team.
-	local initial_prompt="${reply[5]}"  # Optional prompt passed to the orchestrator.
-	local skip_confirmation="${reply[6]}"  # Whether to start a continuation without prompting.
-	local requested_task_id="${reply[7]}"  # Task named with --task, or empty to find the in-progress task.
+	local working_directory="${reply[3]}"  # Project directory for the team.
+	local initial_prompt="${reply[4]}"  # Optional prompt passed to the orchestrator.
+	local skip_confirmation="${reply[5]}"  # Whether to start a continuation without prompting.
+	local requested_task_id="${reply[6]}"  # Task named with --task, or empty to find the in-progress task.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local team_project_tag=""  # Address prefix for every role: the project name for a named task's team, or the original checkout's name for the root team.
 	local launch_team_tags=""  # Exact role tags checked before pane creation.
@@ -427,9 +425,6 @@ _hcom_launch_team() {
 		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes)
 		if [[ -n "$initial_prompt" ]]; then
 			chosen_task_args+=(--message "$initial_prompt")
-		fi
-		if (( keep_agents )); then
-			chosen_task_args+=(--keep-agents)
 		fi
 		_hcom_launch_team "$command_name" "$orchestrator_launcher" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "${chosen_task_args[@]}"
 		return $?
@@ -486,9 +481,6 @@ _hcom_launch_team() {
 			chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes)
 			if [[ -n "$initial_prompt" ]]; then
 				chosen_task_args+=(--message "$initial_prompt")
-			fi
-			if (( keep_agents )); then
-				chosen_task_args+=(--keep-agents)
 			fi
 			_hcom_launch_team "$command_name" "$orchestrator_launcher" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "${chosen_task_args[@]}"
 			return $?
@@ -764,10 +756,10 @@ _hcom_launch_team() {
 		printf 'Starting hcom team %s in %s.\n' "$team_label" "$team_scope_directory"
 	fi
 
-	# Runs the orchestrator in the foreground and, unless --keep-agents, cleans
-	# up teammates on return; its exit status is this function's result.
+	# Runs the orchestrator in the foreground and cleans up teammates on return;
+	# its exit status is this function's result.
 	# It takes the account and provider reserved for it above.
-	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$keep_agents" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
 # Prints the ID of the focused Ghostty pane, so the team can still open beside
@@ -1303,8 +1295,8 @@ _hcom_team_create_panes() {
 
 # Stores the active team scope in the launching shell.
 #
-# The launching shell keeps this scope so team:stop needs no arguments
-# there and can tell which team it is scoped to.
+# The next team launched from this shell reads it to stop the earlier team
+# first, and team:done reads it to close this shell's panes.
 #
 # @param  {string}  working_directory
 #     Project directory for the team.
@@ -1334,9 +1326,9 @@ _hcom_store_team_scope() {
 # Runs the foreground orchestrator and cleans up the team on return.
 #
 # A local INT trap lets normal exit and Ctrl-C reach the same cleanup block;
-# localtraps restores the prior INT trap on any return path. Teammate agents
-# and panes are stopped unless keep_agents is set. Returns the orchestrator's
-# exit status.
+# localtraps restores the prior INT trap on any return path. Then it stops the
+# teammate agents, closes their panes and clears the stored team scope.
+# Returns the orchestrator's exit status.
 #
 # @param  {string}  orchestrator_launcher
 #     Function that starts the orchestrator role.
@@ -1346,8 +1338,6 @@ _hcom_store_team_scope() {
 #     Optional project directory. Empty lets the launcher use its own directory.
 # @param  {string}  initial_prompt
 #     Optional initial prompt for the orchestrator.
-# @param  {string}  keep_agents
-#     When 1, leaves teammate agents and panes running on return.
 # @param  {string}  team_tags
 #     Pipe-separated exact role tags, used to stop teammates.
 # @param  {string}  team_terminal_ids
@@ -1361,11 +1351,10 @@ _hcom_run_team_orchestrator() {
 	local team_label="$2"  # Optional label for the orchestrator environment.
 	local working_directory="$3"  # Optional project directory. Empty lets the launcher use its own.
 	local initial_prompt="$4"  # Optional initial prompt for the orchestrator.
-	local keep_agents="$5"  # When 1, cleanup leaves agents and panes running.
-	local team_tags="$6"  # Exact role tags used to stop teammates.
-	local team_terminal_ids="$7"  # Pane IDs for teammate cleanup and refocus.
-	local orchestrator_account="${8:-}"  # Account number assigned to the foreground orchestrator.
-	local orchestrator_provider="${9:-claude}"  # Provider whose config directory the orchestrator account names.
+	local team_tags="$5"  # Exact role tags used to stop teammates.
+	local team_terminal_ids="$6"  # Pane IDs for teammate cleanup and refocus.
+	local orchestrator_account="${7:-}"  # Account number assigned to the foreground orchestrator.
+	local orchestrator_provider="${8:-claude}"  # Provider whose config directory the orchestrator account names.
 
 	local orchestrator_exit_code  # Foreground orchestrator result returned by this function.
 
@@ -1399,20 +1388,18 @@ _hcom_run_team_orchestrator() {
 		orchestrator_exit_code=$?
 	fi
 
-	if (( keep_agents == 0 )); then
-		_hcom_stop_team_tags "${team_tags#*|}"
-		local orchestrator_terminal_id="${team_terminal_ids%%|*}"  # Orchestrator pane restored after teammate cleanup.
-		_hcom_close_team_terminals "${team_terminal_ids#*|}" "$orchestrator_terminal_id"
-		_hcom_clear_team_scope
-	fi
+	_hcom_stop_team_tags "${team_tags#*|}"
+	local orchestrator_terminal_id="${team_terminal_ids%%|*}"  # Orchestrator pane restored after teammate cleanup.
+	_hcom_close_team_terminals "${team_terminal_ids#*|}" "$orchestrator_terminal_id"
+	_hcom_clear_team_scope
 
 	return "$orchestrator_exit_code"
 }
 
 # Parses the team argument list and validates it.
-# Sets the standard zsh `reply` array to seven values in order: launch mode,
-# team label, keep-agents flag, working directory, initial prompt, the
-# skip-confirmation flag, and the requested task. Returns non-zero with a diagnostic when parsing or
+# Sets the standard zsh `reply` array to six values in order: launch mode,
+# team label, working directory, initial prompt, the skip-confirmation flag,
+# and the requested task. Returns non-zero with a diagnostic when parsing or
 # validation fails.
 #
 # @param  {string}  command_name
@@ -1437,7 +1424,6 @@ _hcom_parse_team_args() {
 	esac
 
 	local team_label=""  # Optional label parsed from the launch options.
-	local keep_agents=0  # Whether cleanup should leave agents and panes running.
 	local skip_confirmation=0  # Whether to start a continuation without prompting.
 	local working_directory=""  # Explicit project directory for the team.
 	local initial_prompt=""  # The --message text, used as the first prompt or appended to a mode's instruction.
@@ -1480,10 +1466,6 @@ _hcom_parse_team_args() {
 				task_id="$2"
 				shift 2
 				;;
-			--keep-agents)
-				keep_agents=1
-				shift
-				;;
 			-y|--yes)
 				skip_confirmation=1
 				shift
@@ -1501,7 +1483,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]"
+		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]"
 		return 1
 	fi
 
@@ -1524,14 +1506,15 @@ _hcom_parse_team_args() {
 		return 1
 	fi
 
-	reply=("$launch_mode" "$team_label" "$keep_agents" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
+	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
 }
 
 # @desc  Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
 #
-# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
+# If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
 team() {
 	_hcom_launch_team team orchestrator reviewer implementer scout "$@"
@@ -1540,8 +1523,9 @@ team() {
 # @desc  Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
 #
-# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
+# If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
 team:codex() {
 	_hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout "$@"
@@ -1550,8 +1534,9 @@ team:codex() {
 # @desc  Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
 #
-# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes]
+# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
+# If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
 team:claude() {
 	_hcom_launch_team team:claude orchestrator reviewer implementer:claude scout:claude "$@"
@@ -1611,11 +1596,11 @@ team:done() {
 		fi
 	fi
 
-	_hcom_resolve_team_stop_scope team:done 1 "$PWD" '' "$task_id" || return 1
+	_hcom_resolve_team_stop_scope team:done "$PWD" "$task_id" || return 1
 	team_tags="${reply[1]}"
 	terminal_ids="${reply[2]}"
 	scope_matches_active="${reply[3]}"
-	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" 1 "$scope_matches_active" || return 1
+	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" "$scope_matches_active" || return 1
 
 	if ! completed_json="$(progress task complete "$task_id" --json 2>/dev/null)" || ! jq -e '.ok == true and .data.status == "done"' >/dev/null 2>&1 <<<"$completed_json"; then
 		progress_message="$(jq -r '.error.message // empty' <<<"$completed_json" 2>/dev/null)"
@@ -1655,191 +1640,43 @@ team:done() {
 	printf 'Completed quick team %s (task %s).\n' "$team_label" "$task_id"
 }
 
-# Stops the exact hcom team for a directory and optional team label.
+# Resolves the task team that team:done stops.
 #
-# With no scope arguments, stops the launching shell's stored team and clears
-# that stored state. With an explicit scope, stops only its exact tags and
-# closes panes or clears state when the canonical directory and label match the
-# launching shell's stored scope. Missing agents, panes, or stored state are
-# successful no-op cases, so repeating a stop is safe. Validation and
-# tag-resolution failures return non-zero, as does a failure to close panes or
-# clear the stored scope; a failed agent stop is tolerated.
-#
-# @desc  Stop the exact hcom team for a directory, label, or task
-# @cat   hcom
-#
-# Usage: team:stop [--team <label> | --task <id>] [--dir <path>]
-#
-# Run with no arguments from the shell that launched the team, or with
-# --team, --task, and/or --dir from elsewhere. From another shell this always stops
-# the team's agents, but can only close its Ghostty panes when that scope
-# matches the launching shell's own stored team.
-#
-# @param  {string}  working_directory
-#     Optional project directory from --dir. Defaults to the active team's directory or the current directory with an explicit scope.
-# @param  {string}  team_label
-#     Optional team label. Defaults to the active team's label when no scope is supplied.
-# @param  {string}  task_id
-#     Optional task ID whose derived team address is stopped.
-team:stop() {
-	# Stop scope parsed from argv; copied out of `reply` before the next helper call.
-	_hcom_parse_team_stop_args "$@" || return $?
-	local working_directory="${reply[1]}"  # Explicit directory, or empty for an implicit stop.
-	local team_label="${reply[2]}"  # Explicit label, or empty for an implicit stop.
-	local explicit_scope="${reply[3]}"  # Whether --team or a directory was supplied.
-	local task_id="${reply[4]}"  # Task identity for a directory-independent team scope.
-
-	_hcom_resolve_team_stop_scope team:stop "$explicit_scope" "$working_directory" "$team_label" "$task_id"
-	local resolve_status=$?  # 0 proceed, 1 validation or tag failure, 2 no active team.
-
-	if (( resolve_status == 2 )); then
-		return 0
-	fi
-
-	if (( resolve_status != 0 )); then
-		return "$resolve_status"
-	fi
-
-	local team_tags="${reply[1]}"  # Exact role tags for the resolved stop scope.
-	local terminal_ids="${reply[2]}"  # Pane IDs available for matching cleanup.
-	local scope_matches_active="${reply[3]}"  # Whether the scope matches the stored team.
-
-	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" "$explicit_scope" "$scope_matches_active"
-}
-
-# Parses the team:stop argument list and validates it.
-# Sets the standard zsh `reply` array to three values in order: working
-# directory, team label, explicit-scope flag. Returns non-zero with a
-# diagnostic when an option or positional is malformed.
-#
-# @param  {string}  ...
-#     The team:stop arguments: optional --team <label> or --task <id>, and --dir <path>.
-_hcom_parse_team_stop_args() {
-	local team_label=""  # Explicit label from --team, empty otherwise.
-	local task_id=""  # Task ID for a derived team address.
-	local working_directory=""  # Explicit directory from --dir, empty otherwise.
-	local explicit_scope=0  # Whether --team or a directory was supplied, rather than using the launching shell's stored team.
-
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-			--dir)
-				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_command_error team:stop '' '--dir' ' requires a directory.'
-					return 1
-				fi
-
-				working_directory="$2"
-				explicit_scope=1
-				shift 2
-				;;
-			--team)
-				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_command_error team:stop '' '--team' ' requires a label.'
-					return 1
-				fi
-
-				team_label="$2"
-				explicit_scope=1
-				shift 2
-				;;
-			--task)
-				if [[ $# -lt 2 ]] || [[ -z "$2" ]] || [[ "$2" == --* ]]; then
-					_hcom_command_error team:stop '' '--task' ' requires a task ID.'
-					return 1
-				fi
-
-				task_id="$2"
-				explicit_scope=1
-				shift 2
-				;;
-			--)
-				shift
-				break
-				;;
-			--*)
-				_hcom_command_error team:stop 'unknown option: ' "$1"
-				return 1
-				;;
-			*) break ;;
-		esac
-	done
-
-	if [[ $# -gt 0 ]]; then
-		_hcom_command_error team:stop 'usage: ' 'team:stop [--team <label> | --task <id>] [--dir <path>]'
-		return 1
-	fi
-	if [[ -n "$task_id" && -n "$team_label" ]]; then
-		_hcom_command_error team:stop '' '--task' ' and ' '--team' ' cannot be used together.'
-		return 1
-	fi
-
-	reply=("$working_directory" "$team_label" "$explicit_scope" "$task_id")
-}
-
-# Resolves which team a stop should act on and how far cleanup may go.
-#
-# With no explicit scope, reads the launching shell's stored team. With an
-# explicit scope, derives the exact tags and records whether that scope
-# matches the stored team, so its panes and stored state can also be cleared.
+# Derives the task's exact tags and records whether its scope matches the
+# stored team, so its panes and stored state can also be cleared.
 # Sets the standard zsh `reply` array to three values in order: exact team
-# tags, pane IDs for cleanup, scope-matches-active flag. Returns 0 to
-# proceed, 1 on a validation or tag-resolution failure, or 2 when an implicit
-# stop finds no stored team (a message is printed and the caller returns 0).
+# tags, pane IDs for cleanup, scope-matches-active flag. Returns non-zero on
+# a directory, task, or tag-resolution failure.
 #
 # @param  {string}  command_name
 #     The public command shown in stop-scope errors.
-# @param  {string}  explicit_scope
-#     1 when --team or a directory was supplied, 0 for an implicit stop.
 # @param  {string}  working_directory
-#     Requested project directory, or empty to use the stored or current one.
-# @param  {string}  team_label
-#     Requested team label, or empty.
+#     Project directory where the task is recorded.
 # @param  {string}  task_id
-#     Optional task ID used to recover the project and task address.
+#     Task ID used to recover the project and task address.
 _hcom_resolve_team_stop_scope() {
 	local command_name="$1"  # Public command responsible for the stop.
-	local explicit_scope="$2"  # 1 when a scope was supplied, 0 for an implicit stop.
-	local working_directory="$3"  # Requested directory, or empty to use the stored or current one.
-	local team_label="$4"  # Requested team label, or empty.
-	local task_id="${5:-}"  # Optional task ID for derived tags.
-	local team_project_tag=""  # Project slug for a task team, or empty for an ordinary team.
+	local working_directory="$2"  # Project directory where the task is recorded.
+	local task_id="$3"  # Task ID used to derive the team address.
+	local team_project_tag=""  # Project slug for the task team.
+	local team_label=""  # Label derived from the task.
 	local team_tags=""  # Exact tags resolved for the requested stop scope.
 	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.
-	local scope_matches_active=0  # Whether an explicit scope matches stored directory and label, so its stored state can be cleared too.
+	local scope_matches_active=0  # Whether the task scope matches stored directory and label, so its stored state can be cleared too.
 
-	if (( explicit_scope == 0 )); then
-		if [[ -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]]; then
-			printf 'No active hcom team to stop.\n'
-			return 2
-		fi
+	if [[ ! -d "$working_directory" ]]; then
+		_hcom_command_error "$command_name" 'working directory not found: ' "$working_directory"
+		return 1
+	fi
 
-		working_directory="$HCOM_ACTIVE_TEAM_DIRECTORY"
-		team_label="$HCOM_ACTIVE_TEAM_LABEL"
-		team_tags="$HCOM_ACTIVE_TEAM_TAGS"
-		terminal_ids="$HCOM_ACTIVE_TEAM_TERMINAL_IDS"
-	else
-		working_directory="${working_directory:-$PWD}"
+	_hcom_read_task_team "$command_name" "$working_directory" "$task_id" || return 1
+	team_project_tag="${reply[1]}"
+	team_label="${reply[2]}"
+	team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$command_name" "$working_directory" "$team_label")" || return 1
 
-		if [[ ! -d "$working_directory" ]]; then
-			_hcom_command_error "$command_name" 'working directory not found: ' "$working_directory"
-			return 1
-		fi
-
-		if [[ -n "$team_label" ]]; then
-			_hcom_validate_team_label "$team_label" "$command_name" || return 1
-		fi
-
-		if [[ -n "$task_id" ]]; then
-			_hcom_read_task_team "$command_name" "$working_directory" "$task_id" || return 1
-			team_project_tag="${reply[1]}"
-			team_label="${reply[2]}"
-		fi
-		team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$command_name" "$working_directory" "$team_label")" || return 1
-
-		if [[ -n "${HCOM_ACTIVE_TEAM_DIRECTORY:-}" ]] && [[ "${working_directory:A}" = "${HCOM_ACTIVE_TEAM_DIRECTORY:A}" ]] && [[ "$team_label" = "${HCOM_ACTIVE_TEAM_LABEL:-}" ]]; then
-			scope_matches_active=1
-			terminal_ids="${HCOM_ACTIVE_TEAM_TERMINAL_IDS:-}"
-		fi
+	if [[ -n "${HCOM_ACTIVE_TEAM_DIRECTORY:-}" ]] && [[ "${working_directory:A}" = "${HCOM_ACTIVE_TEAM_DIRECTORY:A}" ]] && [[ "$team_label" = "${HCOM_ACTIVE_TEAM_LABEL:-}" ]]; then
+		scope_matches_active=1
+		terminal_ids="${HCOM_ACTIVE_TEAM_TERMINAL_IDS:-}"
 	fi
 
 	reply=("$team_tags" "$terminal_ids" "$scope_matches_active")
@@ -1848,7 +1685,7 @@ _hcom_resolve_team_stop_scope() {
 # Stops the team's agents, closes its panes, and clears the stored scope.
 #
 # Every step runs even when an earlier one fails. The stored team scope is
-# cleared only for an implicit stop or an explicit scope that matches it.
+# cleared only when the task scope matches it.
 # Stopping agents is best-effort: `hcom kill` reports a non-zero status when
 # no agent matches the tag, which is the normal case for a repeat stop, so
 # that status is not propagated. Returns the first non-zero status from
@@ -1858,15 +1695,12 @@ _hcom_resolve_team_stop_scope() {
 #     Pipe-separated exact role tags to stop.
 # @param  {string}  terminal_ids
 #     Pipe-separated Ghostty pane IDs to close, or empty.
-# @param  {string}  explicit_scope
-#     1 when a scope was supplied, 0 for an implicit stop.
 # @param  {string}  scope_matches_active
-#     1 when an explicit scope matches the stored team.
+#     1 when the task scope matches the stored team.
 _hcom_run_team_stop_cleanup() {
 	local team_tags="$1"  # Pipe-separated exact role tags to stop.
 	local terminal_ids="$2"  # Pipe-separated Ghostty pane IDs to close.
-	local explicit_scope="$3"  # 1 when a scope was supplied, 0 for an implicit stop.
-	local scope_matches_active="$4"  # Whether an explicit scope matches the stored team.
+	local scope_matches_active="$3"  # Whether the task scope matches the stored team.
 	local cleanup_status=0  # First non-zero status from closing panes or clearing scope, returned to the caller.
 	local step_status=0  # Exit status of the cleanup step currently running.
 
@@ -1880,7 +1714,7 @@ _hcom_run_team_stop_cleanup() {
 		cleanup_status="$step_status"
 	fi
 
-	if (( explicit_scope == 0 || scope_matches_active == 1 )); then
+	if (( scope_matches_active == 1 )); then
 		step_status=0
 		_hcom_clear_team_scope || step_status=$?
 		if (( cleanup_status == 0 && step_status != 0 )); then
