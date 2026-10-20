@@ -882,9 +882,12 @@ expected_solo_calls="$(printf '%s\n' 'codex codex' "codex $HOME/.codex-2 --fixtu
 #     Layout requested by the learner launcher.
 # @param  {string}  launch_command
 #     Command the learner would type into the Scout pane.
+# @param  {string}  origin_terminal_id
+#     Ghostty pane that ran the learner command.
 _hcom_workflow_launch_layout() {
 	learner_pane_calls=$((learner_pane_calls + 1))
 	learner_scout_command="$2"
+	learner_origin_terminal_id="$3"
 }
 
 # Records the learner role and team label without starting an agent.
@@ -900,6 +903,7 @@ _hcom_launch_configured_role() {
 
 learner_pane_calls=0  # Number of Scout panes requested by learner launches.
 learner_scout_command=""  # Most recent command typed into the Scout pane.
+learner_origin_terminal_id=""  # Launching pane ID most recently passed to the learner layout.
 launched_learner_role=""  # Most recent learner role sent to the launch boundary.
 learner_team_label=""  # Most recent learner team label sent to the launch boundary.
 learner_repository_tag="$(_hcom_scoped_tag learn:codex "$PWD")"  # Repository tag shared by fixture learners.
@@ -909,9 +913,11 @@ for provider in claude codex; do
 	learn:$provider --team blue fixture-source fixture-context || fail "labelled $provider learner did not launch"
 	[[ "$learner_team_label" == "learn-$provider-blue" && "$learner_scout_command" == *"HCOM_TEAM_LABEL=learn-$provider-blue scout "* ]] || fail "labelled $provider learner and Scout use different labels"
 	[[ "$launched_learner_role" == "learner-$provider" ]] || fail "labelled $provider launcher selected the wrong role"
+	[[ "$learner_origin_terminal_id" == 'fixture-origin-pane' ]] || fail "labelled $provider learner did not pass the origin pane ID as argument 3"
 
 	learn:$provider fixture-source || fail "unlabelled $provider learner did not launch"
 	[[ "$learner_team_label" == "learn-$provider" && "$learner_scout_command" == *"HCOM_TEAM_LABEL=learn-$provider scout "* ]] || fail "unlabelled $provider learner tags changed"
+	[[ "$learner_origin_terminal_id" == 'fixture-origin-pane' ]] || fail "unlabelled $provider learner did not pass the origin pane ID as argument 3"
 done
 
 print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"

@@ -65,17 +65,20 @@ _hcom_learning_context() {
 #     The team label shared by the learner and its Scout, such as learn-claude or learn-claude-docs.
 # @param  {string}  working_directory
 #     Directory shared by the learner and its Scout.
+# @param  {string}  origin_terminal_id
+#     Ghostty pane that ran the learner command.
 _hcom_learning_open_scout() {
 	local command_name="$1"  # Public command name, used in the layout-failure error message.
 	local team_label="$2"  # Team label shared by the learner and its Scout.
 	local working_directory="$3"  # Directory shared by the learner and its Scout.
+	local origin_terminal_id="$4"  # Ghostty pane that ran the learner command.
 	local account_env  # Account override assignments typed into the new Scout pane's shell.
 	local scout_command  # Full command line typed into the new Scout pane.
 
 	account_env="$(_hcom_account_environment)"
 	scout_command="${account_env}HCOM_TEAM_LABEL=${team_label} scout ${(q)working_directory}"
 
-	_hcom_workflow_launch_layout "$ZSH_CONFIG_ROOT/scripts/hcom-learn.applescript" "$scout_command"
+	_hcom_workflow_launch_layout "$ZSH_CONFIG_ROOT/scripts/hcom-learn.applescript" "$scout_command" "$origin_terminal_id"
 	local osascript_exit_code=$?  # Exit status from the layout script that opened the pane.
 
 	if (( osascript_exit_code != 0 )); then
@@ -135,7 +138,10 @@ _hcom_learning_launch() {
 	local working_directory="$PWD"  # Directory shared by the learner and its Scout.
 	local repository_tag  # Repository portion of the learner's role tag.
 	local learner_tag  # Exact tag used by the learner role.
+	local origin_terminal_id  # Ghostty pane that ran this command, so the Scout pane opens beside it after a tab change.
 	local -a learner_config=("${(@s:|:)HCOM_ROLE_CONFIG[$learner_role]}")  # Tool, tag, model, prompts and effort for the learner role.
+
+	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id "$command_name")" || return 1
 
 	_hcom_learning_context "$command_name" "$team_label" "$source_input" "$context" || return 1
 	learning_context=("${reply[@]}")
@@ -149,7 +155,7 @@ _hcom_learning_launch() {
 	fi
 	_hcom_refuse_live_tags "$command_name" "${learner_tag}|${learning_context[1]}" '' "$collision_hint" || return 1
 
-	_hcom_learning_open_scout "$command_name" "$team_label" "$working_directory"
+	_hcom_learning_open_scout "$command_name" "$team_label" "$working_directory" "$origin_terminal_id"
 	local layout_exit_code=$?  # Exit status from opening the Scout pane.
 
 	if (( layout_exit_code != 0 )); then
