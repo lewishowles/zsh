@@ -63,7 +63,7 @@ _hcom_read_task_team() {
 		return 1
 	fi
 	checkout_directory="${common_git_directory:h}"
-	# Ignore a tag inherited from a running task team so the folder name is read afresh.
+	# Ignore a tag inherited from a running task team, so the tag comes from this checkout's folder.
 	checkout_tag="$(HCOM_TEAM_PROJECT_TAG="" _hcom_scoped_tag "$command_name" "$checkout_directory")" || return 1
 
 	reply=("$checkout_tag" "$task_slug" "$task_status")

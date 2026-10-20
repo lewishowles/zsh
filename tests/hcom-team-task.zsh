@@ -313,6 +313,8 @@ if _hcom_read_task_team team "$fixture_dir/project" tsk_bad_slug 2>/dev/null; th
 fi
 HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_read_task_team team "$fixture_dir/project" tsk_A_B || fail 'unused project slug blocked the task address'
 [[ "${reply[1]}" == Agents ]] || fail 'project slug changed the checkout folder tag'
+HCOM_TEAM_PROJECT_TAG=Other _hcom_read_task_team team "$fixture_dir/project" tsk_A_B || fail 'inherited team tag blocked the task address'
+[[ "${reply[1]}" == Agents ]] || fail 'inherited team tag replaced the checkout folder tag'
 export HCOM_FIXTURE_GIT_LOOKUP_FAIL=1
 assert_command_error "team: could not find the main checkout for $fixture_dir/project." _hcom_read_task_team team "$fixture_dir/project" tsk_A_B
 unset HCOM_FIXTURE_GIT_LOOKUP_FAIL
