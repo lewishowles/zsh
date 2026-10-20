@@ -95,7 +95,8 @@ _hcom_find_quick_task() {
 	reply=("$(jq -r --arg slug "$task_slug" '[.data.items[] | select(.slug == $slug and .status != "done") | .id][0] // empty' <<<"$tasks_json")")
 }
 
-# Finds an unfinished quick task for a label or creates one, returning its ID in reply.
+# Finds an unfinished quick task for a label or creates one. Sets reply to the
+# task ID, then 1 if this call created the task or 0 if it already existed.
 # Prints the Progress error and returns 1 when listing or adding fails.
 #
 # @param  {string}  command_name
@@ -115,6 +116,7 @@ _hcom_find_or_create_quick_task() {
 	local task_id  # ID of an unfinished matching task or the new task.
 	local added_json  # Progress response for task creation.
 	local progress_message  # Error returned by Progress.
+	local task_created=0  # Whether this launch added the quick task.
 
 	_hcom_find_quick_task "$command_name" "$working_directory" "$team_label" || return 1
 	task_id="${reply[1]}"
@@ -126,9 +128,10 @@ _hcom_find_or_create_quick_task() {
 		fi
 
 		task_id="$(jq -r '.data.id' <<<"$added_json")"
+		task_created=1
 	fi
 
-	reply=("$task_id")
+	reply=("$task_id" "$task_created")
 }
 
 # Checks a Progress worktree response for a task and sets reply to the
@@ -428,6 +431,9 @@ _hcom_launch_team() {
 
 	if [[ -n "$team_label" && -z "$launch_mode" && -z "$requested_task_id" ]]; then
 		_hcom_find_or_create_quick_task "$command_name" "$team_scope_directory" "$team_label" "$initial_prompt" || return 1
+		# Whether this launch created the quick task. The relaunch below reads it
+		# as a local rather than an environment variable, so agent panes never inherit it.
+		local quick_task_created="${reply[2]}"
 		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes)
 		if [[ -n "$initial_prompt" ]]; then
 			chosen_task_args+=(--message "$initial_prompt")
@@ -578,7 +584,9 @@ _hcom_launch_team() {
 		esac
 	fi
 
-	if [[ -n "$launch_mode" ]]; then
+	# A quick task created by the launch that called this one gets no continuation
+	# prompt, so the orchestrator receives only the human's launch note.
+	if [[ -n "$launch_mode" && "${quick_task_created:-0}" != 1 ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
 		continuation_prompt="$(_hcom_team_continuation_prompt "$command_name" "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$selected_task_id" "$team_scope_directory")" || return 1
 

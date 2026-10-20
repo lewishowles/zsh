@@ -28,6 +28,7 @@ if [[ "$1" == task && "$2" == list && "$3" == --all && "$4" == --json ]]; then
 	print -r -- "task list --all" >> "$HCOM_FIXTURE_QUICK_CALLS"
 	case "${HCOM_FIXTURE_QUICK_STATE:-new}" in
 		unfinished) print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_quick","slug":"quick-blue","status":"in-progress"}]}}' ;;
+		ready) print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_quick","slug":"quick-blue","status":"ready"}]}}' ;;
 		finished) print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_old_quick","slug":"quick-blue","status":"done"}]}}' ;;
 		list-error) print -r -- '{"ok":false,"error":{"message":"task list unavailable"}}'; exit 1 ;;
 		*) print -r -- '{"ok":true,"data":{"items":[]}}' ;;
@@ -649,14 +650,27 @@ _hcom_launch_team team:codex unused unused unused unused --team blue --message '
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '*'--slug quick-blue --title Quick: blue --overview Investigate the prompt --done-when The human says this quick work is done. --json'* ]] || fail 'quick task creation lost its details'
 [[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick && "$HCOM_ACTIVE_TEAM_TAGS" == 'Agents-quick-blue-orchestrator|Agents-quick-blue-reviewer|Agents-quick-blue-implementer|Agents-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_quick" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_quick" ]] || fail 'quick task team opened outside its checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '* && "$launched_orchestrator_prompt" == *'Note from the human:'*'Investigate the prompt'* ]] || fail 'quick task prompt lost the task ID or human note'
+[[ "$launched_orchestrator_prompt" == 'Investigate the prompt' ]] || fail 'new quick task changed the human note'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_quick\nensure tsk_quick' ]] || fail 'quick task did not create its checkout'
+
+# A new quick task without a note has no opening prompt.
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+_hcom_launch_team team:codex unused unused unused unused --team green || fail 'quick task without a note launch'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '* && -z "$launched_orchestrator_prompt" ]] || fail 'new quick task without a note received a prompt'
 
 # An unfinished quick task with the same label is reused without adding another.
 export HCOM_FIXTURE_QUICK_STATE=unfinished
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'unfinished quick task reuse'
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick ]] || fail 'unfinished quick task was added again'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '* && "$launched_orchestrator_prompt" != *'progress task start'* ]] || fail 'existing quick task skipped the normal prompt'
+
+# A ready quick task from an earlier launch gets the normal start prompt.
+export HCOM_FIXTURE_QUICK_STATE=ready
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+_hcom_launch_team team:codex unused unused unused unused --team blue || fail 'ready quick task reuse'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick ]] || fail 'ready quick task was added again'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '*$'Your command to start the task is:\nprogress task start tsk_quick --secondary'* ]] || fail 'ready quick task skipped the normal start prompt'
 
 # A finished quick task is ignored, so the launcher asks Progress for a new one.
 export HCOM_FIXTURE_QUICK_STATE=finished
