@@ -768,10 +768,10 @@ _hcom_launch_team() {
 	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
-# Shows the task, chunk and saved next steps a team will continue, then asks the
-# user to confirm before launch. Previews the selected task when there is one
-# (the task the human named, or the only in-progress task), otherwise the
-# project's next task.
+# Shows the task a team will continue, with its purpose, every chunk and its
+# status, and the saved next steps, then asks the user to confirm before launch.
+# Previews the selected task when there is one (the task the human named, or
+# the only in-progress task), otherwise the project's next task.
 #
 # Returns 0 when the continuation may start, 1 when progress or the handoff
 # cannot be read, a blocked task has no handoff to resume, or confirmation
@@ -803,12 +803,13 @@ _hcom_preview_team_continuation() {
 	local task_id  # Identifier of the current progress task.
 	local task_status  # Status of the current progress task.
 	local task_needs_start=0  # Whether the current task is ready and has not started yet.
-	local task_has_no_chunks=0  # Whether progress selected the task without a chunk to work on.
-	local pending_chunk  # The first chunk still waiting to start, used when progress has no active chunk.
-	local no_chunk_message  # Explains why the preview shows the task without a chunk.
-	local chunk_title  # Title of the next progress chunk.
-	local chunk_id  # Identifier of the next progress chunk.
-	local description  # Description of the task or chunk being previewed.
+	local overview  # The task's purpose, shown above its chunks.
+	local updated_ago  # How long ago the task last changed, such as 3h ago; empty when the time cannot be read.
+	local chunk_rows  # Ordered chunk statuses and titles for the preview.
+	local chunk_status  # The done, current, to-do or skipped marker shown before one chunk's title.
+	local chunk_title  # Title of one chunk.
+	local chunk_label=Chunks  # Label used only for the first chunk row.
+	local chunk_id  # The active chunk, or else the first pending one, whose ID is shown beside the task's.
 	local context_json  # Saved handoff for the selected task.
 	local has_handoff=0  # Whether the selected task has saved handoff details.
 	local next_step  # Next steps from the saved handoff.
@@ -854,29 +855,24 @@ _hcom_preview_team_continuation() {
 	task_title="$(jq -r '.data.task.title // ""' <<<"$progress_json")"
 	task_id="$(jq -r '.data.task.id // ""' <<<"$progress_json")"
 	task_status="$(jq -r '.data.task.status // ""' <<<"$progress_json")"
+	overview="$(jq -r '.data.task.overview // ""' <<<"$progress_json")"
+	# Progress stores UTC times with fractional seconds and a +00:00 offset, which
+	# fromdateiso8601 cannot read, so both are rewritten first.
+	updated_ago="$(jq -r '
+		.data.task.updated_at // "" |
+		try (sub("\\.[0-9]+"; "") | sub("\\+00:00$"; "Z") | fromdateiso8601 | now - . | floor |
+			if . < 60 then "just now"
+			elif . < 3600 then "\(. / 60 | floor)m ago"
+			elif . < 86400 then "\(. / 3600 | floor)h ago"
+			else "\(. / 86400 | floor)d ago" end) catch ""' <<<"$progress_json")"
+	chunk_rows="$(jq -r '.data.task.chunks // [] | sort_by(.position) | .[] |
+		[(if .status == "done" then "done" elif .status == "active" then "current"
+			elif .status == "pending" then "to-do" else "skipped" end), .title] | @tsv' <<<"$progress_json")"
 	if [[ "$task_status" == ready ]]; then
 		task_needs_start=1
 	fi
-	if jq -e '.data.chunk == null' >/dev/null 2>&1 <<<"$progress_json"; then
-		pending_chunk="$(jq -c '(.data.task.chunks // []) | map(select(.status == "pending")) | sort_by(.position) | .[0]' <<<"$progress_json")"
-		if [[ -n "$pending_chunk" && "$pending_chunk" != null ]]; then
-			chunk_title="$(jq -r '.title // ""' <<<"$pending_chunk")"
-			chunk_id="$(jq -r '.id // ""' <<<"$pending_chunk")"
-			description="$(jq -r '.description // ""' <<<"$pending_chunk")"
-		else
-			task_has_no_chunks=1
-			description="$(jq -r '.data.task.overview // ""' <<<"$progress_json")"
-			if jq -e '(.data.task.chunks // []) | length == 0' >/dev/null 2>&1 <<<"$progress_json"; then
-				no_chunk_message='Chunks have not been planned yet.'
-			else
-				no_chunk_message='No chunk is ready to start.'
-			fi
-		fi
-	else
-		chunk_title="$(jq -r '.data.chunk.title // ""' <<<"$progress_json")"
-		chunk_id="$(jq -r '.data.chunk.id // ""' <<<"$progress_json")"
-		description="$(jq -r '.data.chunk.description // ""' <<<"$progress_json")"
-	fi
+	chunk_id="$(jq -r '(.data.task.chunks // [] | map(select(.status == "active")) | .[0].id) //
+		(.data.task.chunks // [] | map(select(.status == "pending")) | sort_by(.position) | .[0].id) // ""' <<<"$progress_json")"
 
 	# A ready task starts fresh, so any handoff left on it is not shown or used.
 	if [[ "$task_status" != ready ]]; then
@@ -897,17 +893,20 @@ _hcom_preview_team_continuation() {
 
 	print
 	_hcom_print_continuation_row Task "$task_title" info bold
-	_hcom_print_continuation_row '' "$task_status · $project_name" muted
-	if (( task_has_no_chunks )); then
-		_hcom_print_continuation_row Chunk "$no_chunk_message" warning
+	_hcom_print_continuation_row '' "$task_status · $project_name${updated_ago:+ · updated $updated_ago}" muted
+	if [[ -n "$overview" ]]; then
+		_hcom_print_continuation_row Overview "$overview"
+	fi
+	if [[ -z "$chunk_rows" ]]; then
+		_hcom_print_continuation_row Chunks 'Not planned yet.' warning
 	else
-		_hcom_print_continuation_row Chunk "$chunk_title"
+		while IFS=$'\t' read -r chunk_status chunk_title; do
+			_hcom_print_continuation_row "$chunk_label" "$chunk_status · $chunk_title"
+			chunk_label=''
+		done <<<"$chunk_rows"
 	fi
 	if [[ -n "$next_step" ]]; then
 		_hcom_print_continuation_row Next "$next_step"
-	fi
-	if [[ -n "$description" ]]; then
-		_hcom_print_continuation_row Details "$description" muted normal 3
 	fi
 	_hcom_print_continuation_row '' "Task: $task_id${chunk_id:+  Chunk: $chunk_id}" muted
 	print
@@ -956,15 +955,11 @@ _hcom_preview_team_continuation() {
 #     The cli_style_span style for the body, or empty to print it plainly.
 # @param  {string}  weight
 #     The cli_style_span weight for a styled body; normal unless given.
-# @param  {number}  max_lines
-#     The most wrapped lines to show, ending the last with an ellipsis when the
-#     body runs longer; every line shows when it is 0 or not given.
 _hcom_print_continuation_row() {
 	local label="$1"  # Label occupying the fixed first column.
 	local body="$2"  # Body text, which may contain newlines.
 	local tone="${3:-}"  # Optional body colour.
 	local weight="${4:-normal}"  # Optional body weight.
-	local max_lines="${5:-0}"  # Line limit for the body, or 0 for no limit.
 	local label_text  # Styled label with its padding.
 	local body_line  # One body line to print.
 	local first_line=1  # Whether the label belongs on this line.
@@ -972,7 +967,7 @@ _hcom_print_continuation_row() {
 	local screen_width=${COLUMNS:-80}  # Terminal width, capped at 80 columns. A non-interactive shell can report 0.
 	local wrap_width  # Columns left for the body beside the label.
 	local wrapped_body  # Body with each line folded to the available width.
-	local -a body_lines  # Folded lines, cut to the line limit when one is given.
+	local -a body_lines  # Folded lines of the body.
 
 	if (( screen_width <= label_column_width || screen_width > 80 )); then
 		screen_width=80
@@ -980,9 +975,6 @@ _hcom_print_continuation_row() {
 	wrap_width=$((screen_width - label_column_width))
 	wrapped_body="$(printf '%s\n' "$body" | fold -s -w "$wrap_width")"
 	body_lines=("${(@f)wrapped_body}")
-	if (( max_lines > 0 && ${#body_lines} > max_lines )); then
-		body_lines=("${(@)body_lines[1,$((max_lines - 1))]}" "${body_lines[$max_lines][1,$((wrap_width - 1))]}…")
-	fi
 
 	if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
 		local -x FORCE_COLOR=1
@@ -1006,9 +998,8 @@ _hcom_print_continuation_row() {
 # A named task is used as it is. Otherwise the project's only in-progress task
 # is used, or no task when none is in progress. A task picker opens when
 # several tasks are in progress, or when the human declined the suggested task.
-# The picker lists in-progress tasks, most recently updated first, then ready
-# tasks in queue order, and uses fzf when it is installed or a numbered list
-# when it is not.
+# The picker lists in-progress and ready tasks in queue order, and uses fzf
+# when it is installed or a numbered list when it is not.
 #
 # Returns 0 with reply=(task_id picker_chosen): the task ID, empty when nothing
 # is in progress, and 1 when the human chose it in the picker or 0 otherwise.
@@ -1034,12 +1025,13 @@ _hcom_select_in_progress_task() {
 	local ready_tasks_json  # Ready tasks returned by a separate progress query.
 	local task_count  # Number of in-progress tasks in the project.
 	local listed_task_id  # The ID of one task while a task list is printed or read into the numbered picker.
-	local listed_task_title  # The title shown beside that task's ID.
+	local listed_task_status  # Short status label shown before the task title.
+	local listed_task_title  # The title of that task.
 	local selected_task  # The row picked in fzf, or the number typed at the prompt.
-	local task_rows  # One tab-separated ID and title per task, for the no-terminal list, both pickers and the commands printed on cancel.
+	local task_rows  # Tab-separated rows: ID and title for the no-terminal list, or ID, status label and title for both pickers and the commands printed on cancel.
 	local task_number  # The number shown beside one task in the numbered list.
 	local preview_command  # The command fzf runs to show the highlighted task's continue screen. It runs in a fresh shell, so it loads the shared environment (for the cli-style text helpers) as well as the HCOM files.
-	local -a task_ids task_titles  # The IDs and titles behind each number in the list.
+	local -a task_ids task_titles  # The ID behind each number in the list, and the status label and title shown beside it.
 
 	if ! command -v jq >/dev/null 2>&1; then
 		_hcom_command_error "$command_name" '' 'jq' ' is required to find the task to continue.'
@@ -1081,10 +1073,11 @@ _hcom_select_in_progress_task() {
 				_hcom_command_error "$command_name" 'could not list ready tasks in ' "$working_directory" '.'
 				return 1
 			fi
+			# The ready label is padded to the width of "in progress" so every title starts
+			# in the same column.
 			task_rows="$(jq -nr --argjson active "$tasks_json" --argjson ready "$ready_tasks_json" '
-				($active.data.items | sort_by(.updated_at // "") | reverse) +
-				($ready.data.items | sort_by(.position // 0)) |
-				.[] | [.id, .title] | @tsv')"
+				[($active.data.items + $ready.data.items)[]] | sort_by(.position) | .[] |
+				[.id, (if .status == "in-progress" then "in progress" else "ready      " end), .title] | @tsv')"
 			if [[ -z "$task_rows" ]]; then
 				_hcom_command_error "$command_name" 'no in-progress or ready tasks to choose in ' "$working_directory" '.'
 				return 1
@@ -1092,15 +1085,15 @@ _hcom_select_in_progress_task() {
 
 			if command -v fzf >/dev/null 2>&1; then
 				preview_command="zsh -c 'source \"\$1/environment.zsh\"; source \"\$1/aliases.hcom-core.zsh\"; source \"\$1/aliases.hcom-team.zsh\"; _hcom_preview_team_continuation \"\$2\" \"\$3\" 1 \"\$4\"' _ ${(q)ZSH_CONFIG_ROOT} ${(q)command_name} ${(q)working_directory} {1}"
-				selected_task="$(fzf --delimiter=$'\t' --with-nth=2,1 --prompt='Which task? ' --preview "$preview_command" <<<"$task_rows")" || selected_task=''
+				selected_task="$(fzf --delimiter=$'\t' --with-nth=2,3 --gap --prompt='Which task? ' --preview "$preview_command" <<<"$task_rows")" || selected_task=''
 				[[ -n "$selected_task" ]] && task_id="${selected_task%%$'\t'*}"
 			else
-				while IFS=$'\t' read -r listed_task_id listed_task_title; do
+				while IFS=$'\t' read -r listed_task_id listed_task_status listed_task_title; do
 					task_ids+=("$listed_task_id")
-					task_titles+=("$listed_task_title")
+					task_titles+=("$listed_task_status  $listed_task_title")
 				done <<<"$task_rows"
 				for (( task_number = 1; task_number <= ${#task_ids}; task_number++ )); do
-					printf '  %s. %s  %s\n' "$task_number" "${task_titles[$task_number]}" "${task_ids[$task_number]}" >&2
+					printf '  %s. %s\n' "$task_number" "${task_titles[$task_number]}" >&2
 				done
 
 				# An empty answer cancels; anything else that is not a listed number asks again.
@@ -1115,7 +1108,7 @@ _hcom_select_in_progress_task() {
 			fi
 
 			if [[ -z "$task_id" ]]; then
-				while IFS=$'\t' read -r listed_task_id listed_task_title; do
+				while IFS=$'\t' read -r listed_task_id listed_task_status listed_task_title; do
 					printf '%s\n' "$listed_task_title" >&2
 					if [[ "$command_name" == cont ]]; then
 						printf '  cont %s\n' "$listed_task_id" >&2

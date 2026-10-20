@@ -72,11 +72,11 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 		print -r -- "{\"ok\":true,\"data\":{\"items\":[{\"id\":\"$HCOM_FIXTURE_ONLY_TASK_ID\"}]}}"
 		exit 0
 	fi
-	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B","title":"First task","updated_at":"2026-10-18T10:00:00Z"},{"id":"tsk_a_B","title":"Other task","updated_at":"2026-10-19T10:00:00Z"}]}}'
+	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B","title":"First task","status":"in-progress","position":3},{"id":"tsk_a_B","title":"Other task","status":"in-progress","position":1}]}}'
 	exit 0
 fi
 if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == ready && "$5" == --all && "$6" == --json ]]; then
-	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_ready_two","title":"Second ready task","position":2},{"id":"tsk_A-B","title":"Earlier ready task","position":1}]}}'
+	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_ready_two","title":"Second ready task","status":"ready","position":4},{"id":"tsk_A-B","title":"Earlier ready task","status":"ready","position":2}]}}'
 	exit 0
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; then
@@ -131,9 +131,10 @@ fi
 task_status=ready
 task_title='Selected task'  # Title the preview shows for the named task.
 task_chunks='[]'  # Chunk records returned with the task, as JSON.
+task_overview='Choose the next fixture task.'  # Purpose shown above the chunk list.
 case "$3" in
 	tsk_A_B) task_slug=continue-parallel-task-teams ;;
-	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_chunks='[{"id":"chk_active","title":"Active chunk","status":"active","description":"These details explain the current work in enough words to fill more than three narrow terminal lines while keeping the final part hidden from view."},{"id":"chk_pending","title":"Pending chunk","status":"pending"}]' ;;
+	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_overview='Finish the fixture work in order.'; task_chunks='[{"id":"chk_pending","title":"Pending chunk","status":"pending","position":3},{"id":"chk_skipped","title":"Skipped chunk","status":"skipped","position":4},{"id":"chk_active","title":"Active chunk","status":"active","position":2},{"id":"chk_done","title":"Finished chunk","status":"done","position":1}]' ;;
 	tsk_A-B) task_slug=third-task ;;
 	tsk_ready_two) task_slug=second-ready-task ;;
 	tsk_bad_slug) task_slug='Bad_Task' ;;
@@ -144,7 +145,7 @@ case "$3" in
 	*) print -r -- '{"ok":false}'; exit 1 ;;
 esac
 [[ "$3" == "${HCOM_FIXTURE_FINISHED_TASK_ID:-}" ]] && task_status=done
-print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
+print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"overview\":\"$task_overview\",\"updated_at\":\"2026-10-19T10:00:00.123456+00:00\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
 STUB
 
 # Resolves the main checkout, reports controlled changes, and logs Git status calls.
@@ -200,24 +201,24 @@ cli_style_span() {
 
 # Preview text for a ready named task.
 named_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_A_B)" || fail 'named task preview builds'
-[[ "$named_preview" == *'Task     Selected task'* && "$named_preview" == *'         ready · Fixture'* && "$named_preview" == *'Chunk    Chunks have not been planned yet.'* && "$named_preview" == *'Task: tsk_A_B'* ]] || fail 'named preview omits labelled task details'
+[[ "$named_preview" == *'Task     Selected task'* && "$named_preview" == *'         ready · Fixture · updated '*'ago'* && "$named_preview" == *'Overview Choose the next fixture task.'* && "$named_preview" == *'Chunks   Not planned yet.'* && "$named_preview" == *'Task: tsk_A_B'* ]] || fail 'named preview omits task status or purpose'
 [[ "$named_preview" != *'Next     '* ]] || fail 'named preview shows a next step without a handoff'
 [[ "$named_preview" != *'Fixture task'* ]] || fail 'named preview shows the default task'
 # Preview text for a started named task with an active chunk.
 started_preview="$(_hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'started task preview builds'
-[[ "$started_preview" == *'Task     Other task'* && "$started_preview" == *'         in-progress · Fixture'* ]] || fail 'started preview omits the selected task status'
-[[ "$started_preview" == *'Chunk    Active chunk'* && "$started_preview" == *'Task: tsk_a_B  Chunk: chk_active'* && "$started_preview" != *'Pending chunk'* ]] || fail 'started preview skipped the active chunk'
+[[ "$started_preview" == *'Task     Other task'* && "$started_preview" == *'         in-progress · Fixture · updated '* && "$started_preview" == *'Overview Finish the fixture work in order.'* ]] || fail 'started preview omits task status or purpose'
+[[ "$started_preview" == *'Chunks   done · Finished chunk'*'         current · Active chunk'*'         to-do · Pending chunk'*'         skipped · Skipped chunk'* && "$started_preview" == *'Task: tsk_a_B  Chunk: chk_active'* && "$started_preview" != *$'\nChunk '* ]] || fail 'started preview omitted, mislabelled, or misordered chunks'
 export HCOM_FIXTURE_HAS_HANDOFF=1
 handoff_preview="$(COLUMNS=45 _hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'handoff preview builds'
 [[ "$handoff_preview" == *'Next     1. Read the saved handoff'*$'\n''         2. Resume the task'* ]] || fail 'next steps do not hang beneath their label'
-[[ "$handoff_preview" == *'Details  '*$'\n''         '*$'\n''         '*…* && "$handoff_preview" != *'hidden from view'* ]] || fail 'details preview is not cut to three lines'
+[[ "$handoff_preview" != *'Details  '* ]] || fail 'preview still shows the old details block'
 [[ "$handoff_preview" != *'Continue the fixture task'* ]] || fail 'handoff goal repeats the task title'
 printf '%s\n' "$handoff_preview" | awk -F 'tsk_a_B' 'NF > 0 { count += NF - 1 } END { exit count != 1 }' || fail 'handoff preview repeats the task ID'
 printf '%s\n' "$handoff_preview" | awk -F 'Active chunk' 'NF > 0 { count += NF - 1 } END { exit count != 1 }' || fail 'handoff preview repeats the chunk title'
 export HCOM_FIXTURE_LONG_NEXT_STEP=1
 long_next_preview="$(COLUMNS=80 _hcom_preview_team_continuation team "$fixture_dir/project" 1 tsk_a_B)" || fail 'long next step preview builds'
 next_block="${long_next_preview#*Next     }"  # The Next row's text, without its label.
-next_block="${next_block%%$'\n'Details*}"
+next_block="${next_block%%$'\n'         Task:*}"
 next_lines=("${(@f)next_block}")  # Next row lines after the first label has been removed.
 [[ "${#next_lines}" -gt 1 ]] || fail 'long next step did not wrap'
 for continuation_line in "${next_lines[@]:1}"; do
@@ -462,7 +463,7 @@ STUB
 # A PATH that hides any installed fzf but keeps the fixture commands and jq.
 numbered_path="$fixture_dir/bin:${$(command -v jq):h}:/usr/bin:/bin:/usr/sbin:/sbin"
 numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" invalid-then-pick)" || fail 'numbered selector process failed'
-[[ "$numbered_output" == *'1. Other task  tsk_a_B'* && "$numbered_output" == *'2. First task  tsk_A_B'* && "$numbered_output" == *'Choose a number from 1 to 4'* && "$numbered_output" == *'SELECTED:tsk_a_B:1'* ]] || fail 'numbered selector did not order and choose the tasks'
+[[ "$numbered_output" == *'1. in progress  Other task'*'2. ready        Earlier ready task'*'3. in progress  First task'*'4. ready        Second ready task'* && "$numbered_output" == *'Choose a number from 1 to 4'* && "$numbered_output" == *'SELECTED:tsk_a_B:1'* ]] || fail 'numbered selector did not order and align the tasks'
 numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'numbered cancellation process failed'
 [[ "$numbered_output" == *$'Other task\r\n  cont tsk_a_B'* && "$numbered_output" == *$'Earlier ready task\r\n  cont tsk_A-B'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'SELECTED:'* ]] || fail 'empty answer did not print continuation commands'
 numbered_output="$(env PATH="$numbered_path" HCOM_FIXTURE_SELECTOR_COMMAND=team:codex NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'team selector cancellation process failed'
@@ -485,10 +486,10 @@ chmod +x "$fixture_dir/bin/fzf"
 export HCOM_FIXTURE_FZF_INPUT="$fixture_dir/fzf-input"
 export HCOM_FIXTURE_FZF_ARGS="$fixture_dir/fzf-args"
 fzf_output="$(env NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-fzf)" || fail 'fzf selector process failed'
-[[ "$fzf_output" == *'SELECTED:tsk_a_B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == $'tsk_a_B\tOther task\ntsk_A_B\tFirst task\ntsk_A-B\tEarlier ready task\ntsk_ready_two\tSecond ready task' ]] || fail 'fzf selector did not order active and ready tasks'
-[[ "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--preview '* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'_hcom_preview_team_continuation'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'aliases.hcom-team.zsh'* ]] || fail 'fzf selector did not wire the continue screen preview'
+[[ "$fzf_output" == *'SELECTED:tsk_a_B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == $'tsk_a_B\tin progress\tOther task\ntsk_A-B\tready      \tEarlier ready task\ntsk_A_B\tin progress\tFirst task\ntsk_ready_two\tready      \tSecond ready task' ]] || fail 'fzf selector did not order and align active and ready tasks'
+[[ "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--with-nth=2,3'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--gap'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--preview '* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'_hcom_preview_team_continuation'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'aliases.hcom-team.zsh'* ]] || fail 'fzf selector did not hide the ID or wire the spaced preview'
 fzf_output="$(env HCOM_FIXTURE_FORCE_PICKER=1 HCOM_FIXTURE_FZF_READY=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-ready)" || fail 'declined-task picker process failed'
-[[ "$fzf_output" == *'SELECTED:tsk_A-B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tOther task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A-B\tEarlier ready task'* ]] || fail 'declined-task picker lost the suggested task or a ready choice'
+[[ "$fzf_output" == *'SELECTED:tsk_A-B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tin progress\tOther task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A-B\tready      \tEarlier ready task'* ]] || fail 'declined-task picker lost the suggested task or a ready choice'
 fzf_output="$(env HCOM_FIXTURE_FZF_CANCEL=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-fzf)" || fail 'fzf cancellation process failed'
 [[ "$fzf_output" == *$'Other task\r\n  cont tsk_a_B'* && "$fzf_output" == *$'Second ready task\r\n  cont tsk_ready_two'* && "$fzf_output" == *'CANCELLED'* && "$fzf_output" != *'SELECTED:'* ]] || fail 'fzf cancellation did not print continuation commands'
 
