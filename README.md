@@ -221,7 +221,6 @@ The pre-commit hook regenerates the command table automatically before each comm
 | --- | --- | --- |
 | `acct1` |  | Run any command under the default Claude/Codex account (e.g. acct1 claude, acct1 team) |
 | `acct2` |  | Run any command under the second Claude/Codex account (e.g. acct2 claude, acct2 team) |
-| `agent:usage` |  | Show five-hour and weekly quota used on both Claude and Codex accounts |
 | `agents` |  | Open the current AGENTS.md file |
 | `claude` |  | Run Claude in auto-mode on the account with more quota headroom |
 | `codex` |  | Run Codex on the account with more quota headroom |
@@ -298,6 +297,28 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes] | Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over |
 | `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes] | Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over |
 | `team:done` | --team <label> | Stop a labelled quick team and complete its task |
+
+### nav
+
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `goto:agents` |  | Open the agent configuration directory |
+| `goto:airops` |  | Open the AirOps Admin root |
+| `goto:anpr` |  | Open the Gatekeeper Admin root |
+| `goto:blog` |  | Open the blog project |
+| `goto:boilerplate` |  | Open the boilerplate project |
+| `goto:boilersuit` |  | Open the Boilersuit macOS app project |
+| `goto:cli` |  | Open the CLI style library project |
+| `goto:components` |  | Open the Vue component library project |
+| `goto:helpers` |  | Open the JavaScript helper library project |
+| `goto:howles` |  | Open the primary website project |
+| `goto:lint` |  | Open the central linting project |
+| `goto:sketch` |  | Open the Sketch plugins root |
+| `goto:testing` |  | Open the testing helper library project |
+| `goto:timer` |  | Open the Lew Timer macOS app project |
+| `goto:tools` |  | Open the dev tools project |
+| `goto:usage` |  | Open the Lew Usage macOS app project |
+| `goto:zsh` |  | Open the ZSH config repo |
 
 ### package
 
