@@ -25,10 +25,11 @@ _hcom_team_tags() {
 	print -r -- "$tag_prefix-orchestrator|$tag_prefix-reviewer|$tag_prefix-implementer|$tag_prefix-scout"
 }
 
-# Reads the task's team address and status into `reply`. The slugs keep a task
-# team's tags the same in any checkout. Fails when Progress cannot read the task
-# or a slug holds anything other than lowercase letters, digits, and inner
-# hyphens.
+# Reads the task's team address and status into `reply`. The address starts
+# with the main checkout's folder name, so a team gets the same tags in the
+# checkout and in any of its worktrees. Fails when Progress cannot read the
+# task, the task slug is not safe for a tag, or Git cannot find the main
+# checkout.
 #
 # @param  {string}  command_name
 #     The public command shown in task errors.
@@ -42,28 +43,30 @@ _hcom_read_task_team() {
 	local working_directory="$2"  # Checkout used for the task lookup.
 	local task_id="$3"  # Exact task ID used to find the Progress record.
 	local task_json  # Selected task and its project record from Progress.
-	local project_slug task_slug task_status  # Slugs for the team address, and the task's Progress status.
-	local -a slugs slug_names  # Values and names checked against the tag-safe slug rule.
-	local index  # Position of the slug being validated.
+	local task_slug task_status  # The validated task slug and its status.
+	local common_git_directory checkout_directory checkout_tag  # Main checkout used to name the team.
 
-	if ! task_json="$(cd "$working_directory" && progress task get "$task_id" --json 2>/dev/null)" || ! jq -e --arg task_id "$task_id" '.ok == true and .data.id == $task_id and (.data.project.slug | type == "string") and (.data.slug | type == "string")' >/dev/null 2>&1 <<<"$task_json"; then
+	if ! task_json="$(cd "$working_directory" && progress task get "$task_id" --json 2>/dev/null)" || ! jq -e --arg task_id "$task_id" '.ok == true and .data.id == $task_id and (.data.slug | type == "string")' >/dev/null 2>&1 <<<"$task_json"; then
 		_hcom_command_error "$command_name" 'could not read task ' "$task_id" ' in ' "$working_directory" '.'
 		return 1
 	fi
 
-	project_slug="$(jq -r '.data.project.slug' <<<"$task_json")"
 	task_slug="$(jq -r '.data.slug' <<<"$task_json")"
 	task_status="$(jq -r '.data.status // ""' <<<"$task_json")"
-	slugs=("$project_slug" "$task_slug")
-	slug_names=(project task)
-	for index in 1 2; do
-		if [[ -z "${slugs[index]}" || "${slugs[index]}" == -* || "${slugs[index]}" == *- || "${slugs[index]}" == *[^a-z0-9-]* ]]; then
-			_hcom_command_error "$command_name" 'invalid Progress ' "${slug_names[index]}" ' slug: ' "${slugs[index]}"
-			return 1
-		fi
-	done
+	if [[ -z "$task_slug" || "$task_slug" == -* || "$task_slug" == *- || "$task_slug" == *[^a-z0-9-]* ]]; then
+		_hcom_command_error "$command_name" 'invalid Progress task slug: ' "$task_slug"
+		return 1
+	fi
 
-	reply=("$project_slug" "$task_slug" "$task_status")
+	if ! common_git_directory="$(git -C "$working_directory" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || [[ "${common_git_directory:t}" != .git ]]; then
+		_hcom_command_error "$command_name" 'could not find the main checkout for ' "$working_directory" '.'
+		return 1
+	fi
+	checkout_directory="${common_git_directory:h}"
+	# Ignore a tag inherited from a running task team so the folder name is read afresh.
+	checkout_tag="$(HCOM_TEAM_PROJECT_TAG="" _hcom_scoped_tag "$command_name" "$checkout_directory")" || return 1
+
+	reply=("$checkout_tag" "$task_slug" "$task_status")
 }
 
 # Finds an unfinished quick task for a label, returning its ID or an empty string in reply.
@@ -292,6 +295,7 @@ _hcom_team_continuation_prompt() {
 	local working_directory="${6:-$PWD}"  # Checkout used to list the project's in-progress tasks.
 	local tasks_json  # In-progress task records in the selected project.
 	local other_task_ids  # Comma-separated IDs of the other in-progress tasks.
+	local start_command  # Command that starts the selected task, as a secondary task when others are in progress.
 
 	case "$launch_mode" in
 		resume)
@@ -306,15 +310,17 @@ _hcom_team_continuation_prompt() {
 				fi
 
 				other_task_ids="$(jq -r --arg task_id "$selected_task_id" '[.data.items[].id | select(. != $task_id)] | join(", ")' <<<"$tasks_json")" || return 1
-				print -r -- "Continue task ${selected_task_id}. This selected task takes precedence over bare \`progress next\`. Use the \`project-continue\` skill to read its task and chunk records."
+				print -r -- "Continue task ${selected_task_id} with the \`project-continue\` skill, not the \`progress next\` result."
 				if [[ -n "$other_task_ids" ]]; then
-					print -r -- "Other in-progress task IDs: ${other_task_ids}."
-				else
-					print -r -- 'No other tasks are in progress.'
+					print -r -- ''
+					print -r -- "These tasks are in progress and should not be modified: ${other_task_ids}"
 				fi
 				if (( task_needs_start )); then
-					print -r -- "After your own clean-tree check, start task ${selected_task_id} with \`progress task start ${selected_task_id} --secondary\` if another task is in progress; otherwise start it with \`progress task start ${selected_task_id}\`."
-					print -r -- "If it has no chunks, plan them with the \`project-plan-task\` skill. Review all its chunks with the \`project-review-task\` skill and fix any that fail. Present the chunk plan to the human for approval before dispatching implementation."
+					start_command="progress task start ${selected_task_id}"
+					[[ -n "$other_task_ids" ]] && start_command+=' --secondary'
+					print -r -- ''
+					print -r -- 'Your command to start the task is:'
+					print -r -- "$start_command"
 				fi
 			else
 				print -r -- "Use the \`project-continue\` skill to retrieve the current progress records and continue with the next ready work."
@@ -401,7 +407,7 @@ _hcom_launch_team() {
 	local skip_confirmation="${reply[5]}"  # Whether to start a continuation without prompting.
 	local requested_task_id="${reply[6]}"  # Task named with --task, or empty to find the in-progress task.
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
-	local team_project_tag=""  # Address prefix for every role: the project name for a named task's team, or the original checkout's name for the root team.
+	local team_project_tag=""  # Main checkout folder tag for a task team, or original checkout folder tag for a root team.
 	local launch_team_tags=""  # Exact role tags checked before pane creation.
 	local requested_task_status=""  # Progress status of the explicitly selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
@@ -1612,7 +1618,7 @@ _hcom_resolve_team_stop_scope() {
 	local command_name="$1"  # Public command responsible for the stop.
 	local working_directory="$2"  # Project directory where the task is recorded.
 	local task_id="$3"  # Task ID used to derive the team address.
-	local team_project_tag=""  # Project slug for the task team.
+	local team_project_tag=""  # Main checkout folder tag for the task team.
 	local team_label=""  # Label derived from the task.
 	local team_tags=""  # Exact tags resolved for the requested stop scope.
 	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.

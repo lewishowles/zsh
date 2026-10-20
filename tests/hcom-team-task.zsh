@@ -10,7 +10,7 @@ unset HCOM_TEAM_LABEL HCOM_TEAM_PROJECT_TAG
 repo_root="${0:A:h:h}"  # Repository containing the alias files under test.
 fixture_dir="$(mktemp -d)"  # Isolated command stubs and agent-list data.
 trap 'rm -rf "$fixture_dir"' EXIT
-mkdir -p "$fixture_dir/bin" "$fixture_dir/project" "$fixture_dir/worktree-state" "$fixture_dir/tsk_A__B" "$fixture_dir/tsk_a_B" "$fixture_dir/tsk_A_-B" "$fixture_dir/tsk_quick"
+mkdir -p "$fixture_dir/bin" "$fixture_dir/Agents" "$fixture_dir/project" "$fixture_dir/worktree-state" "$fixture_dir/tsk_A__B" "$fixture_dir/tsk_a_B" "$fixture_dir/tsk_A_-B" "$fixture_dir/tsk_quick"
 
 # Fails with a focused assertion message.
 #
@@ -147,9 +147,14 @@ esac
 print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
 STUB
 
-# Reports controlled checkout changes and logs each Git status call.
+# Resolves the main checkout, reports controlled changes, and logs Git status calls.
 cat > "$fixture_dir/bin/git" <<'STUB'
 #!/usr/bin/env zsh
+if [[ "$1" == -C && "$3" == rev-parse && "$4" == --path-format=absolute && "$5" == --git-common-dir ]]; then
+	[[ "${HCOM_FIXTURE_GIT_LOOKUP_FAIL:-0}" == 1 ]] && exit 1
+	print -r -- "${HCOM_FIXTURE_GIT_COMMON_DIR:-$HCOM_FIXTURE_MAIN_CHECKOUT/.git}"
+	exit 0
+fi
 [[ "$1" == -C && "$3" == status && ( "$4" == --short || "$4" == --porcelain ) ]] || exit 1
 print -r -- "$2 $4" >> "$HCOM_FIXTURE_GIT_CALLS"
 if [[ "${HCOM_FIXTURE_GIT_DIRTY:-0}" == 1 ]]; then
@@ -170,6 +175,7 @@ export HCOM_FIXTURE_WORKTREE_CALLS="$fixture_dir/worktree-calls"
 export HCOM_FIXTURE_QUICK_CALLS="$fixture_dir/quick-calls"
 export HCOM_FIXTURE_COMPLETE_CALLS="$fixture_dir/complete-calls"
 export HCOM_FIXTURE_GIT_CALLS="$fixture_dir/git-calls"
+export HCOM_FIXTURE_MAIN_CHECKOUT="$fixture_dir/Agents"
 export HCOM_FIXTURE_CONTEXT_CALLS="$fixture_dir/context-calls"
 export HCOM_FIXTURE_WORKTREE_STATE_DIR="$fixture_dir/worktree-state"
 export HCOM_FIXTURE_WORKTREE_ROOT="$fixture_dir"
@@ -288,10 +294,10 @@ unfunction pbpaste
 assert_command_error 'team:codex: unknown team continuation mode: invalid' _hcom_team_continuation_prompt team:codex invalid 0
 
 _hcom_read_task_team team "$fixture_dir/project" tsk_A_B || fail 'task address derives'
-project_tag="${reply[1]}"  # Stable project slug for comparisons.
+project_tag="${reply[1]}"  # Stable main checkout folder tag for comparisons.
 team_label="${reply[2]}"  # Readable task slug for stop targeting.
-[[ "$project_tag" == zsh-config && "$team_label" == continue-parallel-task-teams ]] || fail 'task address is not the Progress slugs'
-[[ "$project_tag$team_label" != *[^a-z0-9-]* ]] || fail 'task address has unsafe characters'
+[[ "$project_tag" == Agents && "$team_label" == continue-parallel-task-teams ]] || fail 'task address does not use the main checkout folder'
+[[ "$project_tag$team_label" != *[^a-zA-Z0-9-]* ]] || fail 'task address has unsafe characters'
 _hcom_read_task_team team "$fixture_dir/tsk_A__B" tsk_A_B || fail 'worktree address derives'
 [[ "${reply[1]}" == "$project_tag" && "${reply[2]}" == "$team_label" ]] || fail 'worktree changes the address'
 _hcom_read_task_team team "$fixture_dir/project" tsk_a_B || fail 'case-distinct address derives'
@@ -305,9 +311,14 @@ fi
 if _hcom_read_task_team team "$fixture_dir/project" tsk_bad_slug 2>/dev/null; then
 	fail 'invalid task slug was rewritten or accepted'
 fi
-if HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_read_task_team team "$fixture_dir/project" tsk_A_B 2>/dev/null; then
-	fail 'invalid project slug was rewritten or accepted'
-fi
+HCOM_FIXTURE_PROJECT_SLUG='Bad_Project' _hcom_read_task_team team "$fixture_dir/project" tsk_A_B || fail 'unused project slug blocked the task address'
+[[ "${reply[1]}" == Agents ]] || fail 'project slug changed the checkout folder tag'
+export HCOM_FIXTURE_GIT_LOOKUP_FAIL=1
+assert_command_error "team: could not find the main checkout for $fixture_dir/project." _hcom_read_task_team team "$fixture_dir/project" tsk_A_B
+unset HCOM_FIXTURE_GIT_LOOKUP_FAIL
+export HCOM_FIXTURE_GIT_COMMON_DIR="$fixture_dir/Agents/.git/modules/example"
+assert_command_error "team: could not find the main checkout for $fixture_dir/project." _hcom_read_task_team team "$fixture_dir/project" tsk_A_B
+unset HCOM_FIXTURE_GIT_COMMON_DIR
 
 team_tags="$(HCOM_TEAM_PROJECT_TAG="$project_tag" _hcom_team_tags team "$fixture_dir/project" "$team_label")"  # Role tags for the selected task.
 [[ "$team_tags" == "$project_tag-$team_label-orchestrator|"* ]] || fail 'role tags do not share task address'
@@ -382,13 +393,15 @@ plain_ready_prompt="$(_hcom_team_continuation_prompt team continue 1)"  # Prompt
 [[ "$plain_ready_prompt" == *'Start the selected task. If it has no chunks, plan them with the `project-plan-task` skill.'* ]] || fail 'plain ready prompt changed'
 # Prompt for a ready task chosen by ID.
 named_prompt="$(_hcom_team_continuation_prompt team continue 1 '' tsk_A_B "$fixture_dir/project")" || fail 'named ready prompt builds'
-[[ "$named_prompt" == *'Continue task tsk_A_B. This selected task takes precedence over bare `progress next`.'* ]] || fail 'named prompt does not select the task'
-[[ "$named_prompt" == *'Other in-progress task IDs: tsk_a_B.'* ]] || fail 'named prompt omits another active task'
-[[ "$named_prompt" == *'progress task start tsk_A_B --secondary'* && "$named_prompt" == *'clean-tree check'* ]] || fail 'named ready prompt omits safe secondary start'
-[[ "$named_prompt" != *'Other in-progress task IDs: tsk_A_B'* ]] || fail 'named prompt lists its own task as another'
+[[ "$named_prompt" == 'Continue task tsk_A_B with the `project-continue` skill, not the `progress next` result.
+
+These tasks are in progress and should not be modified: tsk_a_B
+
+Your command to start the task is:
+progress task start tsk_A_B --secondary' ]] || fail 'named ready prompt changed'
 # Prompt for an in-progress task chosen by ID.
 named_started_prompt="$(_hcom_team_continuation_prompt team continue 0 '' tsk_a_B "$fixture_dir/project")" || fail 'named in-progress prompt builds'
-[[ "$named_started_prompt" == *'Other in-progress task IDs: tsk_A_B.'* && "$named_started_prompt" != *'progress task start'* ]] || fail 'named in-progress prompt restarts the task'
+[[ "$named_started_prompt" == *'should not be modified: tsk_A_B' && "$named_started_prompt" != *'progress task start'* ]] || fail 'named in-progress prompt restarts the task'
 # Check the real selector before the launch fixture replaces it.
 _hcom_select_in_progress_task team "$fixture_dir/project" tsk_a_B || fail 'selector refused an explicitly named task'
 [[ "${reply[1]}" == tsk_a_B && "${reply[2]}" == 0 ]] || fail 'selector treated an explicitly named task as a picker choice'
@@ -624,16 +637,16 @@ unset HCOM_FIXTURE_HAS_HANDOFF
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_A_B.'* ]] || fail 'ready task did not use the continue prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_A_B with '* ]] || fail 'ready task did not use the continue prompt'
 
 # A label creates its quick task and launches through the named-task checkout path.
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team blue --message 'Investigate the prompt' || fail 'labelled quick task launch'
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '*'--slug quick-blue --title Quick: blue --overview Investigate the prompt --done-when The human says this quick work is done. --json'* ]] || fail 'quick task creation lost its details'
-[[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick && "$HCOM_ACTIVE_TEAM_TAGS" == 'zsh-config-quick-blue-orchestrator|zsh-config-quick-blue-reviewer|zsh-config-quick-blue-implementer|zsh-config-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
+[[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick && "$HCOM_ACTIVE_TEAM_TAGS" == 'Agents-quick-blue-orchestrator|Agents-quick-blue-reviewer|Agents-quick-blue-implementer|Agents-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_quick" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_quick" ]] || fail 'quick task team opened outside its checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick.'* && "$launched_orchestrator_prompt" == *'Note from the human:'*'Investigate the prompt'* ]] || fail 'quick task prompt lost the task ID or human note'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '* && "$launched_orchestrator_prompt" == *'Note from the human:'*'Investigate the prompt'* ]] || fail 'quick task prompt lost the task ID or human note'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_quick\nensure tsk_quick' ]] || fail 'quick task did not create its checkout'
 
 # An unfinished quick task with the same label is reused without adding another.
@@ -667,7 +680,7 @@ unset HCOM_FIXTURE_QUICK_STATE
 export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B
 prior_pane_calls="$pane_calls"
 _hcom_launch_team team:codex unused unused unused unused continue || fail 'picker choice did not launch a ready task'
-[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B.'* ]] || fail 'picker choice missed the named ready-task launch path'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B with '* ]] || fail 'picker choice missed the named ready-task launch path'
 unset HCOM_FIXTURE_PICKER_TASK_ID
 export HCOM_FIXTURE_PICKER_CANCEL=1
 prior_pane_calls="$pane_calls"
@@ -745,13 +758,13 @@ mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'sole in-progress task without a handoff did not continue'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'sole in-progress task without a checkout left the original checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B.'* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'sole in-progress task without a handoff did not use the continue prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'sole in-progress task without a handoff did not use the continue prompt'
 unset HCOM_FIXTURE_ONLY_TASK_ID
 
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'started task without a checkout did not continue'
 [[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'started task left the original checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B.'* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'started task without a handoff did not use the continue prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'started task without a handoff did not use the continue prompt'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_a_B\nget tsk_A_B' ]] || fail 'started task created or skipped a checkout lookup'
 
 prior_pane_calls="$pane_calls"  # Pane count before live-team refusal cases.
@@ -1035,7 +1048,7 @@ assert_command_error "team:done: uncommitted work in $fixture_dir/tsk_quick; com
 # A clean checkout stops its task team and completes the task.
 export HCOM_FIXTURE_GIT_DIRTY=0
 team:done --team blue >/dev/null || fail 'clean quick task did not complete'
-[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && "$stopped_team_tags" == 'zsh-config-quick-blue-orchestrator|zsh-config-quick-blue-reviewer|zsh-config-quick-blue-implementer|zsh-config-quick-blue-scout' ]] || fail 'clean quick task did not stop its peers and complete'
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && "$stopped_team_tags" == 'Agents-quick-blue-orchestrator|Agents-quick-blue-reviewer|Agents-quick-blue-implementer|Agents-quick-blue-scout' ]] || fail 'clean quick task did not stop its peers and complete'
 
 # A completion error is reported after the team has stopped.
 export HCOM_FIXTURE_COMPLETE_ERROR=1
@@ -1045,12 +1058,12 @@ assert_command_error 'team:done: task completion failed' team:done --team blue
 [[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && -n "$stopped_team_tags" ]] || fail 'completion error happened before the team stopped'
 unset HCOM_FIXTURE_COMPLETE_ERROR
 
-# Shared stop-scope errors name the public command that called it.
+# The stop scope uses the checkout folder even when the project slug is invalid.
 export HCOM_FIXTURE_PROJECT_SLUG=Bad_Project
 stopped_team_tags=''
 : > "$HCOM_FIXTURE_COMPLETE_CALLS"
-assert_command_error 'team:done: invalid Progress project slug: Bad_Project' team:done --team blue
-[[ -z "$stopped_team_tags" && ! -s "$HCOM_FIXTURE_COMPLETE_CALLS" ]] || fail 'invalid task address stopped the team or completed the task'
+team:done --team blue >/dev/null || fail 'unused project slug blocked team completion'
+[[ -n "$stopped_team_tags" && "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick ]] || fail 'project slug changed stop targeting or completion'
 unset HCOM_FIXTURE_PROJECT_SLUG
 
 # A quick task without a managed checkout still stops its peers and completes.

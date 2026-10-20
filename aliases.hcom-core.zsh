@@ -288,7 +288,7 @@ _hcom_role_invoke() {
 	fi
 }
 
-# Returns the repository portion of an hcom tag, or a task team's project tag.
+# Returns the repository portion of an hcom tag, or a task team's checkout tag.
 #
 # @param  {string}  command_name
 #     The public command shown if the directory cannot form a tag.
@@ -297,7 +297,7 @@ _hcom_role_invoke() {
 _hcom_scoped_tag() {
 	local command_name="$1"  # Public command responsible for the tag.
 	local working_directory="$2"  # Directory selected for the agent launch.
-	# Task teams carry their Progress project slug into every role terminal.
+	# Task teams carry their main checkout folder tag into every role terminal.
 	if [[ -n "${HCOM_TEAM_PROJECT_TAG:-}" ]]; then
 		print -r -- "$HCOM_TEAM_PROJECT_TAG"
 		return 0

@@ -92,7 +92,7 @@ _hcom_launch_configured_role() {
 	local initial_prompt=""  # The first message for the role, if any.
 	local task_id=""  # The task whose team the role joins, from --task or the worktree folder name.
 	local folder_task_id=""  # The launch folder's name, which is a task ID when the folder is a Progress worktree.
-	local team_project_tag=""  # The task team's project tag, passed to the launched role.
+	local team_project_tag=""  # The main checkout folder tag for a task team, passed to the launched role.
 	local team_label=""  # The task team's label, passed to the launched role.
 
 	case "${1:-}" in
