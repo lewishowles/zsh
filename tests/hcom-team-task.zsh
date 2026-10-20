@@ -43,6 +43,26 @@ if [[ "$1" == task && "$2" == add ]]; then
 	print -r -- '{"ok":true,"data":{"id":"tsk_quick"}}'
 	exit 0
 fi
+if [[ "$1" == task && "$2" == complete && "$4" == --json ]]; then
+	print -r -- "$3" >> "$HCOM_FIXTURE_COMPLETE_CALLS"
+	if [[ "${HCOM_FIXTURE_COMPLETE_ERROR:-0}" == 1 ]]; then
+		print -r -- '{"ok":false,"error":{"message":"task completion failed"}}'
+		exit 1
+	elif [[ "${HCOM_FIXTURE_COMPLETE_REMOVED:-0}" == 1 ]]; then
+		if [[ "${HCOM_FIXTURE_UNMERGED_COMMITS:-0}" != 0 ]]; then
+			print -r -- "{\"ok\":true,\"data\":{\"status\":\"done\",\"worktree_cleanup\":{\"status\":\"removed\",\"reason\":\"folder already gone\",\"unmerged_commits\":${HCOM_FIXTURE_UNMERGED_COMMITS},\"base_branch\":\"${HCOM_FIXTURE_BASE_BRANCH-main}\",\"command\":\"git merge quick-blue\"}}}"
+		elif [[ "${HCOM_FIXTURE_COUNT_ERROR:-0}" == 1 ]]; then
+			print -r -- "{\"ok\":true,\"data\":{\"status\":\"done\",\"worktree_cleanup\":{\"status\":\"removed\",\"reason\":\"folder already gone\",\"count_error\":\"could not count commits\",\"base_branch\":\"${HCOM_FIXTURE_BASE_BRANCH-main}\",\"command\":\"git merge quick-blue\"}}}"
+		else
+			print -r -- '{"ok":true,"data":{"status":"done","worktree_cleanup":{"status":"removed","reason":"folder already gone"}}}'
+		fi
+	elif [[ "${HCOM_FIXTURE_COMPLETE_PENDING:-0}" == 1 ]]; then
+		print -r -- '{"ok":true,"data":{"status":"done","worktree_cleanup":{"status":"pending","reason":"rebase conflict","command":"progress worktree cleanup tsk_quick"}}}'
+	else
+		print -r -- '{"ok":true,"data":{"status":"done","worktree_cleanup":{"status":"none"}}}'
+	fi
+	exit 0
+fi
 if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress && "$5" == --all && "$6" == --json ]]; then
 	if [[ "${HCOM_FIXTURE_NO_ACTIVE_TASKS:-0}" == 1 ]]; then
 		print -r -- '{"ok":true,"data":{"items":[]}}'
@@ -85,7 +105,7 @@ if [[ "$1" == worktree && ( "$2" == get || "$2" == ensure ) && "$4" == --json ]]
 	worktree_key="${3//A/A_}"  # Keeps task IDs that differ only in letter case apart on macOS, where folder names ignore case.
 	worktree_state="$HCOM_FIXTURE_WORKTREE_STATE_DIR/$worktree_key"  # Recorded checkout for this task only.
 	worktree_path="$HCOM_FIXTURE_WORKTREE_ROOT/$worktree_key"  # Managed checkout path for this task only.
-	if [[ "$2" == get && "$3" == "${HCOM_FIXTURE_FINISHED_TASK_ID:-}" ]]; then
+	if [[ "$2" == get && ( "$3" == "${HCOM_FIXTURE_FINISHED_TASK_ID:-}" || ( "$3" == tsk_quick && "${HCOM_FIXTURE_NO_QUICK_CHECKOUT:-0}" == 1 ) ) ]]; then
 		print -r -- '{"ok":false,"error":{"code":"not-found","message":"no managed checkout"}}'
 		exit 1
 	fi
@@ -127,10 +147,11 @@ esac
 print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
 STUB
 
-# Reports controlled changes in the original checkout.
+# Reports controlled checkout changes and logs each Git status call.
 cat > "$fixture_dir/bin/git" <<'STUB'
 #!/usr/bin/env zsh
-[[ "$1" == -C && "$3" == status && "$4" == --short ]] || exit 1
+[[ "$1" == -C && "$3" == status && ( "$4" == --short || "$4" == --porcelain ) ]] || exit 1
+print -r -- "$2 $4" >> "$HCOM_FIXTURE_GIT_CALLS"
 if [[ "${HCOM_FIXTURE_GIT_DIRTY:-0}" == 1 ]]; then
 	print -r -- ' M fixture-file'
 fi
@@ -147,6 +168,8 @@ export PATH="$fixture_dir/bin:$PATH"
 export HCOM_FIXTURE_AGENTS="$fixture_dir/agents.json"
 export HCOM_FIXTURE_WORKTREE_CALLS="$fixture_dir/worktree-calls"
 export HCOM_FIXTURE_QUICK_CALLS="$fixture_dir/quick-calls"
+export HCOM_FIXTURE_COMPLETE_CALLS="$fixture_dir/complete-calls"
+export HCOM_FIXTURE_GIT_CALLS="$fixture_dir/git-calls"
 export HCOM_FIXTURE_CONTEXT_CALLS="$fixture_dir/context-calls"
 export HCOM_FIXTURE_WORKTREE_STATE_DIR="$fixture_dir/worktree-state"
 export HCOM_FIXTURE_WORKTREE_ROOT="$fixture_dir"
@@ -260,7 +283,7 @@ assert_command_error "team:stop: could not read task tsk_unknown in $PWD." team:
 assert_command_error 'team:stop: unknown option: --bad' _hcom_parse_team_stop_args --bad
 assert_command_error 'team:stop: usage: team:stop [--team <label> | --task <id>] [--dir <path>]' _hcom_parse_team_stop_args extra
 assert_command_error 'team:stop: --task and --team cannot be used together.' _hcom_parse_team_stop_args --task tsk_A_B --team other
-assert_command_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope 1 "$fixture_dir/missing" ''
+assert_command_error "team:stop: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope team:stop 1 "$fixture_dir/missing" ''
 export HCOM_FIXTURE_NO_NEXT_TASK=1  # Makes the progress stub return no task for the continuation error check.
 assert_command_error 'cont: nothing to continue in Fixture.' _hcom_preview_team_continuation cont "$fixture_dir/project" 1
 unset HCOM_FIXTURE_NO_NEXT_TASK
@@ -465,7 +488,7 @@ if _hcom_select_in_progress_task cont "$fixture_dir/project" '' </dev/null 2>"$e
 fi
 [[ "$(<"$error_file")" == *'2 tasks are in progress; choose one with --task:'* && "$(<"$error_file")" == *'tsk_A_B  First task'* && "$(<"$error_file")" == *'tsk_a_B  Other task'* && "$(<"$error_file")" != *'No task chosen.'* ]] || fail 'non-interactive selector did not list task IDs without a cancellation message'
 _hcom_parse_team_stop_args --task tsk_A_B --dir "$fixture_dir/tsk_A__B" || fail 'stop --task parses'
-_hcom_resolve_team_stop_scope "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
+_hcom_resolve_team_stop_scope team:stop "${reply[3]}" "${reply[1]}" "${reply[2]}" "${reply[4]}" || fail 'stop --task resolves'
 [[ "${reply[1]}" == "$team_tags" ]] || fail 'stop targets different tags'
 
 # Stubs the final launch boundary; no fixture case can open a terminal.
@@ -800,14 +823,14 @@ HCOM_FIXTURE_GIT_DIRTY=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'dirty-root continuation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'dirty-root roles did not use the checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'dirty-root default changed the root tags'
-_hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves after dirty-root continuation'
+_hcom_resolve_team_stop_scope team:stop 1 "$PWD" '' || fail 'root stop scope resolves after dirty-root continuation'
 [[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after dirty-root continuation'
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_A_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default continuation'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'in-progress default ignored the recorded checkout'
 [[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'in-progress default changed the root tags'
-_hcom_resolve_team_stop_scope 1 "$PWD" '' || fail 'root stop scope resolves after in-progress continuation'
+_hcom_resolve_team_stop_scope team:stop 1 "$PWD" '' || fail 'root stop scope resolves after in-progress continuation'
 [[ "${reply[1]}" == "$HCOM_ACTIVE_TEAM_TAGS" ]] || fail 'root stop targets different tags after in-progress continuation'
 HCOM_FIXTURE_NEXT_STATUS=ready
 unset HCOM_FIXTURE_ONLY_TASK_ID
@@ -992,4 +1015,87 @@ fi
 [[ "$(<"$error_file")" == 'plan: usage: plan [--team <label>] <task-name>' ]] || fail 'missing plan task omitted usage'
 [[ "$plan_osascript_calls" == "$prior_plan_osascript_calls" ]] || fail 'invalid plan arguments opened panes'
 
-print -r -- 'PASS: task address, checkout selection, quick tasks, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, and planning duplicates and team labels'
+# Invalid close-out arguments and a missing quick task leave the team untouched.
+_hcom_clear_team_scope
+stopped_team_tags=''
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+: > "$HCOM_FIXTURE_WORKTREE_CALLS"
+assert_command_error 'team:done: usage: team:done --team <label>' team:done
+assert_command_error 'team:done: usage: team:done --team <label>' team:done --bad blue
+assert_command_error 'team:done: usage: team:done --team <label>' team:done --team
+assert_command_error 'team:done: no unfinished quick task for team blue.' team:done --team blue
+[[ ! -s "$HCOM_FIXTURE_COMPLETE_CALLS" && ! -s "$HCOM_FIXTURE_WORKTREE_CALLS" && -z "$stopped_team_tags" ]] || fail 'missing quick task changed the team or task'
+
+# A dirty managed checkout must be refused before stopping peers or completing the task.
+export HCOM_FIXTURE_QUICK_STATE=unfinished
+export HCOM_FIXTURE_GIT_DIRTY=1
+: > "$HCOM_FIXTURE_GIT_CALLS"
+assert_command_error "team:done: uncommitted work in $fixture_dir/tsk_quick; commit or discard it before finishing the team." team:done --team blue
+[[ "$(<"$HCOM_FIXTURE_GIT_CALLS")" == "$fixture_dir/tsk_quick --porcelain" && ! -s "$HCOM_FIXTURE_COMPLETE_CALLS" && -z "$stopped_team_tags" ]] || fail 'dirty quick checkout was not refused before side effects'
+
+# A clean checkout stops its task team and completes the task.
+export HCOM_FIXTURE_GIT_DIRTY=0
+team:done --team blue >/dev/null || fail 'clean quick task did not complete'
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && "$stopped_team_tags" == 'zsh-config-quick-blue-orchestrator|zsh-config-quick-blue-reviewer|zsh-config-quick-blue-implementer|zsh-config-quick-blue-scout' ]] || fail 'clean quick task did not stop its peers and complete'
+
+# A completion error is reported after the team has stopped.
+export HCOM_FIXTURE_COMPLETE_ERROR=1
+stopped_team_tags=''
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+assert_command_error 'team:done: task completion failed' team:done --team blue
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && -n "$stopped_team_tags" ]] || fail 'completion error happened before the team stopped'
+unset HCOM_FIXTURE_COMPLETE_ERROR
+
+# Shared stop-scope errors name the public command that called it.
+export HCOM_FIXTURE_PROJECT_SLUG=Bad_Project
+stopped_team_tags=''
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+assert_command_error 'team:done: invalid Progress project slug: Bad_Project' team:done --team blue
+[[ -z "$stopped_team_tags" && ! -s "$HCOM_FIXTURE_COMPLETE_CALLS" ]] || fail 'invalid task address stopped the team or completed the task'
+unset HCOM_FIXTURE_PROJECT_SLUG
+
+# A quick task without a managed checkout still stops its peers and completes.
+export HCOM_FIXTURE_NO_QUICK_CHECKOUT=1
+stopped_team_tags=''
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+: > "$HCOM_FIXTURE_GIT_CALLS"
+team:done --team blue >/dev/null || fail 'quick task without a checkout did not complete'
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && -n "$stopped_team_tags" && ! -s "$HCOM_FIXTURE_GIT_CALLS" ]] || fail 'checkout-less quick task skipped its stop or completion'
+
+# A recorded checkout whose folder has gone can still be completed.
+unset HCOM_FIXTURE_NO_QUICK_CHECKOUT
+mv "$fixture_dir/tsk_quick" "$fixture_dir/removed-quick"
+export HCOM_FIXTURE_COMPLETE_REMOVED=1
+stopped_team_tags=''
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+: > "$HCOM_FIXTURE_GIT_CALLS"
+team:done --team blue >/dev/null || fail 'quick task with a missing checkout folder did not complete'
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick && -n "$stopped_team_tags" && ! -s "$HCOM_FIXTURE_GIT_CALLS" ]] || fail 'missing checkout folder blocked the stop or completion'
+
+# Completion reports commits that remain unmerged after the folder is gone.
+export HCOM_FIXTURE_UNMERGED_COMMITS=2
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+assert_command_error 'team:done: task completed, but 2 commits were not merged. Run from a checkout of main: git merge quick-blue' team:done --team blue
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick ]] || fail 'unmerged commits blocked task completion'
+export HCOM_FIXTURE_UNMERGED_COMMITS=1
+assert_command_error 'team:done: task completed, but 1 commit was not merged. Run from a checkout of main: git merge quick-blue' team:done --team blue
+unset HCOM_FIXTURE_UNMERGED_COMMITS
+
+# Completion reports an error when it cannot count the unmerged commits.
+export HCOM_FIXTURE_COUNT_ERROR=1
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+assert_command_error 'team:done: task completed, but could not count unmerged commits: could not count commits. Run from a checkout of main: git merge quick-blue' team:done --team blue
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick ]] || fail 'commit count error blocked task completion'
+export HCOM_FIXTURE_BASE_BRANCH=''
+assert_command_error "team:done: task completed, but could not count unmerged commits: could not count commits. Find the task's base branch checkout, then run: git merge quick-blue" team:done --team blue
+unset HCOM_FIXTURE_BASE_BRANCH
+unset HCOM_FIXTURE_COUNT_ERROR HCOM_FIXTURE_COMPLETE_REMOVED
+mv "$fixture_dir/removed-quick" "$fixture_dir/tsk_quick"
+
+# Progress may complete the task while leaving checkout clean-up for a manual retry.
+export HCOM_FIXTURE_COMPLETE_PENDING=1
+: > "$HCOM_FIXTURE_COMPLETE_CALLS"
+assert_command_error 'team:done: task completed, but checkout cleanup is pending: rebase conflict. Run: progress worktree cleanup tsk_quick' team:done --team blue
+[[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick ]] || fail 'pending checkout clean-up did not complete the task'
+
+print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, and planning duplicates and team labels'

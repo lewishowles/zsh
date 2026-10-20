@@ -66,6 +66,32 @@ _hcom_read_task_team() {
 	reply=("$project_slug" "$task_slug" "$task_status")
 }
 
+# Finds an unfinished quick task for a label, returning its ID or an empty string in reply.
+# Prints the Progress error and returns 1 when listing fails.
+#
+# @param  {string}  command_name
+#     The public command shown when Progress fails.
+# @param  {string}  working_directory
+#     Directory Progress uses to find the project.
+# @param  {string}  team_label
+#     Validated label used in the quick task's slug.
+_hcom_find_quick_task() {
+	local command_name="$1"  # Public command named in error messages.
+	local working_directory="$2"  # Directory Progress uses to find the project.
+	local team_label="$3"  # Label shared by the team and quick task.
+	local task_slug="quick-$team_label"  # Slug used for repeat launches and close-out.
+	local tasks_json  # All project tasks, including finished ones.
+	local progress_message  # Error returned by Progress.
+
+	if ! tasks_json="$(cd "$working_directory" && progress task list --all --json 2>/dev/null)" || ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
+		progress_message="$(jq -r '.error.message // empty' <<<"$tasks_json" 2>/dev/null)"
+		_hcom_command_error "$command_name" '' "${progress_message:-could not list tasks in $working_directory.}"
+		return 1
+	fi
+
+	reply=("$(jq -r --arg slug "$task_slug" '[.data.items[] | select(.slug == $slug and .status != "done") | .id][0] // empty' <<<"$tasks_json")")
+}
+
 # Finds an unfinished quick task for a label or creates one, returning its ID in reply.
 # Prints the Progress error and returns 1 when listing or adding fails.
 #
@@ -83,18 +109,12 @@ _hcom_find_or_create_quick_task() {
 	local team_label="$3"  # Label shared by the team and quick task.
 	local initial_prompt="$4"  # The human's note for the task overview.
 	local task_slug="quick-$team_label"  # Slug that repeat launches with the same label look up.
-	local tasks_json  # All project tasks, including finished ones.
 	local task_id  # ID of an unfinished matching task or the new task.
 	local added_json  # Progress response for task creation.
 	local progress_message  # Error returned by Progress.
 
-	if ! tasks_json="$(cd "$working_directory" && progress task list --all --json 2>/dev/null)" || ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$tasks_json"; then
-		progress_message="$(jq -r '.error.message // empty' <<<"$tasks_json" 2>/dev/null)"
-		_hcom_command_error "$command_name" '' "${progress_message:-could not list tasks in $working_directory.}"
-		return 1
-	fi
-
-	task_id="$(jq -r --arg slug "$task_slug" '[.data.items[] | select(.slug == $slug and .status != "done") | .id][0] // empty' <<<"$tasks_json")"
+	_hcom_find_quick_task "$command_name" "$working_directory" "$team_label" || return 1
+	task_id="${reply[1]}"
 	if [[ -z "$task_id" ]]; then
 		if ! added_json="$(cd "$working_directory" && progress task add --slug "$task_slug" --title "Quick: $team_label" --overview "${initial_prompt:-Quick work for $team_label.}" --done-when 'The human says this quick work is done.' --json 2>/dev/null)" || ! jq -e '.ok == true and (.data.id | type == "string") and (.data.id | length > 0)' >/dev/null 2>&1 <<<"$added_json"; then
 			progress_message="$(jq -r '.error.message // empty' <<<"$added_json" 2>/dev/null)"
@@ -114,7 +134,7 @@ _hcom_find_or_create_quick_task() {
 # Returns 0 on success. Returns 2 when Progress has no checkout for the task,
 # with Progress's message in reply, so the caller decides whether that is an
 # error. Returns 1 after printing an error for any other Progress failure or
-# when the recorded folder is missing from disk.
+# when the recorded folder is missing from disk, unless the caller allows that.
 #
 # @param  {string}  command_name
 #     The public command shown in checkout errors.
@@ -123,10 +143,13 @@ _hcom_find_or_create_quick_task() {
 #     Response from Progress worktree get or ensure.
 # @param  {string}  task_id
 #     Task whose checkout the response describes.
+# @param  {string}  allow_missing_folder
+#     1 to treat a recorded checkout whose folder is gone as no checkout; 0 or omitted to refuse.
 _hcom_check_checkout_response() {
 	local command_name="$1"  # Public command responsible for the checkout.
 	local checkout_json="$2"  # Progress response to validate.
 	local task_id="$3"  # Expected task ID in a successful response.
+	local allow_missing_folder="${4:-0}"  # Whether a missing recorded folder is allowed.
 	local checkout_message  # Error message returned by Progress.
 	local checkout_path  # Existing managed checkout path.
 
@@ -143,6 +166,10 @@ _hcom_check_checkout_response() {
 
 	checkout_path="$(jq -r '.data.path' <<<"$checkout_json")"
 	if [[ ! -d "$checkout_path" ]]; then
+		if (( allow_missing_folder )); then
+			reply=("")
+			return 0
+		fi
 		_hcom_command_error "$command_name" 'managed checkout not found: ' "$checkout_path"
 		return 1
 	fi
@@ -153,8 +180,8 @@ _hcom_check_checkout_response() {
 # Looks up the checkout Progress has recorded for a task and sets reply to its
 # folder, or to an empty string when the task has no checkout yet.
 #
-# Returns 1 after printing an error when Progress fails or the recorded folder
-# is missing, so the launch stops instead of using the wrong folder.
+# Returns 1 after printing an error when Progress fails or a required recorded
+# folder is missing, so the launch stops instead of using the wrong folder.
 #
 # @param  {string}  command_name
 #     The public command shown in checkout errors.
@@ -162,14 +189,17 @@ _hcom_check_checkout_response() {
 #     Checkout whose Progress project owns the task.
 # @param  {string}  task_id
 #     Task whose checkout may already exist.
+# @param  {string}  allow_missing_folder
+#     1 to treat a recorded checkout whose folder is gone as no checkout; 0 or omitted to refuse.
 _hcom_get_launch_checkout() {
 	local command_name="$1"  # Public command responsible for the checkout.
 	local original_directory="$2"  # Checkout used for the Progress lookup.
 	local task_id="$3"  # Task whose recorded checkout is requested.
+	local allow_missing_folder="${4:-0}"  # Whether a missing recorded folder is allowed.
 	local checkout_json  # Response from Progress worktree get.
 
 	checkout_json="$(cd "$original_directory" && progress worktree get "$task_id" --json 2>/dev/null)"
-	_hcom_check_checkout_response "$command_name" "$checkout_json" "$task_id"
+	_hcom_check_checkout_response "$command_name" "$checkout_json" "$task_id" "$allow_missing_folder"
 	case "$?" in
 		0) ;;
 		2) reply=("") ;;
@@ -1527,6 +1557,104 @@ team:claude() {
 	_hcom_launch_team team:claude orchestrator reviewer implementer:claude scout:claude "$@"
 }
 
+# Stops a labelled quick team and marks its quick task done.
+#
+# Refuses before changing anything while the task's checkout has uncommitted or
+# untracked work. A team with nothing running counts as already stopped. When
+# Progress cannot finish merging and removing the checkout, the task stays done
+# and the command prints Progress's reason and retry command, then fails. When
+# the checkout folder was deleted by hand, there is nothing to check, so the
+# task is still completed; any of its commits that never reached the base
+# branch are reported with the merge command, and the command fails.
+#
+# @desc  Stop a labelled quick team and complete its task
+# @cat   hcom
+#
+# Usage: team:done --team <label>
+#
+# @param  {string}  ...
+#     The required --team label for the quick team to finish.
+team:done() {
+	if (( $# != 2 )) || [[ "$1" != --team || -z "$2" || "$2" == --* ]]; then
+		_hcom_command_error team:done 'usage: ' 'team:done --team <label>'
+		return 1
+	fi
+
+	local team_label="$2"  # Label used to find the unfinished quick task.
+	local task_id  # Unfinished task matching the quick-team label.
+	local progress_message  # Error returned by Progress.
+	local checkout_path  # Managed checkout for the quick task, when present.
+	local git_changes  # Uncommitted or untracked work in the managed checkout.
+	local team_tags terminal_ids scope_matches_active  # Exact stop scope and any tracked panes.
+	local completed_json  # Progress result for completing the quick task.
+	local cleanup_reason cleanup_command unmerged_commits count_error base_branch merge_instruction commit_phrase  # Manual merge details when Progress cannot finish checkout cleanup.
+
+	_hcom_validate_team_label "$team_label" team:done || return 1
+
+	_hcom_find_quick_task team:done "$PWD" "$team_label" || return 1
+	task_id="${reply[1]}"
+	if [[ -z "$task_id" ]]; then
+		_hcom_command_error team:done 'no unfinished quick task for team ' "$team_label" '.'
+		return 1
+	fi
+
+	_hcom_get_launch_checkout team:done "$PWD" "$task_id" 1 || return 1
+	checkout_path="${reply[1]}"
+	if [[ -n "$checkout_path" ]]; then
+		if ! git_changes="$(git -C "$checkout_path" status --porcelain)"; then
+			_hcom_command_error team:done 'could not check Git status in ' "$checkout_path" '.'
+			return 1
+		fi
+		if [[ -n "$git_changes" ]]; then
+			_hcom_command_error team:done 'uncommitted work in ' "$checkout_path" '; commit or discard it before finishing the team.'
+			return 1
+		fi
+	fi
+
+	_hcom_resolve_team_stop_scope team:done 1 "$PWD" '' "$task_id" || return 1
+	team_tags="${reply[1]}"
+	terminal_ids="${reply[2]}"
+	scope_matches_active="${reply[3]}"
+	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" 1 "$scope_matches_active" || return 1
+
+	if ! completed_json="$(progress task complete "$task_id" --json 2>/dev/null)" || ! jq -e '.ok == true and .data.status == "done"' >/dev/null 2>&1 <<<"$completed_json"; then
+		progress_message="$(jq -r '.error.message // empty' <<<"$completed_json" 2>/dev/null)"
+		_hcom_command_error team:done '' "${progress_message:-could not complete task $task_id.}"
+		return 1
+	fi
+
+	if jq -e '.data.worktree_cleanup.status == "pending"' >/dev/null 2>&1 <<<"$completed_json"; then
+		cleanup_reason="$(jq -r '.data.worktree_cleanup.reason // "unknown reason"' <<<"$completed_json")"
+		cleanup_command="$(jq -r '.data.worktree_cleanup.command // "progress worktree cleanup"' <<<"$completed_json")"
+		_hcom_command_error team:done 'task completed, but checkout cleanup is pending: ' "$cleanup_reason" '. Run: ' "$cleanup_command"
+		return 1
+	fi
+	if jq -e '.data.worktree_cleanup.status == "removed" and ((.data.worktree_cleanup.unmerged_commits // 0) > 0 or ((.data.worktree_cleanup.count_error // "") | length > 0))' >/dev/null 2>&1 <<<"$completed_json"; then
+		unmerged_commits="$(jq -r '.data.worktree_cleanup.unmerged_commits // 0' <<<"$completed_json")"
+		count_error="$(jq -r '.data.worktree_cleanup.count_error // empty' <<<"$completed_json")"
+		cleanup_command="$(jq -r '.data.worktree_cleanup.command' <<<"$completed_json")"
+		base_branch="$(jq -r '.data.worktree_cleanup.base_branch // empty' <<<"$completed_json")"
+		if [[ -n "$base_branch" ]]; then
+			merge_instruction="Run from a checkout of $base_branch: "
+		else
+			merge_instruction="Find the task's base branch checkout, then run: "
+		fi
+		if [[ -n "$count_error" ]]; then
+			_hcom_command_error team:done 'task completed, but could not count unmerged commits: ' "$count_error" '. ' "$merge_instruction" "$cleanup_command"
+		else
+			if [[ "$unmerged_commits" == 1 ]]; then
+				commit_phrase='commit was'
+			else
+				commit_phrase='commits were'
+			fi
+			_hcom_command_error team:done 'task completed, but ' "$unmerged_commits" ' ' "$commit_phrase" ' not merged. ' "$merge_instruction" "$cleanup_command"
+		fi
+		return 1
+	fi
+
+	printf 'Completed quick team %s (task %s).\n' "$team_label" "$task_id"
+}
+
 # Stops the exact hcom team for a directory and optional team label.
 #
 # With no scope arguments, stops the launching shell's stored team and clears
@@ -1561,7 +1689,7 @@ team:stop() {
 	local explicit_scope="${reply[3]}"  # Whether --team or a directory was supplied.
 	local task_id="${reply[4]}"  # Task identity for a directory-independent team scope.
 
-	_hcom_resolve_team_stop_scope "$explicit_scope" "$working_directory" "$team_label" "$task_id"
+	_hcom_resolve_team_stop_scope team:stop "$explicit_scope" "$working_directory" "$team_label" "$task_id"
 	local resolve_status=$?  # 0 proceed, 1 validation or tag failure, 2 no active team.
 
 	if (( resolve_status == 2 )); then
@@ -1658,6 +1786,8 @@ _hcom_parse_team_stop_args() {
 # proceed, 1 on a validation or tag-resolution failure, or 2 when an implicit
 # stop finds no stored team (a message is printed and the caller returns 0).
 #
+# @param  {string}  command_name
+#     The public command shown in stop-scope errors.
 # @param  {string}  explicit_scope
 #     1 when --team or a directory was supplied, 0 for an implicit stop.
 # @param  {string}  working_directory
@@ -1667,10 +1797,11 @@ _hcom_parse_team_stop_args() {
 # @param  {string}  task_id
 #     Optional task ID used to recover the project and task address.
 _hcom_resolve_team_stop_scope() {
-	local explicit_scope="$1"  # 1 when a scope was supplied, 0 for an implicit stop.
-	local working_directory="$2"  # Requested directory, or empty to use the stored or current one.
-	local team_label="$3"  # Requested team label, or empty.
-	local task_id="${4:-}"  # Optional task ID for derived tags.
+	local command_name="$1"  # Public command responsible for the stop.
+	local explicit_scope="$2"  # 1 when a scope was supplied, 0 for an implicit stop.
+	local working_directory="$3"  # Requested directory, or empty to use the stored or current one.
+	local team_label="$4"  # Requested team label, or empty.
+	local task_id="${5:-}"  # Optional task ID for derived tags.
 	local team_project_tag=""  # Project slug for a task team, or empty for an ordinary team.
 	local team_tags=""  # Exact tags resolved for the requested stop scope.
 	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.
@@ -1690,20 +1821,20 @@ _hcom_resolve_team_stop_scope() {
 		working_directory="${working_directory:-$PWD}"
 
 		if [[ ! -d "$working_directory" ]]; then
-			_hcom_command_error team:stop 'working directory not found: ' "$working_directory"
+			_hcom_command_error "$command_name" 'working directory not found: ' "$working_directory"
 			return 1
 		fi
 
 		if [[ -n "$team_label" ]]; then
-			_hcom_validate_team_label "$team_label" team:stop || return 1
+			_hcom_validate_team_label "$team_label" "$command_name" || return 1
 		fi
 
 		if [[ -n "$task_id" ]]; then
-			_hcom_read_task_team team:stop "$working_directory" "$task_id" || return 1
+			_hcom_read_task_team "$command_name" "$working_directory" "$task_id" || return 1
 			team_project_tag="${reply[1]}"
 			team_label="${reply[2]}"
 		fi
-		team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags team:stop "$working_directory" "$team_label")" || return 1
+		team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$command_name" "$working_directory" "$team_label")" || return 1
 
 		if [[ -n "${HCOM_ACTIVE_TEAM_DIRECTORY:-}" ]] && [[ "${working_directory:A}" = "${HCOM_ACTIVE_TEAM_DIRECTORY:A}" ]] && [[ "$team_label" = "${HCOM_ACTIVE_TEAM_LABEL:-}" ]]; then
 			scope_matches_active=1

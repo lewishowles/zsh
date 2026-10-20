@@ -297,6 +297,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over |
 | `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over |
 | `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--keep-agents] [--yes] | Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over |
+| `team:done` | --team <label> | Stop a labelled quick team and complete its task |
 | `team:stop` | [--team <label> | --task <id>] [--dir <path>] | Stop the exact hcom team for a directory, label, or task |
 
 ### nav
