@@ -947,11 +947,14 @@ source "$repo_root/aliases.hcom-plan.zsh"
 #     The command for the Claude Scout pane.
 # @param  {string}  scout_codex_command
 #     The command for the Codex Scout pane.
+# @param  {string}  origin_terminal_id
+#     The Ghostty pane that ran the planning command.
 function /usr/bin/osascript() {
 	plan_osascript_calls=$((plan_osascript_calls + 1))
 	recorded_codex_command="$2"
 	recorded_scout_claude_command="$3"
 	recorded_scout_codex_command="$4"
+	recorded_plan_origin_terminal_id="$5"
 }
 
 # Records each planning peer's team label without starting an agent.
@@ -966,11 +969,13 @@ plan_osascript_calls=0  # Number of Ghostty layouts requested by plan launches.
 recorded_codex_command=""  # Most recent command typed into the Codex planning pane.
 recorded_scout_claude_command=""  # Most recent command typed into the Claude Scout pane.
 recorded_scout_codex_command=""  # Most recent command typed into the Codex Scout pane.
+recorded_plan_origin_terminal_id=""  # Origin pane ID passed to the planning layout.
 plan_peer_team_labels=()  # Team labels each planning peer launched with, oldest first.
 plan_repository_tag="$(_hcom_scoped_tag plan "$PWD")"  # Repository tag shared by fixture planners.
 
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 plan --team blue fixture-task || fail 'labelled plan did not launch'
+[[ "$recorded_plan_origin_terminal_id" == 'fixture-origin-pane' ]] || fail 'labelled plan did not pass the origin pane ID as argument 5'
 [[ "$recorded_codex_command" == *'plan:codex --team blue fixture-task' && "$recorded_scout_claude_command" == *'HCOM_TEAM_LABEL=plan-claude-blue scout' && "$recorded_scout_codex_command" == *'HCOM_TEAM_LABEL=plan-codex-blue scout' ]] || fail 'labelled plan commands lost the label'
 [[ "${plan_peer_team_labels[-1]}" == plan-claude-blue ]] || fail 'labelled plan:claude used the wrong team label'
 

@@ -762,52 +762,6 @@ _hcom_launch_team() {
 	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
 }
 
-# Prints the ID of the focused Ghostty pane, so the team can still open beside
-# it if the human switches tabs while the launch waits for quota. Stops with an
-# error when Ghostty is not running, is not the frontmost app, or has no window.
-#
-# @param  {string}  command_name
-#     The public team command named in the failure message.
-_hcom_focused_ghostty_terminal_id() {
-	local command_name="$1"  # Public command responsible for the pane lookup.
-	local terminal_id  # Focused pane ID or a refusal returned by Ghostty.
-
-	# Ask macOS whether the app is running instead of using pgrep, which cannot
-	# see Ghostty's process. The check sits outside the tell block so a closed
-	# Ghostty is reported rather than launched.
-	terminal_id="$(/usr/bin/osascript \
-		-e 'if application "Ghostty" is not running then return "not-running"' \
-		-e 'tell application "Ghostty"' \
-		-e 'if not frontmost then return "not-frontmost"' \
-		-e 'if (count of windows) = 0 then return "no-windows"' \
-		-e 'get id of focused terminal of selected tab of front window' \
-		-e 'end tell' 2>/dev/null)" || {
-		_hcom_command_error "$command_name" 'could not read the focused Ghostty pane.'
-		return 1
-	}
-
-	case "$terminal_id" in
-		not-running)
-			_hcom_command_error "$command_name" 'Ghostty is not running.'
-			return 1
-			;;
-		not-frontmost)
-			_hcom_command_error "$command_name" 'run this team command from a Ghostty terminal.'
-			return 1
-			;;
-		no-windows)
-			_hcom_command_error "$command_name" 'open a Ghostty terminal first.'
-			return 1
-			;;
-		'')
-			_hcom_command_error "$command_name" 'could not read the focused Ghostty pane.'
-			return 1
-			;;
-	esac
-
-	print -r -- "$terminal_id"
-}
-
 # Shows the task, chunk and saved next steps a team will continue, then asks the
 # user to confirm before launch. Previews the selected task when there is one
 # (the task the human named, or the only in-progress task), otherwise the

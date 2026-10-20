@@ -31,6 +31,9 @@ insights() {
 		return 1
 	fi
 
+	local origin_terminal_id  # Ghostty pane that ran this command, so the layout opens beside it after a tab change.
+	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id insights)" || return 1
+
 	local quoted_report_path="${(q)report_path}"  # Shell-quoted report path for the typed launch command.
 
 	# Ghostty panes start fresh shells without this shell's exported env, and
@@ -48,7 +51,8 @@ insights() {
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \
 		"$scout_claude_command" \
-		"$scout_codex_command"
+		"$scout_codex_command" \
+		"$origin_terminal_id"
 
 	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
 

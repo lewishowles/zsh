@@ -1,4 +1,51 @@
-# Shared helpers for the hcom plan, learning, and insights-review launchers.
+# Shared helpers for the hcom team, plan, learning, and insights-review launchers.
+
+# Prints the ID of the focused Ghostty pane, so a launcher can still open its
+# layout beside the pane that ran it if the human switches tabs during the
+# launch. Stops with an error when Ghostty is not running, is not the frontmost
+# app, or has no window.
+#
+# @param  {string}  command_name
+#     The public command named in the failure message.
+_hcom_focused_ghostty_terminal_id() {
+	local command_name="$1"  # Public command responsible for the pane lookup.
+	local terminal_id  # Focused pane ID or a refusal returned by Ghostty.
+
+	# Ask macOS whether the app is running instead of using pgrep, which cannot
+	# see Ghostty's process. The check sits outside the tell block so a closed
+	# Ghostty is reported rather than launched.
+	terminal_id="$(/usr/bin/osascript \
+		-e 'if application "Ghostty" is not running then return "not-running"' \
+		-e 'tell application "Ghostty"' \
+		-e 'if not frontmost then return "not-frontmost"' \
+		-e 'if (count of windows) = 0 then return "no-windows"' \
+		-e 'get id of focused terminal of selected tab of front window' \
+		-e 'end tell' 2>/dev/null)" || {
+		_hcom_command_error "$command_name" 'could not read the focused Ghostty pane.'
+		return 1
+	}
+
+	case "$terminal_id" in
+		not-running)
+			_hcom_command_error "$command_name" 'Ghostty is not running.'
+			return 1
+			;;
+		not-frontmost)
+			_hcom_command_error "$command_name" 'run this command from a Ghostty terminal.'
+			return 1
+			;;
+		no-windows)
+			_hcom_command_error "$command_name" 'open a Ghostty terminal first.'
+			return 1
+			;;
+		'')
+			_hcom_command_error "$command_name" 'could not read the focused Ghostty pane.'
+			return 1
+			;;
+	esac
+
+	print -r -- "$terminal_id"
+}
 
 # Reads an optional leading `--team <label>` and sets `reply` to the label, which is
 # empty when none was given, followed by the remaining arguments. Prints the caller's

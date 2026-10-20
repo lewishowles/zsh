@@ -38,6 +38,9 @@ plan() {
 	local repository_tag  # Repository portion of every planning tag.
 	repository_tag="$(_hcom_scoped_tag plan "$PWD")" || return 1
 
+	local origin_terminal_id  # Ghostty pane that ran this command, so the layout opens beside it after a tab change.
+	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id plan)" || return 1
+
 	# Check all four tags before opening any pane, so a duplicate leaves nothing behind.
 	local collision_hint=" Rerun with --team <label> to start another planning review."  # Advice added to the refusal when a tag is already live.
 	if [[ -n "$label" ]]; then
@@ -66,7 +69,8 @@ plan() {
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
 		"$plan_codex_command" \
 		"$scout_claude_command" \
-		"$scout_codex_command"
+		"$scout_codex_command" \
+		"$origin_terminal_id"
 
 	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
 
