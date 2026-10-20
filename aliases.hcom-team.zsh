@@ -1169,7 +1169,8 @@ _hcom_select_in_progress_task() {
 # @param  {string}  scout_launcher
 #     Function that starts the scout role.
 # @param  {string}  working_directory
-#     Optional project directory. Empty keeps each pane in its own directory.
+#     Optional project directory, such as a task worktree. When empty, the
+#     panes use the directory this shell is in.
 # @param  {string}  team_label
 #     Optional label that scopes the team.
 # @param  {string}  previous_terminal_ids
@@ -1205,10 +1206,7 @@ _hcom_team_create_panes() {
 	local scout_provider="${12:-codex}"  # Provider whose config directory the scout account names.
 	local origin_terminal_id="${13}"  # Ghostty ID of the launching pane.
 
-	local working_directory_suffix=""  # Optional shell-quoted directory argument for typed pane commands.
-	if [[ -n "$working_directory" ]]; then
-		working_directory_suffix=" ${(q)working_directory}"
-	fi
+	local working_directory_suffix=" ${(q)${working_directory:-$PWD}}"  # The team's directory, quoted for each typed pane command, so agents never start in whichever folder Ghostty gives a new split.
 
 	# Ghostty panes start fresh shells that don't inherit this shell's
 	# exported env, so an active account override must ride along in the
