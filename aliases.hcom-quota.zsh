@@ -1,7 +1,7 @@
 # Chooses HCOM accounts from session and weekly quota. The picker needs agent-quota on PATH.
 
-# Provides EPOCHSECONDS, the current Unix time, which the pace calculation subtracts from
-# a reset timestamp to find how much of a quota window is still to run.
+# Provides EPOCHSECONDS, the current Unix time, which _hcom_quota_now reads for the reset and
+# pace calculations.
 zmodload -F zsh/datetime p:EPOCHSECONDS
 
 # Prints the quota of a provider's default account, then account 2, from one agent-quota run.
@@ -81,11 +81,11 @@ print("\n".join(lines))
 # has no usable quota left. Ties favour default.
 #
 # Each account is ranked by its usable quota: its session window left, capped by its
-# weekly window left, because an account with an empty week cannot run however fresh its
-# session is. The session window usually decides, as that is the quota a single sprint
-# draws down. Weekly pace only breaks near-ties: two accounts within 20 points of each
-# other on usable quota are interchangeable for the sprint, so the one with quota to burn
-# before its weekly reset takes the heavier role.
+# weekly window left. The cap is dropped when the week resets within one session window,
+# because the weekly quota refills before the session quota could run out, and weekly
+# quota left unspent at that reset is lost. Weekly pace only breaks near-ties: two
+# accounts within 20 points of each other on usable quota are interchangeable for the
+# sprint, so the one with quota to burn before its weekly reset takes the heavier role.
 #
 # An account with under 15% usable quota is likely to run dry part-way through a task, so
 # it does not take the heavier role while the other account can hold it. Both roles land
@@ -118,13 +118,14 @@ _hcom_quota_allocate() {
 	local -a account_ids=(default 2)  # Account IDs in the order every per-account array uses.
 	local -a quota_values  # One account's six probe values, split for indexing.
 	local -a quota_lines  # Both accounts' six-value lines from one agent-quota run.
-	local -a usable_remaining  # Percentage each account can still spend: the lower of its session and weekly figures.
+	local -a usable_remaining  # Percentage each account can still spend: its session figure, capped by its weekly figure unless the week resets within one session window.
 	local -a weekly_remaining  # Percentage of each account's weekly window left.
 	local -a weekly_reset  # Unix timestamp each account's weekly window refills at.
 	local -a weekly_window  # Length of each account's weekly window in seconds.
 
 	local -a pace  # How far ahead of its weekly reset each account is running.
 	local -F usable_gap  # Percentage points separating how much usable quota each account has left.
+	local -i current_time  # One clock reading shared by the reset and pace calculations.
 
 	case "$provider" in
 		claude|codex) ;;
@@ -141,12 +142,17 @@ _hcom_quota_allocate() {
 	fi
 
 	quota_lines=("${(@f)available}")
+	current_time="$(_hcom_quota_now)"
 
 	for account_index in {1..2}; do
 		read -rA quota_values <<< "${quota_lines[account_index]}"
-		# An empty weekly window stops an account whatever its session window says, so
-		# the account can only spend the smaller of the two.
-		usable_remaining+=("$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))")
+		# A week that resets within one session window refills before the session quota can
+		# run out, so only the session quota limits the account.
+		if (( quota_values[5] - current_time <= quota_values[3] )); then
+			usable_remaining+=("${quota_values[1]}")
+		else
+			usable_remaining+=("$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))")
+		fi
 		weekly_remaining+=("${quota_values[4]}")
 		weekly_reset+=("${quota_values[5]}")
 		weekly_window+=("${quota_values[6]}")
@@ -156,8 +162,8 @@ _hcom_quota_allocate() {
 	# account is ahead of its own reset and holds quota it would otherwise waste; below 1
 	# means it is spending faster than the week can refill. Seconds to reset are floored at
 	# one so a window expiring as this runs cannot divide by zero.
-	pace[1]=$(( (weekly_remaining[1] / 100.0) / ((weekly_reset[1] - EPOCHSECONDS > 1 ? weekly_reset[1] - EPOCHSECONDS : 1) / (weekly_window[1] * 1.0)) ))
-	pace[2]=$(( (weekly_remaining[2] / 100.0) / ((weekly_reset[2] - EPOCHSECONDS > 1 ? weekly_reset[2] - EPOCHSECONDS : 1) / (weekly_window[2] * 1.0)) ))
+	pace[1]=$(( (weekly_remaining[1] / 100.0) / ((weekly_reset[1] - current_time > 1 ? weekly_reset[1] - current_time : 1) / (weekly_window[1] * 1.0)) ))
+	pace[2]=$(( (weekly_remaining[2] / 100.0) / ((weekly_reset[2] - current_time > 1 ? weekly_reset[2] - current_time : 1) / (weekly_window[2] * 1.0)) ))
 
 	if (( usable_remaining[2] > usable_remaining[1] )); then
 		heavier_index=2
@@ -207,6 +213,11 @@ _hcom_quota_allocate() {
 	provider_exhausted=$(( usable_remaining[1] < 5 && usable_remaining[2] < 5 ))
 
 	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
+}
+
+# Prints the current Unix time. Tests replace this function to fix the clock.
+_hcom_quota_now() {
+	print -r -- "$EPOCHSECONDS"
 }
 
 # Prints the config directory a solo launch should use, or nothing to stay on the default
