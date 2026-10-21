@@ -279,9 +279,10 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `hs` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `implementer` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `insights` | <report-path> | Start the complete hcom insights review of a given report file in four Ghostty panes |
+| `insights` | <report-path> | Start the complete hcom insights review of a given report file in five Ghostty panes |
 | `insights:claude` | <report-path> | Start a Claude insights-review peer review of a given report file |
 | `insights:codex` | <report-path> | Start a Codex insights-review peer review of a given report file |
+| `insights:consolidate` | <report-path> | Start a Claude agent that combines both insights reviews of a given report file |
 | `learn:claude` |  | Start a Claude source-learning learner and its dedicated Scout |
 | `learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
 | `orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |

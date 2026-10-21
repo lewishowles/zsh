@@ -2,15 +2,15 @@
 
 # Insights-review launchers
 
-# @desc  Start the complete hcom insights review of a given report file in four Ghostty panes
+# @desc  Start the complete hcom insights review of a given report file in five Ghostty panes
 # @cat   hcom
 # @needs agent-quota
 # Usage: insights <report-path>
 #
 # Creates this layout in the current Ghostty tab:
 #
-#   reviewer-claude  | reviewer-codex
-#   scout-claude     | scout-codex
+#   reviewer-claude  | reviewer-codex  | consolidator
+#   scout-claude     | scout-codex     | consolidator
 #
 # Each reviewer routes its research through the scout in its own column
 # (`<repo>-insights-claude-scout` / `<repo>-insights-codex-scout`).
@@ -18,7 +18,7 @@
 # so each reviewer's team-send reaches only its own scout.
 #
 # @param  {string}  report_path
-#     The rendered Codex insights report file to review.
+#     The rendered insights report file to review.
 insights() {
 	if [[ $# -ne 1 ]]; then
 		printf 'insights: usage: insights <report-path>\n' >&2
@@ -48,11 +48,13 @@ insights() {
 	local reviewer_codex_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
 	local scout_claude_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude scout"  # Command for the Claude scout pane.
 	local scout_codex_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex scout"  # Command for the Codex scout pane.
+	local consolidator_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:consolidate ${quoted_report_path}"  # Command for the consolidator pane.
 
 	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
 		"$reviewer_codex_command" \
 		"$scout_claude_command" \
 		"$scout_codex_command" \
+		"$consolidator_command" \
 		"$origin_terminal_id"
 
 	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
@@ -67,7 +69,7 @@ insights() {
 # Builds the shared insights-review-peer independent-review initial prompt.
 #
 # @param  {string}  report_path
-#     The rendered Codex insights report file to review.
+#     The rendered insights report file to review.
 _hcom_insights_review_prompt() {
 	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-insights-review.md"  # Insights-review prompt template used by both peers.
 
@@ -80,7 +82,7 @@ _hcom_insights_review_prompt() {
 # Usage: insights:claude <report-path>
 #
 # @param  {string}  report_path
-#     The rendered Codex insights report file to review.
+#     The rendered insights report file to review.
 function insights:claude() {
 	if [[ $# -ne 1 ]]; then
 		printf 'insights:claude: usage: insights:claude <report-path>\n' >&2
@@ -119,7 +121,7 @@ function insights:claude() {
 # Usage: insights:codex <report-path>
 #
 # @param  {string}  report_path
-#     The rendered Codex insights report file to review.
+#     The rendered insights report file to review.
 function insights:codex() {
 	if [[ $# -ne 1 ]]; then
 		printf 'insights:codex: usage: insights:codex <report-path>\n' >&2
@@ -147,6 +149,46 @@ function insights:codex() {
 		--model gpt-6-astra \
 		--role-file orchestrator.md \
 		--role-file insights-review-peer.md \
+		--thinking high \
+		--working-dir "$PWD" \
+		--initial-prompt "$initial_prompt"
+}
+
+# @desc  Start a Claude agent that combines both insights reviews of a given report file
+# @cat   hcom
+# Usage: insights:consolidate <report-path>
+#
+# @param  {string}  report_path
+#     The rendered insights report file that both reviewers reviewed.
+function insights:consolidate() {
+	if [[ $# -ne 1 ]]; then
+		printf 'insights:consolidate: usage: insights:consolidate <report-path>\n' >&2
+		return 1
+	fi
+
+	local report_path="$1"  # Report file path passed by the caller.
+
+	if [[ ! -f "$report_path" || ! -r "$report_path" ]]; then
+		printf 'insights:consolidate: report file is missing or unreadable: %s\n' "$report_path" >&2
+		return 1
+	fi
+
+	local prompt_file="$ZSH_CONFIG_ROOT/prompts/hcom-insights-consolidate.md"  # Consolidator prompt template.
+	local initial_prompt  # Prompt text that must load successfully before launch.
+
+	if ! initial_prompt="$(_hcom_workflow_prompt insights:consolidate "$prompt_file" __REPORT_PATH__ "$report_path")"; then
+		printf 'insights:consolidate: cannot launch without a readable insights-consolidate prompt. Check: %s\n' "$prompt_file" >&2
+		return 1
+	fi
+
+	# Both reviewers reach the consolidator with `team-send reviewer --team insights`,
+	# so it runs under the insights team's reviewer tag.
+	HCOM_TEAM_LABEL=insights _hcom_launch_role \
+		--command insights:consolidate \
+		--tool claude \
+		--tag reviewer \
+		--model opus \
+		--role-file insights-consolidator.md \
 		--thinking high \
 		--working-dir "$PWD" \
 		--initial-prompt "$initial_prompt"

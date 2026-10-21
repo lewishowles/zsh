@@ -1,20 +1,23 @@
--- Creates the four-pane insights-review layout and starts the supplied reviewer and scout commands.
+-- Creates the five-pane insights-review layout and starts the supplied reviewer, scout and consolidator commands.
 --
 -- @param {list} arguments
---     The Codex reviewer command, both scout commands, and the launching pane ID.
+--     The Codex reviewer command, both scout commands, the consolidator command and the launching pane ID.
 on run arguments
-	-- Codex reviewer command to type into the right-hand reviewer pane.
+	-- Shells that loaded an older launcher pass fewer than five arguments.
+	if (count of arguments) < 5 then
+		error "This shell has an older insights launcher loaded. Run exec zsh, then try again."
+	end if
+
+	-- Codex reviewer command to type into the middle reviewer pane.
 	set reviewerCodexCommand to item 1 of arguments
 	-- Claude scout command to type into the lower-left scout pane.
 	set scoutClaudeCommand to item 2 of arguments
-	-- Codex scout command to type into the lower-right scout pane.
+	-- Codex scout command to type into the lower-middle scout pane.
 	set scoutCodexCommand to item 3 of arguments
-	-- Shells that loaded the launcher before it captured the launching pane pass only three arguments.
-	if (count of arguments) < 4 then
-		error "This shell has an older insights launcher loaded. Run exec zsh, then try again."
-	end if
+	-- Claude consolidator command to type into the full-height right pane.
+	set consolidatorCommand to item 4 of arguments
 	-- ID of the pane that ran the insights command.
-	set originTerminalId to item 4 of arguments
+	set originTerminalId to item 5 of arguments
 
 	tell application "Ghostty"
 		-- The launching shell, used for the splits.
@@ -53,19 +56,26 @@ on run arguments
 		-- Original layout error saved until focus restoration is attempted.
 		set layoutErrorMessage to missing value
 		try
-			-- Right-hand terminal for the Codex reviewer.
+			-- Full-height right-hand terminal for the consolidator. It is split off
+			-- first so the later down splits stay inside the two reviewer columns.
+			set consolidatorTerminal to split reviewerClaudeTerminal direction right
+			-- Middle terminal for the Codex reviewer.
 			set reviewerCodexTerminal to split reviewerClaudeTerminal direction right
 			-- Lower-left terminal for the Claude scout.
 			set scoutClaudeTerminal to split reviewerClaudeTerminal direction down
-			-- Lower-right terminal for the Codex scout.
+			-- Lower-middle terminal for the Codex scout.
 			set scoutCodexTerminal to split reviewerCodexTerminal direction down
 
+			-- Splitting the launching pane twice leaves the consolidator with half the
+			-- width, so the columns are evened out before the reviewers are made taller.
+			perform action "equalize_splits" on reviewerClaudeTerminal
 			perform action "resize_split:down,150" on reviewerClaudeTerminal
 			perform action "resize_split:down,150" on reviewerCodexTerminal
 
 			my runCommand(reviewerCodexTerminal, reviewerCodexCommand)
 			my runCommand(scoutClaudeTerminal, scoutClaudeCommand)
 			my runCommand(scoutCodexTerminal, scoutCodexCommand)
+			my runCommand(consolidatorTerminal, consolidatorCommand)
 		on error errorMessage number errorNumber
 			set layoutErrorMessage to errorMessage
 			-- Original layout error number, re-raised with the message.
