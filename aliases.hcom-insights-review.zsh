@@ -4,6 +4,7 @@
 
 # @desc  Start the complete hcom insights review of a given report file in four Ghostty panes
 # @cat   hcom
+# @needs agent-quota
 # Usage: insights <report-path>
 #
 # Creates this layout in the current Ghostty tab:
@@ -75,6 +76,7 @@ _hcom_insights_review_prompt() {
 
 # @desc  Start a Claude insights-review peer review of a given report file
 # @cat   hcom
+# @needs agent-quota
 # Usage: insights:claude <report-path>
 #
 # @param  {string}  report_path
@@ -113,6 +115,7 @@ function insights:claude() {
 
 # @desc  Start a Codex insights-review peer review of a given report file
 # @cat   hcom
+# @needs agent-quota
 # Usage: insights:codex <report-path>
 #
 # @param  {string}  report_path

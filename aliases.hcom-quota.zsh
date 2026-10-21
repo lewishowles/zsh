@@ -1,46 +1,80 @@
-# Chooses HCOM accounts from session and weekly quota using the standalone Python helper.
+# Chooses HCOM accounts from session and weekly quota. The picker needs agent-quota on PATH.
 
 # Provides EPOCHSECONDS, the current Unix time, which the pace calculation subtracts from
 # a reset timestamp to find how much of a quota window is still to run.
 zmodload -F zsh/datetime p:EPOCHSECONDS
 
-# Prints one account's cached or fresh quota; failures include a diagnostic on stderr.
+# Prints the quota of a provider's default account, then account 2, from one agent-quota run.
 #
-# The output is six space-separated values, session window before week, each giving
-# remaining percentage, reset timestamp and window length in seconds.
+# Each output line has six space-separated values, session window before week, each
+# giving remaining percentage, reset timestamp and window length in seconds. Fails with a
+# diagnostic on stderr when agent-quota is missing or fails, or when either account is
+# missing, reports an error, or has an unreadable window, because agent-quota still exits
+# 0 when a single account cannot be read.
 #
 # @param  {string}  provider
 #     Quota source: claude or codex.
-# @param  {string}  account
-#     Account ID: default or 2, independent of inherited account overrides.
-# @param  {integer}  ttl
-#     How long a saved reading may still be used, in seconds. The script rejects a value
-#     above its per-provider ceiling (Codex 300, Claude 600).
 _hcom_quota_probe() {
-	command python3 "$ZSH_CONFIG_ROOT/scripts/hcom-quota.py" "$1" "$2" "$3"
-}
+	local quota_json  # One agent-quota response containing all accounts.
+	local quota_error_file  # Temporary file for agent-quota's own diagnostic.
+	local last_error  # Last stderr line from a failed agent-quota request.
 
-# Prints one Codex account's quota windows, reusing a cached reading for up to five minutes.
-#
-# Quota moves slowly enough that a launch a few minutes after the last one can reuse the
-# same reading, and the Codex probe is a local call that costs no quota of its own.
-#
-# @param  {string}  account
-#     Account ID: default or 2.
-_hcom_quota_codex() {
-	_hcom_quota_probe codex "$1" 300
-}
+	if ! command -v agent-quota >/dev/null; then
+		print -u2 -- 'agent-quota is not installed or is not on PATH'
+		return 1
+	fi
 
-# Prints one Claude account's quota windows, reusing a cached reading for up to ten minutes.
-#
-# Reading Claude's quota means asking Claude, which spends a little of the quota being
-# measured, so this holds a reading longer than the Codex probe does. Ten minutes still
-# covers the burst of launches that starting or restarting a team produces.
-#
-# @param  {string}  account
-#     Account ID: default or 2.
-_hcom_quota_claude() {
-	_hcom_quota_probe claude "$1" 600
+	quota_error_file="$(mktemp)" || return 1
+	if ! quota_json="$(command agent-quota --json 2> "$quota_error_file")"; then
+		last_error="$(tail -n 1 "$quota_error_file")"
+		command rm -f -- "$quota_error_file"
+		print -u2 -- "agent-quota could not read quota${last_error:+: $last_error}"
+		return 1
+	fi
+	command rm -f -- "$quota_error_file"
+
+	# Convert the selected provider's JSON windows to the allocator's six-value lines.
+	command python3 -c '
+import json
+import math
+import sys
+from datetime import datetime
+
+provider = sys.argv[1]
+
+try:
+	response = json.load(sys.stdin)
+	if response["ok"] is not True:
+		raise ValueError("quota request failed")
+	accounts = response["data"]["accounts"]
+	lines = []
+	for account_id in ("default", "2"):
+		entry = next((item for item in accounts if item["provider"] == provider and item["account"] == account_id), None)
+		if entry is None:
+			raise ValueError(f"account {account_id}: quota entry is missing")
+		if "error" in entry:
+			message = str(entry["error"])[:160]
+			raise ValueError(f"account {account_id}: {message}")
+
+		values = []
+		for name in ("session", "week"):
+			window = entry[name]
+			used = window["used_percent"]
+			reset = window["resets_at"]
+			seconds = window["window_seconds"]
+			if (type(used) not in (int, float) or not math.isfinite(used)
+					or not isinstance(reset, str) or not reset
+					or type(seconds) not in (int, float) or not math.isfinite(seconds)
+					or seconds <= 0):
+				raise ValueError(f"account {account_id}: {name} quota is invalid")
+			values.extend((100 - used, int(datetime.fromisoformat(reset).timestamp()), seconds))
+		lines.append(" ".join(map(str, values)))
+except (KeyError, TypeError, ValueError, OverflowError) as error:
+	print(f"invalid agent-quota response: {error}", file=sys.stderr)
+	sys.exit(1)
+
+print("\n".join(lines))
+' "$1" <<< "$quota_json"
 }
 
 # Prints the account ID for the heavier role, then the lighter one, then 1 when the provider
@@ -75,14 +109,15 @@ _hcom_quota_claude() {
 _hcom_quota_allocate() {
 	local command_name="$1"  # Public command responsible for the allocation.
 	local provider="$2"  # Provider whose two accounts are being compared.
-	local account  # Account currently being probed.
-	local available  # Six-value quota line on success, or the probe diagnostic on failure.
+	local -i account_index  # Position of the account being read, matching account_ids.
+	local available  # Both quota lines on success, or the probe diagnostic on failure.
 	local -i heavier_index=1 lighter_index=2  # Positions in the per-account arrays, default first.
 	local -i displaced_index  # Position the heavier role is moved off when that account is too close to empty.
 	local -i provider_exhausted  # 1 when both accounts have under 5% usable quota, leaving the provider unusable.
 
 	local -a account_ids=(default 2)  # Account IDs in the order every per-account array uses.
 	local -a quota_values  # One account's six probe values, split for indexing.
+	local -a quota_lines  # Both accounts' six-value lines from one agent-quota run.
 	local -a usable_remaining  # Percentage each account can still spend: the lower of its session and weekly figures.
 	local -a weekly_remaining  # Percentage of each account's weekly window left.
 	local -a weekly_reset  # Unix timestamp each account's weekly window refills at.
@@ -99,14 +134,16 @@ _hcom_quota_allocate() {
 			;;
 	esac
 
-	for account in "${account_ids[@]}"; do
-		if ! available="$("_hcom_quota_$provider" "$account" 2>&1)"; then
-			printf '\n[hcom quota probe failed]\n  Provider: %s\n  Account: %s\n  Diagnostic: %s\n  Consequence: every role in this launch lands on the default account, the placement this balancing exists to avoid.\n\n' "$provider" "$account" "${available//$'\n'/; }" >&2
-			print -r -- 'default default 0'
-			return 2
-		fi
+	if ! available="$(_hcom_quota_probe "$provider" 2>&1)"; then
+		printf '\n[hcom quota probe failed]\n  Provider: %s\n  Diagnostic: %s\n  Consequence: every role in this launch lands on the default account, the placement this balancing exists to avoid.\n\n' "$provider" "${available//$'\n'/; }" >&2
+		print -r -- 'default default 0'
+		return 2
+	fi
 
-		read -rA quota_values <<< "$available"
+	quota_lines=("${(@f)available}")
+
+	for account_index in {1..2}; do
+		read -rA quota_values <<< "${quota_lines[account_index]}"
 		# An empty weekly window stops an account whatever its session window says, so
 		# the account can only spend the smaller of the two.
 		usable_remaining+=("$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))")

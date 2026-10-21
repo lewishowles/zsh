@@ -10,6 +10,7 @@ fi
 # task with a saved handoff resumes from it.
 # @desc  Continue a complete hcom team from a task's saved handoff or the next task
 # @cat   hcom
+# @needs agent-quota
 #
 # @param  {string}  ...
 #     An optional task ID followed by the team continue options.
@@ -23,18 +24,23 @@ cont() {
 }
 # @desc  Resume a complete hcom team from the clipboard handoff
 # @cat   hcom
+# @needs agent-quota
 alias handoff="team handoff"
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 alias ho="orchestrator"
 # @desc  Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 alias hr="reviewer"
 # @desc  Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 alias hi="implementer"
 # @desc  Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 alias hs="scout"
 
 # Role configuration fields: tool|tag|model|role_file|thinking.
@@ -181,48 +187,56 @@ _hcom_launch_configured_role() {
 
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 orchestrator() {
 	_hcom_launch_configured_role orchestrator "$@"
 }
 
 # @desc  Start the Codex Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 orchestrator:codex() {
 	_hcom_launch_configured_role orchestrator-codex "$@"
 }
 
 # @desc  Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 implementer() {
 	_hcom_launch_configured_role implementer "$@"
 }
 
 # @desc  Start the Claude Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 implementer:claude() {
 	_hcom_launch_configured_role implementer-claude "$@"
 }
 
 # @desc  Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 reviewer() {
 	_hcom_launch_configured_role reviewer "$@"
 }
 
 # @desc  Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 reviewer:codex() {
 	_hcom_launch_configured_role reviewer-codex "$@"
 }
 
 # @desc  Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 scout() {
 	_hcom_launch_configured_role scout "$@"
 }
 
 # @desc  Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
+# @needs agent-quota
 scout:claude() {
 	_hcom_launch_configured_role scout-claude "$@"
 }

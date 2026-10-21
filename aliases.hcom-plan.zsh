@@ -2,6 +2,7 @@
 
 # @desc  Start the complete hcom plan review of a given task name or path in four Ghostty panes
 # @cat   hcom
+# @needs agent-quota
 # Usage: plan [--team <label>] <task-name>
 #
 # Creates this layout in the current Ghostty tab:
@@ -93,6 +94,7 @@ _hcom_plan_prompt() {
 
 # @desc  Start a Claude planning-peer review of a given task name or path
 # @cat   hcom
+# @needs agent-quota
 # Usage: plan:claude [--team <label>] <task-name>
 #
 # @param  {string}  --team <label>
@@ -131,6 +133,7 @@ function plan:claude() {
 
 # @desc  Start a Codex planning-peer review of a given task name or path
 # @cat   hcom
+# @needs agent-quota
 # Usage: plan:codex [--team <label>] <task-name>
 #
 # @param  {string}  --team <label>

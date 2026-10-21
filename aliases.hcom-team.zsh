@@ -1472,6 +1472,7 @@ _hcom_parse_team_args() {
 
 # @desc  Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
+# @needs agent-quota
 #
 # Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
@@ -1483,6 +1484,7 @@ team() {
 
 # @desc  Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
+# @needs agent-quota
 #
 # Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
@@ -1494,6 +1496,7 @@ team:codex() {
 
 # @desc  Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over
 # @cat   hcom
+# @needs agent-quota
 #
 # Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.

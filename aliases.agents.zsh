@@ -8,6 +8,7 @@ export EDITOR="$VISUAL"
 
 # @desc  Run Codex on the account with more quota headroom
 # @cat   agent
+# @needs agent-quota
 #
 # Runs Codex on whichever of the two accounts has more quota headroom, matching what
 # team gives its orchestrator. A session with a single role is doing the orchestrator's
@@ -36,6 +37,7 @@ codex() {
 }
 # @desc  Run Claude in auto-mode on the account with more quota headroom
 # @cat   agent
+# @needs agent-quota
 #
 # Runs Claude in auto-mode on whichever of the two accounts has more quota headroom, matching
 # what team gives its orchestrator. A session with a single role is doing the
