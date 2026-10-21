@@ -10,6 +10,9 @@ alias task="progress task get"
 # @desc  Clean completed tasks and releases
 # @cat   progress
 alias clean="progress task clean --force"
+# @desc  Cleanup a completed worktree
+# @cat   progress
+alias cleanup="progress worktree cleanup"
 # @desc  List chunks for the selected next task, or for another task with --task ID
 # @cat   progress
 alias chunks="progress chunk list"
