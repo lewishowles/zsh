@@ -419,6 +419,7 @@ _hcom_launch_team() {
 	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
 	local continuation_has_handoff=0  # Whether the selected task has a saved handoff.
 	local ensure_task_id=""  # Ready task that needs a managed checkout created.
+	local task_checkout_selected=0  # Whether the team will launch in a task checkout.
 	local git_changes  # Git's short status for a ready default task.
 	local checkout_json  # Progress response when creating a managed checkout.
 	local root_team_tags  # Exact role tags for the team in the original checkout.
@@ -505,6 +506,7 @@ _hcom_launch_team() {
 			_hcom_get_launch_checkout "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
 			if [[ -n "${reply[1]}" ]]; then
 				working_directory="${reply[1]}"
+				task_checkout_selected=1
 			elif (( continuation_task_needs_start )); then
 				ensure_task_id="$requested_task_id"
 			else
@@ -553,6 +555,7 @@ _hcom_launch_team() {
 			_hcom_get_launch_checkout "$command_name" "$team_scope_directory" "$continuation_task_id" || return 1
 			if [[ -n "${reply[1]}" ]]; then
 				working_directory="${reply[1]}"
+				task_checkout_selected=1
 			fi
 		fi
 	fi
@@ -575,13 +578,22 @@ _hcom_launch_team() {
 		checkout_json="$(cd "$team_scope_directory" && progress worktree ensure "$ensure_task_id" --json 2>/dev/null)"
 		_hcom_check_checkout_response "$command_name" "$checkout_json" "$ensure_task_id"
 		case "$?" in
-			0) working_directory="${reply[1]}" ;;
+			0) working_directory="${reply[1]}"; task_checkout_selected=1 ;;
 			2)
 				_hcom_command_error "$command_name" '' "${reply[1]}"
 				return 1
 				;;
 			*) return 1 ;;
 		esac
+	fi
+
+	# Agents can't install packages from their sandboxes, so a task checkout with a
+	# package.json but no node_modules gets its packages here, before any pane opens.
+	if (( task_checkout_selected )) && [[ -f "$working_directory/package.json" && ! -d "$working_directory/node_modules" ]]; then
+		if ! (cd "$working_directory" && bun install); then
+			_hcom_command_error "$command_name" 'bun install failed in ' "$working_directory" '; no panes launched.'
+			return 1
+		fi
 	fi
 
 	# A quick task created by the launch that called this one gets no continuation
