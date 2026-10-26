@@ -1042,13 +1042,16 @@ _hcom_select_in_progress_task() {
 	local task_id="$3"  # The named task, the only in-progress task, or the task chosen in the picker.
 	local force_picker="${4:-0}"  # Whether to open the picker because the human declined the suggested task.
 	local tasks_json  # In-progress tasks returned by progress task list.
-	local ready_tasks_json  # Ready tasks returned by a separate progress query.
+	local picker_tasks_json  # All tasks returned in the progress queue's order for the picker.
 	local task_count  # Number of in-progress tasks in the project.
 	local listed_task_id  # The ID of one task while a task list is printed or read into the numbered picker.
+	local listed_task_display  # The status and title shown beside a task in the numbered picker.
 	local listed_task_status  # Short status label shown before the task title.
+	local listed_task_tone  # Colour used for that status label.
 	local listed_task_title  # The title of that task.
 	local selected_task  # The row picked in fzf, or the number typed at the prompt.
-	local task_rows  # Tab-separated rows: ID and title for the no-terminal list, or ID, status label and title for both pickers and the commands printed on cancel.
+	local task_rows  # Tab-separated rows: ID and title for the no-terminal list, or ID, the status (coloured unless NO_COLOR is set) and title shown in the picker, and the plain title printed on cancel.
+	local picker_rows  # The ID, status and title of each in-progress or ready task, in the progress queue's order.
 	local task_number  # The number shown beside one task in the numbered list.
 	local preview_command  # The command fzf runs to show the highlighted task's continue screen. It runs in a fresh shell, so it loads the shared environment (for the cli-style text helpers) as well as the HCOM files.
 	local -a task_ids task_titles  # The ID behind each number in the list, and the status label and title shown beside it.
@@ -1088,31 +1091,49 @@ _hcom_select_in_progress_task() {
 				done <<<"$task_rows"
 				return 1
 			fi
-			if ! ready_tasks_json="$(cd "$working_directory" && progress task list --status ready --all --json 2>/dev/null)" \
-				|| ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$ready_tasks_json"; then
-				_hcom_command_error "$command_name" 'could not list ready tasks in ' "$working_directory" '.'
+			if ! picker_tasks_json="$(cd "$working_directory" && progress task list --all --json 2>/dev/null)" \
+				|| ! jq -e '.ok == true and (.data.items | type == "array")' >/dev/null 2>&1 <<<"$picker_tasks_json"; then
+				_hcom_command_error "$command_name" 'could not list tasks in ' "$working_directory" '.'
 				return 1
 			fi
-			# The ready label is padded to the width of "in progress" so every title starts
-			# in the same column.
-			task_rows="$(jq -nr --argjson active "$tasks_json" --argjson ready "$ready_tasks_json" '
-				[($active.data.items + $ready.data.items)[]] | sort_by(.position) | .[] |
-				[.id, (if .status == "in-progress" then "in progress" else "ready      " end), .title] | @tsv')"
-			if [[ -z "$task_rows" ]]; then
+			picker_rows="$(jq -r '.data.items[] | select(.status == "in-progress" or .status == "ready") | [.id, .status, .title] | @tsv' <<<"$picker_tasks_json")"
+			if [[ -z "$picker_rows" ]]; then
 				_hcom_command_error "$command_name" 'no in-progress or ready tasks to choose in ' "$working_directory" '.'
 				return 1
 			fi
 
+			# Rows keep progress queue order with the next task first, so fzf shows it at the
+			# bottom like the tasks list.
+			task_rows=''
+			while IFS=$'\t' read -r listed_task_id listed_task_status listed_task_title; do
+				# Pad ready to the width of in progress so every title starts in the same column.
+				if [[ "$listed_task_status" == in-progress ]]; then
+					listed_task_status='in progress'
+					listed_task_tone=info
+				else
+					listed_task_status='ready      '
+					listed_task_tone=muted
+				fi
+				if [[ -t 2 && -z "${NO_COLOR:-}" ]]; then
+					listed_task_status="$(FORCE_COLOR=1 cli_style_span "$listed_task_status" "$listed_task_tone")"
+				fi
+				if [[ -n "$task_rows" ]]; then
+					task_rows+=$'\n'
+				fi
+				task_rows+="${listed_task_id}"$'\t'"${listed_task_status}  ${listed_task_title}"$'\t'"${listed_task_title}"
+			done <<<"$picker_rows"
+
 			if command -v fzf >/dev/null 2>&1; then
 				preview_command="zsh -c 'source \"\$1/environment.zsh\"; source \"\$1/aliases.hcom-core.zsh\"; source \"\$1/aliases.hcom-team.zsh\"; _hcom_preview_team_continuation \"\$2\" \"\$3\" 1 \"\$4\"' _ ${(q)ZSH_CONFIG_ROOT} ${(q)command_name} ${(q)working_directory} {1}"
-				selected_task="$(fzf --delimiter=$'\t' --with-nth=2,3 --gap --prompt='Which task? ' --preview "$preview_command" <<<"$task_rows")" || selected_task=''
+				selected_task="$(fzf --ansi --delimiter=$'\t' --with-nth=2 --layout=default --gap --prompt='Which task? ' --preview "$preview_command" <<<"$task_rows")" || selected_task=''
 				[[ -n "$selected_task" ]] && task_id="${selected_task%%$'\t'*}"
 			else
-				while IFS=$'\t' read -r listed_task_id listed_task_status listed_task_title; do
+				while IFS=$'\t' read -r listed_task_id listed_task_display; do
 					task_ids+=("$listed_task_id")
-					task_titles+=("$listed_task_status  $listed_task_title")
+					task_titles+=("${listed_task_display%%$'\t'*}")
 				done <<<"$task_rows"
-				for (( task_number = 1; task_number <= ${#task_ids}; task_number++ )); do
+				# Count down so the next task prints last, like the tasks list.
+				for (( task_number = ${#task_ids}; task_number >= 1; task_number-- )); do
 					printf '  %s. %s\n' "$task_number" "${task_titles[$task_number]}" >&2
 				done
 
@@ -1128,7 +1149,7 @@ _hcom_select_in_progress_task() {
 			fi
 
 			if [[ -z "$task_id" ]]; then
-				while IFS=$'\t' read -r listed_task_id listed_task_status listed_task_title; do
+				while IFS=$'\t' read -r listed_task_id listed_task_display listed_task_title; do
 					printf '%s\n' "$listed_task_title" >&2
 					if [[ "$command_name" == cont ]]; then
 						printf '  cont %s\n' "$listed_task_id" >&2

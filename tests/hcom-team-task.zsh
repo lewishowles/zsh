@@ -25,6 +25,10 @@ fail() {
 cat > "$fixture_dir/bin/progress" <<'STUB'
 #!/usr/bin/env zsh
 if [[ "$1" == task && "$2" == list && "$3" == --all && "$4" == --json ]]; then
+	if [[ "${HCOM_FIXTURE_ALL_TASKS:-0}" == 1 ]]; then
+		print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_a_B","title":"Other task","status":"in-progress","position":1},{"id":"tsk_A-B","title":"Earlier ready task","status":"ready","position":2},{"id":"tsk_A_B","title":"First task","status":"in-progress","position":3},{"id":"tsk_ready_two","title":"Second ready task","status":"ready","position":4},{"id":"tsk_done","title":"Finished task","status":"done","position":5}]}}'
+		exit 0
+	fi
 	print -r -- "task list --all" >> "$HCOM_FIXTURE_QUICK_CALLS"
 	case "${HCOM_FIXTURE_QUICK_STATE:-new}" in
 		unfinished) print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_quick","slug":"quick-blue","status":"in-progress"}]}}' ;;
@@ -74,10 +78,6 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 		exit 0
 	fi
 	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_A_B","title":"First task","status":"in-progress","position":3},{"id":"tsk_a_B","title":"Other task","status":"in-progress","position":1}]}}'
-	exit 0
-fi
-if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == ready && "$5" == --all && "$6" == --json ]]; then
-	print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_ready_two","title":"Second ready task","status":"ready","position":4},{"id":"tsk_A-B","title":"Earlier ready task","status":"ready","position":2}]}}'
 	exit 0
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; then
@@ -424,8 +424,19 @@ unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
 # Runs the real selector inside a pseudo-terminal and sends each answer only
 # after its prompt appears.
 cat > "$fixture_dir/select-task.zsh" <<'STUB'
+# Makes progress return the full task list for the picker.
+export HCOM_FIXTURE_ALL_TASKS=1
 source "$ZSH_CONFIG_ROOT/aliases.hcom-core.zsh"
 source "$ZSH_CONFIG_ROOT/aliases.hcom-team.zsh"
+# Marks styled status text so the picker fixture can inspect its tone.
+#
+# @param  {string}  text
+#     The status label.
+# @param  {string}  tone
+#     The tone requested by the picker.
+cli_style_span() {
+	print -r -- "[$2]$1[/]"
+}
 if _hcom_select_in_progress_task "${HCOM_FIXTURE_SELECTOR_COMMAND:-cont}" "$HCOM_FIXTURE_PROJECT_DIR" '' "${HCOM_FIXTURE_FORCE_PICKER:-0}"; then
 	print -r -- "SELECTED:${reply[1]}:${reply[2]}"
 else
@@ -464,9 +475,9 @@ STUB
 # A PATH that hides any installed fzf but keeps the fixture commands and jq.
 numbered_path="$fixture_dir/bin:${$(command -v jq):h}:/usr/bin:/bin:/usr/sbin:/sbin"
 numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" invalid-then-pick)" || fail 'numbered selector process failed'
-[[ "$numbered_output" == *'1. in progress  Other task'*'2. ready        Earlier ready task'*'3. in progress  First task'*'4. ready        Second ready task'* && "$numbered_output" == *'Choose a number from 1 to 4'* && "$numbered_output" == *'SELECTED:tsk_a_B:1'* ]] || fail 'numbered selector did not order and align the tasks'
+[[ "$numbered_output" == *'4. ready        Second ready task'*'3. in progress  First task'*'2. ready        Earlier ready task'*'1. in progress  Other task'* && "$numbered_output" == *'Choose a number from 1 to 4'* && "$numbered_output" == *'SELECTED:tsk_a_B:1'* && "$numbered_output" != *'Finished task'* ]] || fail 'numbered selector did not order and align the tasks'
 numbered_output="$(env PATH="$numbered_path" NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'numbered cancellation process failed'
-[[ "$numbered_output" == *$'Other task\r\n  cont tsk_a_B'* && "$numbered_output" == *$'Earlier ready task\r\n  cont tsk_A-B'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'SELECTED:'* ]] || fail 'empty answer did not print continuation commands'
+[[ "$numbered_output" == *$'Other task\r\n  cont tsk_a_B'* && "$numbered_output" == *$'Earlier ready task\r\n  cont tsk_A-B'* && "$numbered_output" != *$'in progress  Other task\r\n  cont tsk_a_B'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'SELECTED:'* ]] || fail 'empty answer did not print plain titles and continuation commands'
 numbered_output="$(env PATH="$numbered_path" HCOM_FIXTURE_SELECTOR_COMMAND=team:codex NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-numbered)" || fail 'team selector cancellation process failed'
 [[ "$numbered_output" == *$'Other task\r\n  team:codex continue --task tsk_a_B'* && "$numbered_output" == *'CANCELLED'* && "$numbered_output" != *'  cont tsk_a_B'* ]] || fail 'team selector cancellation did not print its own continuation command'
 
@@ -487,12 +498,14 @@ chmod +x "$fixture_dir/bin/fzf"
 export HCOM_FIXTURE_FZF_INPUT="$fixture_dir/fzf-input"
 export HCOM_FIXTURE_FZF_ARGS="$fixture_dir/fzf-args"
 fzf_output="$(env NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-fzf)" || fail 'fzf selector process failed'
-[[ "$fzf_output" == *'SELECTED:tsk_a_B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == $'tsk_a_B\tin progress\tOther task\ntsk_A-B\tready      \tEarlier ready task\ntsk_A_B\tin progress\tFirst task\ntsk_ready_two\tready      \tSecond ready task' ]] || fail 'fzf selector did not order and align active and ready tasks'
-[[ "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--with-nth=2,3'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--gap'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--preview '* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'_hcom_preview_team_continuation'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'aliases.hcom-team.zsh'* ]] || fail 'fzf selector did not hide the ID or wire the spaced preview'
+[[ "$fzf_output" == *'SELECTED:tsk_a_B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == $'tsk_a_B\tin progress  Other task\tOther task\ntsk_A-B\tready        Earlier ready task\tEarlier ready task\ntsk_A_B\tin progress  First task\tFirst task\ntsk_ready_two\tready        Second ready task\tSecond ready task' ]] || fail 'fzf selector did not order and align active and ready tasks'
+[[ "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--ansi'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--with-nth=2'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--layout=default'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--gap'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'--preview '* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'_hcom_preview_team_continuation'* && "$(<"$HCOM_FIXTURE_FZF_ARGS")" == *'aliases.hcom-team.zsh'* ]] || fail 'fzf selector did not hide the ID or wire the spaced preview'
 fzf_output="$(env HCOM_FIXTURE_FORCE_PICKER=1 HCOM_FIXTURE_FZF_READY=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" pick-ready)" || fail 'declined-task picker process failed'
-[[ "$fzf_output" == *'SELECTED:tsk_A-B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tin progress\tOther task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A-B\tready      \tEarlier ready task'* ]] || fail 'declined-task picker lost the suggested task or a ready choice'
+[[ "$fzf_output" == *'SELECTED:tsk_A-B:1'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\tin progress  Other task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A-B\tready        Earlier ready task'* ]] || fail 'declined-task picker lost the suggested task or a ready choice'
 fzf_output="$(env HCOM_FIXTURE_FZF_CANCEL=1 NO_COLOR=1 expect "$fixture_dir/select-task.expect" cancel-fzf)" || fail 'fzf cancellation process failed'
-[[ "$fzf_output" == *$'Other task\r\n  cont tsk_a_B'* && "$fzf_output" == *$'Second ready task\r\n  cont tsk_ready_two'* && "$fzf_output" == *'CANCELLED'* && "$fzf_output" != *'SELECTED:'* ]] || fail 'fzf cancellation did not print continuation commands'
+[[ "$fzf_output" == *$'Other task\r\n  cont tsk_a_B'* && "$fzf_output" == *$'Second ready task\r\n  cont tsk_ready_two'* && "$fzf_output" != *$'in progress  Other task\r\n  cont tsk_a_B'* && "$fzf_output" == *'CANCELLED'* && "$fzf_output" != *'SELECTED:'* ]] || fail 'fzf cancellation did not print plain titles and continuation commands'
+fzf_output="$(env -u NO_COLOR HCOM_FIXTURE_FZF_CANCEL=1 expect "$fixture_dir/select-task.expect" cancel-fzf)" || fail 'coloured fzf cancellation process failed'
+[[ "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_a_B\t[info]in progress[/]  Other task\tOther task'* && "$(<"$HCOM_FIXTURE_FZF_INPUT")" == *$'tsk_A-B\t[muted]ready      [/]  Earlier ready task\tEarlier ready task'* && "$fzf_output" == *$'Other task\r\n  cont tsk_a_B'* && "$fzf_output" == *$'Earlier ready task\r\n  cont tsk_A-B'* && "$fzf_output" != *'[info]'* && "$fzf_output" != *'[muted]'* && "$fzf_output" == *'CANCELLED'* ]] || fail 'coloured picker did not keep status markers out of cancellation titles'
 
 # Stdin comes from /dev/null so the refusal is tested even when the suite runs in a terminal.
 if _hcom_select_in_progress_task cont "$fixture_dir/project" '' </dev/null 2>"$error_file"; then
