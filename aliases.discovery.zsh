@@ -48,9 +48,15 @@ function _annotations_parse() {
 }
 
 # All annotated commands across the aliases.*.zsh files, sorted by category then
-# name. Backs alias:list, alias:find and the README command table.
+# name. Backs alias:list, alias:find and the README command table. Pass --public
+# to leave out the gitignored aliases.private.zsh, so machine-specific commands
+# never reach the tracked README.
 function _alias_parse() {
-	_annotations_parse "$ZSH_CONFIG_ROOT"/aliases.*.zsh(N) | sort -t$'\t' -k1,1 -k2,2
+	local -a files=("$ZSH_CONFIG_ROOT"/aliases.*.zsh(N))
+	if [[ $1 == --public ]]; then
+		files=(${files:#*/aliases.private.zsh})
+	fi
+	_annotations_parse "${files[@]}" | sort -t$'\t' -k1,1 -k2,2
 }
 
 # @desc  List all annotated commands, grouped by category
@@ -147,7 +153,7 @@ function _docs_write() {
 	before=$(awk '/^<!-- commands:start -->/{exit} {print}' "$target")
 	after=$(awk '/^<!-- commands:end -->/{found=1; next} found{print}' "$target")
 	new_block=$(
-		_alias_parse | awk -F'\t' '
+		_alias_parse --public | awk -F'\t' '
 			BEGIN { prev_cat = "" }
 			{
 				if ($1 != prev_cat) {
