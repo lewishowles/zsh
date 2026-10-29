@@ -201,8 +201,8 @@ alias agents="zed AGENTS.md"
 
 # @desc  Set up agent files (Claude + Codex) globally, for both accounts
 # @cat   agents
-agents:setup:global() {
-	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-global.sh" --both "$@"
-	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup-global.sh" --both \
+agents:setup() {
+	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup.sh" --both "$@"
+	"$HOME/Dev/Repositories/Configuration/Agents/scripts/setup.sh" --both \
 		--claude-dir "$HOME/.claude-2" --codex-dir "$HOME/.codex-2" "$@"
 }
