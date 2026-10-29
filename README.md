@@ -230,7 +230,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 | Command | Parameters | Description |
 | --- | --- | --- |
-| `agents:setup:global` |  | Set up agent files (Claude + Codex) globally, for both accounts |
+| `agents:setup` |  | Set up agent files (Claude + Codex) globally, for both accounts |
 
 ### config
 
