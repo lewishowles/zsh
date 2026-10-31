@@ -192,6 +192,21 @@ source "$repo_root/aliases.hcom-roles.zsh"
 source "$repo_root/aliases.hcom-learn.zsh"
 source "$repo_root/aliases.hcom-session.zsh"
 
+# Supplies the launching pane ID without contacting Ghostty and records each lookup.
+# HCOM_FIXTURE_GHOSTTY_ERROR=1 makes the lookup fail with the Ghostty refusal.
+#
+# @param  {string}  command_name
+#     Public command requesting the pane ID.
+_hcom_focused_ghostty_terminal_id() {
+	print -r -- call >> "$fixture_dir/focused-pane-calls"
+	if [[ "${HCOM_FIXTURE_GHOSTTY_ERROR:-0}" == 1 ]]; then
+		_hcom_command_error "$1" 'run this command from a Ghostty terminal.'
+		return 1
+	fi
+	print -r -- 'fixture-origin-pane'
+}
+: > "$fixture_dir/focused-pane-calls"
+
 # Shows preview text without relying on the installed colour helper.
 #
 # @param  {string}  content
@@ -531,14 +546,6 @@ _hcom_team_create_panes() {
 	reply=("$resolved_tags" "new|panes")
 }
 
-# Supplies the launching pane ID without contacting Ghostty.
-#
-# @param  {string}  command_name
-#     Public command requesting the pane ID.
-_hcom_focused_ghostty_terminal_id() {
-	print -r -- 'fixture-origin-pane'
-}
-
 # Records the tags that an ordinary relaunch would stop.
 #
 # @param  {string}  team_tags
@@ -651,6 +658,22 @@ unset HCOM_FIXTURE_HAS_HANDOFF
 [[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A_B ]] || fail 'task team replaced prior ordinary team'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'named task did not look up then create its checkout'
+# A named task skips the preview even when stdin cannot answer a prompt.
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B </dev/null &> "$fixture_dir/named-task-output" || fail 'named task without --yes did not launch'
+[[ "$(<"$fixture_dir/named-task-output")" != *'Start this task?'* ]] || fail 'named task without --yes showed a confirmation'
+export HCOM_FIXTURE_GHOSTTY_ERROR=1
+assert_command_error "team:codex: could not read task tsk_unknown in $PWD." _hcom_launch_team team:codex unused unused unused unused continue --task tsk_unknown
+prior_pane_calls="$pane_calls"
+assert_command_error 'team:codex: run this command from a Ghostty terminal.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B
+[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'Ghostty refusal reached pane creation'
+HCOM_ACTIVE_TEAM_TAGS='old-root-orchestrator|old-root-reviewer'
+HCOM_TEAM_TERMINAL_IDS='old|panes'
+HCOM_ACTIVE_TEAM_TASK_ID=''
+stopped_team_tags=''
+: > "$HCOM_FIXTURE_WORKTREE_CALLS"
+assert_command_error 'team:codex: run this command from a Ghostty terminal.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_ready_two
+[[ -z "$stopped_team_tags" && "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_ready_two' ]] || fail 'Ghostty refusal stopped the prior team or created a checkout'
+unset HCOM_FIXTURE_GHOSTTY_ERROR
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
@@ -659,7 +682,9 @@ _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B
 # A label creates its quick task and launches through the named-task checkout path.
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
+prior_focused_pane_calls=$(wc -l < "$fixture_dir/focused-pane-calls")  # Pane lookups before the quick-task relaunch.
 _hcom_launch_team team:codex unused unused unused unused --team blue --message 'Investigate the prompt' || fail 'labelled quick task launch'
+[[ $(wc -l < "$fixture_dir/focused-pane-calls") -eq $((prior_focused_pane_calls + 1)) ]] || fail 'quick-task relaunch captured the pane more than once'
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '*'--slug quick-blue --title Quick: blue --overview Investigate the prompt --done-when The human says this quick work is done. --json'* ]] || fail 'quick task creation lost its details'
 [[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick && "$HCOM_ACTIVE_TEAM_TAGS" == 'Agents-quick-blue-orchestrator|Agents-quick-blue-reviewer|Agents-quick-blue-implementer|Agents-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_quick" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_quick" ]] || fail 'quick task team opened outside its checkout'
@@ -709,8 +734,15 @@ unset HCOM_FIXTURE_QUICK_STATE
 # A picker choice enters the same named-task path and skips the confirmation.
 export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B
 prior_pane_calls="$pane_calls"
+prior_focused_pane_calls=$(wc -l < "$fixture_dir/focused-pane-calls")
 _hcom_launch_team team:codex unused unused unused unused continue || fail 'picker choice did not launch a ready task'
+[[ $(wc -l < "$fixture_dir/focused-pane-calls") -eq $((prior_focused_pane_calls + 1)) ]] || fail 'picker relaunch captured the pane more than once'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B with '* ]] || fail 'picker choice missed the named ready-task launch path'
+export HCOM_FIXTURE_GHOSTTY_ERROR=1
+prior_focused_pane_calls=$(wc -l < "$fixture_dir/focused-pane-calls")
+assert_command_error 'team:codex: run this command from a Ghostty terminal.' _hcom_launch_team team:codex unused unused unused unused continue
+[[ $(wc -l < "$fixture_dir/focused-pane-calls") -eq $((prior_focused_pane_calls + 1)) ]] || fail 'picker relaunch repeated a failed pane lookup'
+unset HCOM_FIXTURE_GHOSTTY_ERROR
 unset HCOM_FIXTURE_PICKER_TASK_ID
 export HCOM_FIXTURE_PICKER_CANCEL=1
 prior_pane_calls="$pane_calls"
@@ -718,10 +750,9 @@ _hcom_launch_team team:codex unused unused unused unused continue || fail 'cance
 [[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'cancelled picker after several tasks opened a pane'
 unset HCOM_FIXTURE_PICKER_CANCEL
 
-# Declining a preview opens the picker, then launches its ready choice once.
+# Declining a preview opens the picker, then launches its ready choice without another preview.
 functions -c _hcom_preview_team_continuation _hcom_saved_preview_team_continuation
-# Declines the first, prompted preview and accepts the picker's unprompted
-# launch, logging each answer so the test can count the previews.
+# Declines the prompted preview and records any unexpected second preview.
 #
 # @param  {string}  command_name
 #     Public command requesting the preview.
@@ -743,7 +774,7 @@ export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B HCOM_FIXTURE_PICKER_AFTER_DECLINE=1
 : > "$fixture_dir/preview-calls"
 prior_pane_calls="$pane_calls"
 _hcom_launch_team team:codex unused unused unused unused continue || fail 'declined preview did not launch the chosen task'
-[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$(<"$fixture_dir/preview-calls")" == $'decline\naccepted' ]] || fail 'declined preview reopened confirmation or launched more than once'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$(<"$fixture_dir/preview-calls")" == decline ]] || fail 'declined preview reopened confirmation or launched more than once'
 unset HCOM_FIXTURE_PICKER_TASK_ID HCOM_FIXTURE_PICKER_AFTER_DECLINE
 export HCOM_FIXTURE_PICKER_CANCEL=1 HCOM_FIXTURE_PICKER_AFTER_DECLINE=1
 : > "$fixture_dir/preview-calls"
@@ -766,6 +797,8 @@ prior_pane_calls="$pane_calls"
 cont tsk_a_B --yes || fail 'public cont task ID did not launch'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_a_B && "$HCOM_ACTIVE_TEAM_LABEL" == another-task ]] || fail 'public cont task ID selected the wrong task or team label'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'public cont task ID lost the selected task handoff'
+cont tsk_a_B </dev/null &> "$fixture_dir/cont-task-output" || fail 'public cont task ID without --yes did not launch'
+[[ "$(<"$fixture_dir/cont-task-output")" != *'Start this task?'* ]] || fail 'public cont task ID without --yes showed a confirmation'
 # A blocked task can resume only when a saved handoff exists.
 print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_blocked"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_blocked --yes || fail 'blocked task with a handoff did not resume'

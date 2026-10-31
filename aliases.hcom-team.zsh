@@ -409,13 +409,32 @@ _hcom_launch_team() {
 	local initial_prompt="${reply[4]}"  # Optional prompt passed to the orchestrator.
 	local skip_confirmation="${reply[5]}"  # Whether to start a continuation without prompting.
 	local requested_task_id="${reply[6]}"  # Task named with --task, or empty to find the in-progress task.
+	local origin_terminal_id="${reply[7]}"  # Ghostty pane that ran the command, where the team opens.
+	local origin_terminal_id_set="${reply[8]}"  # Whether a relaunch already captured the launching pane.
+	# The Ghostty lookup error, held until the task checks have run. A picker or
+	# quick-task relaunch runs inside this call, so zsh's dynamic scope lets it
+	# read the outer call's error here.
+	local origin_terminal_error="${origin_terminal_error:-}"
+
+	# Note the pane before the task lookup, the task picker or the quota wait, so
+	# switching tabs in the meantime cannot move the team. Picker and quick-task
+	# relaunches pass the captured pane in instead. A failed lookup is reported
+	# after the task and named-team checks, before checkout or launch work begins.
+	if [[ "$origin_terminal_id_set" != 1 ]]; then
+		origin_terminal_error=""
+		origin_terminal_id="$(_hcom_focused_ghostty_terminal_id "$command_name" 2>&1)" || {
+			origin_terminal_error="$origin_terminal_id"
+			origin_terminal_id=""
+		}
+	fi
+
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local team_project_tag=""  # Main checkout folder tag for a task team, or original checkout folder tag for a root team.
 	local launch_team_tags=""  # Exact role tags checked before pane creation.
 	local requested_task_status=""  # Progress status of the explicitly selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
-	local continuation_task_id=""  # Task the team continues, first from the in-progress lookup and then from the preview.
-	local selected_task_id=""  # Named or only in-progress task that the preview shows and the continuation prompt names.
+	local continuation_task_id=""  # Task the team continues, chosen by its ID or the in-progress lookup.
+	local selected_task_id=""  # Task the continuation prompt names: the named task or the only in-progress one.
 	local resume_task_id=""  # Task whose saved handoff a resumed team reads.
 	local continuation_has_handoff=0  # Whether the selected task has a saved handoff.
 	local ensure_task_id=""  # Ready task that needs a managed checkout created.
@@ -435,7 +454,7 @@ _hcom_launch_team() {
 		# Whether this launch created the quick task. The relaunch below reads it
 		# as a local rather than an environment variable, so agent panes never inherit it.
 		local quick_task_created="${reply[2]}"
-		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes)
+		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes --origin-terminal-id "$origin_terminal_id")
 		if [[ -n "$initial_prompt" ]]; then
 			chosen_task_args+=(--message "$initial_prompt")
 		fi
@@ -472,10 +491,25 @@ _hcom_launch_team() {
 
 		selected_task_id="${requested_task_id:-$continuation_task_id}"
 
-		if (( ! picker_chosen )); then
+		# A named task starts without the preview, since the human already chose it.
+		if [[ -n "$requested_task_id" ]]; then
+			continuation_task_id="$requested_task_id"
+
+			# A ready task starts fresh, so any handoff left on it is not used.
+			if [[ "$requested_task_status" == ready ]]; then
+				continuation_task_needs_start=1
+			else
+				_hcom_read_continuation_handoff "$command_name" "$team_scope_directory" "$requested_task_id" "$requested_task_status" || return 1
+				continuation_has_handoff="${reply[1]}"
+			fi
+		elif (( ! picker_chosen )); then
 			_hcom_preview_team_continuation "$command_name" "$team_scope_directory" "$skip_confirmation" "$selected_task_id"
 			case "$?" in
-				0) ;;
+				0)
+					continuation_task_needs_start="${reply[1]:-0}"
+					continuation_task_id="${reply[2]:-}"
+					continuation_has_handoff="${reply[4]:-0}"
+					;;
 				2)
 					_hcom_select_in_progress_task "$command_name" "$team_scope_directory" '' 1
 					case "$?" in
@@ -491,7 +525,7 @@ _hcom_launch_team() {
 		# A chosen task launches as cont <task-id> would, so it gets the same checks
 		# for its checkout and live team without asking a second time.
 		if (( picker_chosen )); then
-			chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes)
+			chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes --origin-terminal-id "$origin_terminal_id")
 			if [[ -n "$initial_prompt" ]]; then
 				chosen_task_args+=(--message "$initial_prompt")
 			fi
@@ -499,9 +533,6 @@ _hcom_launch_team() {
 			return $?
 		fi
 
-		continuation_task_needs_start="${reply[1]:-0}"
-		continuation_task_id="${reply[2]:-}"
-		continuation_has_handoff="${reply[4]:-0}"
 		if [[ -n "$requested_task_id" ]]; then
 			_hcom_get_launch_checkout "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
 			if [[ -n "${reply[1]}" ]]; then
@@ -570,9 +601,11 @@ _hcom_launch_team() {
 		team_project_tag="$(_hcom_scoped_tag "$command_name" "$team_scope_directory")" || return 1
 	fi
 
-	# Note the pane that ran the command before checkout creation or the quota wait.
-	local origin_terminal_id  # Ghostty ID of the pane that started this team.
-	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id "$command_name")" || return 1
+	# Report a failed pane lookup before any checkout, install or team stop.
+	if [[ -n "$origin_terminal_error" ]]; then
+		print -ru2 -- "$origin_terminal_error"
+		return 1
+	fi
 
 	if [[ -n "$ensure_task_id" ]]; then
 		checkout_json="$(cd "$team_scope_directory" && progress worktree ensure "$ensure_task_id" --json 2>/dev/null)"
@@ -830,7 +863,6 @@ _hcom_preview_team_continuation() {
 	local chunk_title  # Title of one chunk.
 	local chunk_label=Chunks  # Label used only for the first chunk row.
 	local chunk_id  # The active chunk, or else the first pending one, whose ID is shown beside the task's.
-	local context_json  # Saved handoff for the selected task.
 	local has_handoff=0  # Whether the selected task has saved handoff details.
 	local next_step  # Next steps from the saved handoff.
 	local confirmation=""  # Single key entered at the start prompt.
@@ -896,19 +928,9 @@ _hcom_preview_team_continuation() {
 
 	# A ready task starts fresh, so any handoff left on it is not shown or used.
 	if [[ "$task_status" != ready ]]; then
-		if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
-			|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
-			_hcom_command_error "$command_name" 'could not read the handoff for task ' "$task_id" '.'
-			return 1
-		fi
-		if jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
-			has_handoff=1
-			next_step="$(jq -r '.data.next_step // ""' <<<"$context_json")"
-		fi
-	fi
-	if [[ "$task_status" == blocked && "$has_handoff" == 0 ]]; then
-		_hcom_command_error "$command_name" 'blocked task ' "$task_id" ' has no saved handoff to resume.'
-		return 1
+		_hcom_read_continuation_handoff "$command_name" "$working_directory" "$task_id" "$task_status" || return 1
+		has_handoff="${reply[1]}"
+		next_step="${reply[2]}"
 	fi
 
 	print
@@ -962,6 +984,46 @@ _hcom_preview_team_continuation() {
 	fi
 
 	reply=("$task_needs_start" "$task_id" "$task_status" "$has_handoff")
+}
+
+# Reads a task's saved handoff, and fails for a blocked task that has none.
+#
+# Returns 0 with reply=(has_handoff next_step): 1 when the handoff has any
+# content or 0 otherwise, and its saved next step. Returns 1 when the handoff
+# cannot be read or a blocked task has no handoff.
+#
+# @param  {string}  command_name
+#     The public command shown in handoff errors.
+# @param  {string}  working_directory
+#     Directory containing the task's Progress records.
+# @param  {string}  task_id
+#     Task whose saved handoff is read.
+# @param  {string}  task_status
+#     Task status used to require a handoff for blocked tasks.
+_hcom_read_continuation_handoff() {
+	local command_name="$1"  # Public command responsible for the continuation.
+	local working_directory="$2"  # Directory containing the task's Progress records.
+	local task_id="$3"  # Task whose saved handoff is read.
+	local task_status="$4"  # Progress status of the task; a blocked task needs a handoff.
+	local context_json  # Saved task handoff returned by Progress.
+	local has_handoff=0  # Whether the saved handoff has any content.
+	local next_step=""  # Saved next step shown in the preview.
+
+	if ! context_json="$(cd "$working_directory" && progress context get --task "$task_id" --json 2>/dev/null)" \
+		|| ! jq -e '.ok == true' >/dev/null 2>&1 <<<"$context_json"; then
+		_hcom_command_error "$command_name" 'could not read the handoff for task ' "$task_id" '.'
+		return 1
+	fi
+	if jq -e '.data | [.current_goal, .previous_step, .next_step, .standing_context, .verify_with, .stop_marker] | any(. != null and . != "")' >/dev/null 2>&1 <<<"$context_json"; then
+		has_handoff=1
+		next_step="$(jq -r '.data.next_step // ""' <<<"$context_json")"
+	fi
+	if [[ "$task_status" == blocked && "$has_handoff" == 0 ]]; then
+		_hcom_command_error "$command_name" 'blocked task ' "$task_id" ' has no saved handoff to resume.'
+		return 1
+	fi
+
+	reply=("$has_handoff" "$next_step")
 }
 
 # Prints one row of the continue screen: the label in the accent colour, then
@@ -1391,10 +1453,10 @@ _hcom_run_team_orchestrator() {
 }
 
 # Parses the team argument list and validates it.
-# Sets the standard zsh `reply` array to six values in order: launch mode,
+# Sets the standard zsh `reply` array to eight values in order: launch mode,
 # team label, working directory, initial prompt, the skip-confirmation flag,
-# and the requested task. Returns non-zero with a diagnostic when parsing or
-# validation fails.
+# requested task, origin Ghostty pane ID, and whether that ID was passed in.
+# Returns non-zero with a diagnostic when parsing or validation fails.
 #
 # @param  {string}  command_name
 #     Public command name used in error output.
@@ -1422,6 +1484,8 @@ _hcom_parse_team_args() {
 	local working_directory=""  # Explicit project directory for the team.
 	local initial_prompt=""  # The --message text, used as the first prompt or appended to a mode's instruction.
 	local task_id=""  # The --task identifier of the task this team continues.
+	local origin_terminal_id=""  # Ghostty pane passed in by a picker or quick-task relaunch.
+	local origin_terminal_id_set=0  # Whether a relaunch passed the pane in, even an empty one from outside Ghostty.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--dir)
@@ -1458,6 +1522,16 @@ _hcom_parse_team_args() {
 				fi
 
 				task_id="$2"
+				shift 2
+				;;
+			--origin-terminal-id)
+				if [[ $# -lt 2 ]]; then
+					_hcom_command_error "$command_name" '' '--origin-terminal-id' ' requires a pane ID.'
+					return 1
+				fi
+
+				origin_terminal_id="$2"
+				origin_terminal_id_set=1
 				shift 2
 				;;
 			-y|--yes)
@@ -1500,7 +1574,7 @@ _hcom_parse_team_args() {
 		return 1
 	fi
 
-	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
+	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id" "$origin_terminal_id" "$origin_terminal_id_set")
 }
 
 # @desc  Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over
