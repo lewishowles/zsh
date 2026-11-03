@@ -295,9 +295,20 @@ assert_command_error 'team: invalid team label: Bad_Label'$'\n''team: use lowerc
 assert_command_error 'team: --task requires a task ID.' _hcom_parse_team_args team continue --task
 assert_command_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
 assert_command_error 'team: unknown option: --keep-agents' _hcom_parse_team_args team --keep-agents
-assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes]' _hcom_parse_team_args team extra
+assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]' _hcom_parse_team_args team extra
 assert_command_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team continue --task tsk_A_B --team other
-assert_command_error 'team: --task only works with continue.' _hcom_parse_team_args team --task tsk_A_B
+assert_command_error 'team: --task only works with continue, handover, or handoff.' _hcom_parse_team_args team --task tsk_A_B
+# Clipboard contents are supplied by this fixture, never by the user's clipboard.
+pbpaste() { print -rn -- "$fixture_clipboard"; }
+# The fixture clipboard holds the text that pbpaste returns in the next cases.
+fixture_clipboard='   '
+assert_command_error 'team: clipboard is empty.' _hcom_parse_team_args team --clipboard
+fixture_clipboard=$'--quoted "text" `literal` $VALUE\nsecond line'
+_hcom_parse_team_args team --clipboard || fail 'clipboard note did not parse'
+[[ "${reply[4]}" == "$fixture_clipboard" ]] || fail 'clipboard note changed during parsing'
+assert_command_error 'team: --clipboard and --message cannot be used together.' _hcom_parse_team_args team --clipboard --message 'another note'
+assert_command_error 'team: --clipboard cannot be used with handoff or handover.' _hcom_parse_team_args team handoff --clipboard
+unfunction pbpaste
 assert_command_error "team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args team --dir "$fixture_dir/missing"
 assert_command_error "team:done: working directory not found: $fixture_dir/missing" _hcom_resolve_team_stop_scope team:done "$fixture_dir/missing" tsk_A_B
 export HCOM_FIXTURE_NO_NEXT_TASK=1  # Makes the progress stub return no task for the continuation error check.
@@ -691,6 +702,15 @@ _hcom_launch_team team:codex unused unused unused unused --team blue --message '
 [[ "$launched_orchestrator_prompt" == 'Investigate the prompt' ]] || fail 'new quick task changed the human note'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_quick\nensure tsk_quick' ]] || fail 'quick task did not create its checkout'
 
+# Clipboard text starting with -- survives the quick-task relaunch and a continuation unchanged.
+pbpaste() { print -rn -- "$fixture_clipboard"; }
+fixture_clipboard=$'--quoted "text" `literal` $VALUE\nsecond line'
+_hcom_launch_team team:codex unused unused unused unused --team blue --clipboard || fail 'quick task rejected a clipboard note beginning with --'
+[[ "$launched_orchestrator_prompt" == "$fixture_clipboard" ]] || fail 'quick task relaunch changed the clipboard note'
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --clipboard || fail 'continuation rejected clipboard text'
+[[ "$launched_orchestrator_prompt" == *"$fixture_clipboard"* ]] || fail 'continuation changed the clipboard note'
+unfunction pbpaste
+
 # A new quick task without a note has no opening prompt.
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team green || fail 'quick task without a note launch'
@@ -814,6 +834,12 @@ _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'plain continue ignored the recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'plain continue did not use the resume prompt'
 unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
+
+# A named handoff uses the task checkout when Progress records one.
+pbpaste() { print -rn -- 'Copied handoff messages'; }
+handoff tsk_a_B || fail 'named handoff with a checkout did not launch'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named handoff ignored its recorded checkout'
+[[ "$launched_orchestrator_prompt" == *'The handover is for task tsk_a_B.'* ]] || fail 'named handoff did not name its task'
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B.old"
 
 # A started task without a recorded checkout must stay in its original checkout.
@@ -830,14 +856,20 @@ _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'started task without a handoff did not use the continue prompt'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_a_B\nget tsk_A_B' ]] || fail 'started task created or skipped a checkout lookup'
 
+handoff tsk_a_B || fail 'named handoff without a checkout did not launch'
+[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'named handoff without a checkout left the original checkout'
+
 prior_pane_calls="$pane_calls"  # Pane count before live-team refusal cases.
 print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 assert_command_error 'team:codex: the root team is running in the original checkout; continue there, or stop it and run team:codex again.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes
+assert_command_error 'handoff: the root team is running in the original checkout; continue there, or stop it and run handoff again.' handoff tsk_a_B
 [[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'live root team reached pane creation'
 
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 assert_command_error 'team:codex: task tsk_A_B is running in the original checkout; continue there, or stop it and run team:codex again.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes
+assert_command_error 'handoff: task tsk_A_B is running in the original checkout; continue there, or stop it and run handoff again.' handoff tsk_a_B
 [[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'live task team reached pane creation'
+unfunction pbpaste
 
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'task in another checkout blocked continuation'

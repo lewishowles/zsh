@@ -271,8 +271,8 @@ The pre-commit hook regenerates the command table automatically before each comm
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `agent:resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
-| `cont` |  | Continue a complete hcom team from a task's saved handoff or the next task |
-| `handoff` |  | Resume a complete hcom team from the clipboard handoff |
+| `cont` |  | Continue an hcom team for a task or the next task, with an optional clipboard note |
+| `handoff` |  | Hand over an hcom team from copied messages, optionally for a named task |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `hr` |  | Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
@@ -294,9 +294,9 @@ The pre-commit hook regenerates the command table automatically before each comm
 | `reviewer:codex` |  | Start the Codex Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes] | Start an hcom team, create or reuse a labelled quick task, continue a task, or hand over |
-| `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes] | Start a Claude hcom team, create or reuse a labelled quick task, continue a task, or hand over |
-| `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--team <label>] [--yes] | Start a Codex hcom team, create or reuse a labelled quick task, continue a task, or hand over |
+| `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes] | Start an hcom team or quick task, continue or hand over a task, with an optional clipboard note |
+| `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes] | Start a Claude hcom team or quick task, continue or hand over a task, with an optional clipboard note |
+| `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes] | Start a Codex hcom team or quick task, continue or hand over a task, with an optional clipboard note |
 | `team:done` | --team <label> | Stop a labelled quick team and complete its task |
 
 ### package

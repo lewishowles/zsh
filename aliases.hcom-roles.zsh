@@ -5,10 +5,15 @@ if (( $+aliases[team] )); then
 	unalias team
 fi
 
+# Clears the former handoff alias before the handoff function is loaded.
+if (( $+aliases[handoff] )); then
+	unalias handoff
+fi
+
 # Continues the task named by the first argument, otherwise the only in-progress
 # task, or the next ready task when none is in progress. A started or blocked
 # task with a saved handoff resumes from it.
-# @desc  Continue a complete hcom team from a task's saved handoff or the next task
+# @desc  Continue an hcom team for a task or the next task, with an optional clipboard note
 # @cat   hcom
 # @needs agent-quota
 #
@@ -22,10 +27,22 @@ cont() {
 
 	_hcom_launch_team cont orchestrator reviewer implementer scout continue "$@"
 }
-# @desc  Resume a complete hcom team from the clipboard handoff
+# Starts a team from messages copied out of a stopped team's session, for the
+# task named by the first argument when one is given.
+# @desc  Hand over an hcom team from copied messages, optionally for a named task
 # @cat   hcom
 # @needs agent-quota
-alias handoff="team handoff"
+#
+# @param  {string}  ...
+#     An optional task ID followed by the team handoff options.
+handoff() {
+	if [[ $# -gt 0 && "$1" != -* ]]; then
+		_hcom_launch_team handoff orchestrator reviewer implementer scout handoff --task "$1" "${@:2}"
+		return
+	fi
+
+	_hcom_launch_team handoff orchestrator reviewer implementer scout handoff "$@"
+}
 # @desc  Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team
 # @cat   hcom
 # @needs agent-quota
