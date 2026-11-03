@@ -83,9 +83,13 @@ print("\n".join(lines))
 # Each account is ranked by its usable quota: its session window left, capped by its
 # weekly window left. The cap is dropped when the week resets within one session window,
 # because the weekly quota refills before the session quota could run out, and weekly
-# quota left unspent at that reset is lost. Weekly pace only breaks near-ties: two
-# accounts within 20 points of each other on usable quota are interchangeable for the
-# sprint, so the one with quota to burn before its weekly reset takes the heavier role.
+# quota left unspent at that reset is lost.
+#
+# An account running ahead of its weekly reset would lose quota when the week refills,
+# so it takes the heavier role whatever the usable gap. When both accounts or neither
+# are ahead, two accounts within 20 points of each other on usable quota are
+# interchangeable for the sprint, and the one with more quota to burn before its weekly
+# reset takes the heavier role.
 #
 # An account with under 15% usable quota is likely to run dry part-way through a task, so
 # it does not take the heavier role while the other account can hold it. Both roles land
@@ -125,6 +129,7 @@ _hcom_quota_allocate() {
 
 	local -a pace  # How far ahead of its weekly reset each account is running.
 	local -F usable_gap  # Percentage points separating how much usable quota each account has left.
+	local -i first_ahead second_ahead  # Whether each account is running ahead of its weekly reset and would lose unused quota when the week refills.
 	local -i current_time  # One clock reading shared by the reset and pace calculations.
 
 	case "$provider" in
@@ -164,6 +169,8 @@ _hcom_quota_allocate() {
 	# one so a window expiring as this runs cannot divide by zero.
 	pace[1]=$(( (weekly_remaining[1] / 100.0) / ((weekly_reset[1] - current_time > 1 ? weekly_reset[1] - current_time : 1) / (weekly_window[1] * 1.0)) ))
 	pace[2]=$(( (weekly_remaining[2] / 100.0) / ((weekly_reset[2] - current_time > 1 ? weekly_reset[2] - current_time : 1) / (weekly_window[2] * 1.0)) ))
+	first_ahead=$(( pace[1] > 1 ))
+	second_ahead=$(( pace[2] > 1 ))
 
 	if (( usable_remaining[2] > usable_remaining[1] )); then
 		heavier_index=2
@@ -172,7 +179,17 @@ _hcom_quota_allocate() {
 
 	usable_gap=$(( usable_remaining[1] > usable_remaining[2] ? usable_remaining[1] - usable_remaining[2] : usable_remaining[2] - usable_remaining[1] ))
 
-	if (( usable_gap <= 20 )); then
+	# An account that would lose quota at its weekly reset takes the heavier role
+	# whatever the usable gap, so its quota is spent before it expires.
+	if (( first_ahead != second_ahead )); then
+		if (( second_ahead )); then
+			heavier_index=2
+			lighter_index=1
+		else
+			heavier_index=1
+			lighter_index=2
+		fi
+	elif (( usable_gap <= 20 )); then
 		if (( pace[2] > pace[1] )); then
 			heavier_index=2
 			lighter_index=1
