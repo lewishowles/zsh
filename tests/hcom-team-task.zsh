@@ -21,6 +21,12 @@ fail() {
 	exit 1
 }
 
+# Skips every real wait in the suite, such as the retries while a busy pane is checked.
+#
+# @param  {number}  seconds
+#     The delay the code under test asked for; ignored.
+sleep() { :; }
+
 # Supplies task records and active-task IDs without consulting the real project.
 cat > "$fixture_dir/bin/progress" <<'STUB'
 #!/usr/bin/env zsh
@@ -1322,4 +1328,37 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'root team reused or closed another session'
 unset HCOM_FIXTURE_REX_SESSIONS
 
-print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, and Rex pane creation'
+mkdir -p "$XDG_STATE_HOME/hcom-team/fixture-origin-session"
+print -rn -- 'HCOM_ACCOUNT=scout-agent team:scout' > "$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout"
+print -rn -- 'HCOM_ACCOUNT=implementer-agent team:implementer' > "$XDG_STATE_HOME/hcom-team/fixture-origin-session/implementer"
+print -rn -- 'HCOM_ACCOUNT=reviewer-agent team:reviewer' > "$XDG_STATE_HOME/hcom-team/fixture-origin-session/reviewer"
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout >/dev/null || fail 'scout reset failed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'send-key -s fixture-origin-session -b block:scout ctrl+c ctrl+c'*'block call process -s fixture-origin-session -b block:scout'*'send -s fixture-origin-session -b block:scout HCOM_ACCOUNT=scout-agent team:scout'*'send-key -s fixture-origin-session -b block:scout enter'* ]] || fail 'scout reset did not stop, check and replay its saved command'
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset all >/dev/null || fail 'all-peer reset failed'
+[[ "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 && "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'all-peer reset did not restart every teammate'
+
+unset REX_SESSION
+assert_command_error 'team-reset: open the team in Rex before resetting a teammate.' team-reset scout
+export REX_SESSION=fixture-origin-session
+assert_command_error 'team-reset: usage: team-reset scout|implementer|reviewer|all' team-reset orchestrator
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:orchestrator","label":"orchestrator"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'team-reset: no scout pane in Rex session fixture-origin-session.' team-reset scout
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key '* ]] || fail 'missing scout pane received stop keys'
+unset HCOM_FIXTURE_REX_BLOCKS
+trash "$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout" >/dev/null
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'team-reset: no saved launch command for scout in Rex session fixture-origin-session.' team-reset scout
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key '* ]] || fail 'missing saved launch command received stop keys'
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset all > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'all-peer reset succeeded despite a busy reviewer'
+fi
+[[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:reviewer did not return to a shell prompt.'* && "$(<"$fixture_dir/reset-output")" == *'restarted implementer.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:reviewer '* ]] || fail 'all-peer reset typed into a busy pane or stopped early'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+
+print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, Rex pane creation, and team reset'

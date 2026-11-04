@@ -297,6 +297,7 @@ Run `team` or `cont` from inside Rex to open a team in its own Rex session. The 
 | `scout` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `scout:claude` |  | Start the Claude Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `team` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes] | Start an hcom team or quick task, continue or hand over a task, with an optional clipboard note |
+| `team-reset` | scout|implementer|reviewer|all | Restart one teammate, or all three, in their Rex panes with the same account and checkout |
 | `team:claude` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes] | Start a Claude hcom team or quick task, continue or hand over a task, with an optional clipboard note |
 | `team:codex` | [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes] | Start a Codex hcom team or quick task, continue or hand over a task, with an optional clipboard note |
 | `team:done` | --team <label> | Stop a labelled quick team and complete its task |

@@ -1422,12 +1422,15 @@ _hcom_team_role_environment() {
 	fi
 }
 
-# Stops the teammates when the orchestrator returns to its shell, leaving all panes open.
+# Stops the agents in teammate panes, leaving the panes open.
+#
+# Waits up to about five seconds for each pane to return to its shell prompt
+# and returns non-zero when any pane has not.
 #
 # @param  {string}  session_id
 #     Rex session that contains the team.
 # @param  {string}  ...
-#     Implementer, reviewer and scout pane IDs.
+#     Teammate pane IDs to stop.
 _hcom_team_stop_peers() {
 	# Team session containing the peer panes.
 	local session_id="$1"
@@ -1435,7 +1438,7 @@ _hcom_team_stop_peers() {
 	local block_id
 	# Foreground process returned after the stop keys.
 	local process_json
-	# Bounded shell-prompt checks for each peer.
+	# Shell-prompt checks for each peer, 0.2 seconds apart.
 	local attempt
 	# Whether the current peer has returned to zsh.
 	local returned_to_shell
@@ -1445,7 +1448,7 @@ _hcom_team_stop_peers() {
 	for block_id in "$@"; do
 		returned_to_shell=0
 		if command rex send-key -s "$session_id" -b "$block_id" ctrl+c ctrl+c; then
-			for attempt in {1..10}; do
+			for attempt in {1..25}; do
 				if ! process_json="$(command rex block call process -s "$session_id" -b "$block_id")"; then
 					break
 				fi
@@ -1587,8 +1590,7 @@ _hcom_team_create_session() {
 		session_id="$previous_session_id"
 		blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
 		for role in orchestrator implementer reviewer scout; do
-			block_id="$(jq -r --arg role "$role" '.blocks[] | select(.label == $role) | .block_id' <<<"$blocks_json")" || return 1
-			block_id="${block_id%%$'\n'*}"
+			block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 			[[ -z "$block_id" ]] && continue
 			process_json="$(command rex block call process -s "$session_id" -b "$block_id")" || return 1
 			if ! jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
@@ -1614,8 +1616,8 @@ _hcom_team_create_session() {
 				trash "$task_session_file" || return 1
 			fi
 		fi
-		if [[ -n "$previous_session_id" && -d "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$previous_session_id" ]]; then
-			trash "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$previous_session_id" || return 1
+		if [[ -n "$previous_session_id" && -d "$(_hcom_team_state_directory "$previous_session_id")" ]]; then
+			trash "$(_hcom_team_state_directory "$previous_session_id")" || return 1
 		fi
 		new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
 		session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
@@ -1651,6 +1653,24 @@ _hcom_team_create_session() {
 	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block")
 }
 
+# Prints the ID of the first pane labelled with a role, or nothing when no pane has that label.
+#
+# @param  {string}  blocks_json
+#     Pane listing from rex block ls for the team session.
+# @param  {string}  role
+#     Role label to look for.
+_hcom_team_role_block() {
+	# Pane listing for the team session.
+	local blocks_json="$1"
+	# Role label to look for.
+	local role="$2"
+	# Every pane ID with that label, one per line.
+	local block_id
+
+	block_id="$(jq -r --arg role "$role" '.blocks[] | select(.label == $role) | .block_id' <<<"$blocks_json")" || return 1
+	print -r -- "${block_id%%$'\n'*}"
+}
+
 # Saves one teammate's launch command for a later reset.
 #
 # @param  {string}  session_id
@@ -1667,10 +1687,21 @@ _hcom_team_save_role() {
 	# Exact command to replay on reset.
 	local launch_command="$3"
 	# Folder holding this session's saved teammate commands.
-	local state_directory="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$session_id"
+	local state_directory="$(_hcom_team_state_directory "$session_id")"
 
 	mkdir -p "$state_directory" || return 1
 	print -rn -- "$launch_command" > "$state_directory/$role" || return 1
+}
+
+# Prints the folder that holds a team session's saved teammate launch commands.
+#
+# @param  {string}  session_id
+#     Rex session that the commands belong to.
+_hcom_team_state_directory() {
+	# Rex session that the commands belong to.
+	local session_id="$1"
+
+	print -r -- "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$session_id"
 }
 
 # Types and submits a launch command in an idle role pane.
@@ -1691,6 +1722,92 @@ _hcom_team_type_role() {
 
 	command rex send -s "$session_id" -b "$block_id" "$launch_command" || return 1
 	command rex send-key -s "$session_id" -b "$block_id" enter
+}
+
+# Stops one teammate and starts it again in the same Rex pane with the command it was first launched with.
+#
+# Refuses without touching the pane when no pane has the role's label or no
+# launch command was saved for it, and does not type the command when the
+# agent is still running after the stop keys.
+#
+# @param  {string}  session_id
+#     Rex session that contains the team.
+# @param  {string}  blocks_json
+#     Pane listing from rex block ls for that session.
+# @param  {string}  role
+#     Teammate role to restart.
+_hcom_team_reset_role() {
+	# Rex session that contains the team.
+	local session_id="$1"
+	# Pane listing for that session.
+	local blocks_json="$2"
+	# Teammate role to restart.
+	local role="$3"
+	# Pane labelled with the role.
+	local block_id
+	# File holding the command that first launched the teammate.
+	local command_file="$(_hcom_team_state_directory "$session_id")/$role"
+	# Launch command read from that file.
+	local launch_command
+
+	block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
+	if [[ -z "$block_id" ]]; then
+		_hcom_command_error team-reset "no $role pane in Rex session $session_id."
+		return 1
+	fi
+
+	if [[ ! -s "$command_file" ]]; then
+		_hcom_command_error team-reset "no saved launch command for $role in Rex session $session_id."
+		return 1
+	fi
+
+	launch_command="$(<"$command_file")"
+	if ! _hcom_team_stop_peers "$session_id" "$block_id"; then
+		_hcom_command_error team-reset "$role was not restarted."
+		return 1
+	fi
+
+	_hcom_team_type_role "$session_id" "$block_id" "$launch_command" || return 1
+	print -r -- "team-reset: restarted $role."
+}
+
+# @desc  Restart one teammate, or all three, in their Rex panes with the same account and checkout
+# @cat   hcom
+#
+# Usage: team-reset scout|implementer|reviewer|all
+# Run it from any pane in the team's Rex session. With all, a teammate that
+# cannot restart does not stop the others; the command then returns non-zero.
+#
+team-reset() {
+	# Teammate role to restart, or all.
+	local role="${1:-}"
+	# Rex session of the pane the command runs in.
+	local session_id="${REX_SESSION:-}"
+	# Pane listing for that session.
+	local blocks_json
+	# Becomes 1 when any teammate could not restart.
+	local result=0
+	# Teammate being restarted when the role is all.
+	local peer
+
+	if [[ "$#" != 1 || "$role" != (scout|implementer|reviewer|all) ]]; then
+		_hcom_command_error team-reset 'usage: team-reset scout|implementer|reviewer|all'
+		return 1
+	fi
+
+	if [[ -z "$session_id" ]]; then
+		_hcom_command_error team-reset 'open the team in Rex before resetting a teammate.'
+		return 1
+	fi
+
+	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	if [[ "$role" == all ]]; then
+		for peer in implementer reviewer scout; do
+			_hcom_team_reset_role "$session_id" "$blocks_json" "$peer" || result=1
+		done
+		return "$result"
+	fi
+	_hcom_team_reset_role "$session_id" "$blocks_json" "$role"
 }
 
 # Stores the active team scope in the orchestrator pane.
