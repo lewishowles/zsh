@@ -219,6 +219,11 @@ case "$1" in
 			*'--label scout'*) print -r -- '{"block_ids":["block:scout"]}' ;;
 		esac
 		;;
+	send)
+		if [[ -n "${HCOM_FIXTURE_REX_SEND_ERROR_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_SEND_ERROR_BLOCK"* ]]; then
+			exit 1
+		fi
+		;;
 esac
 STUB
 chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/git" "$fixture_dir/bin/rex"
@@ -1273,6 +1278,9 @@ fixture_orchestrator() { return 0; }
 : > "$HCOM_FIXTURE_REX_CALLS"
 _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" || fail 'orchestrator exit cleanup'
 [[ "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'orchestrator exit lost a pane or scope cleanup'
+for role in implementer reviewer scout; do
+	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after stopping"
+done
 # A peer that stays busy reports its pane while the wrapper still clears scope.
 export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
 : > "$HCOM_FIXTURE_REX_CALLS"
@@ -1280,14 +1288,35 @@ if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer 
 	fail 'orchestrator exit accepted a busy reviewer pane'
 fi
 [[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" && "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'busy peer exit missed its pane message or scope cleanup'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:fixture -b block:reviewer clear'* ]] || fail 'busy reviewer pane was cleared'
+for role in implementer scout; do
+	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared when the reviewer stayed busy"
+done
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 # A failed process lookup uses the same pane message and clears scope.
 export HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
 if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
 	fail 'orchestrator exit accepted a failed reviewer process check'
 fi
 [[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed process lookup missed its pane message or scope cleanup'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:fixture -b block:reviewer clear'* ]] || fail 'failed process lookup cleared the reviewer pane'
+for role in implementer scout; do
+	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after the reviewer process check failed"
+done
 unset HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK
+# A failed clear reports the pane and still clears the other teammates.
+export HCOM_FIXTURE_REX_SEND_ERROR_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
+	fail 'orchestrator exit accepted a failed reviewer clear'
+fi
+[[ "$(<"$error_file")" == 'team: peer pane block:reviewer could not be cleared.' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed clear missed its pane message or scope cleanup'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key -s session:fixture -b block:reviewer enter'* ]] || fail 'failed clear submitted a command to the reviewer pane'
+for role in implementer scout; do
+	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after the reviewer clear failed"
+done
+unset HCOM_FIXTURE_REX_SEND_ERROR_BLOCK
 unfunction fixture_orchestrator
 print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'task session bookmark relaunch'
@@ -1362,10 +1391,12 @@ print -rn -- 'HCOM_ACCOUNT=reviewer-agent team:reviewer' > "$XDG_STATE_HOME/hcom
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout >/dev/null || fail 'scout reset failed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'send-key -s fixture-origin-session -b block:scout ctrl+c ctrl+c'*'block call process -s fixture-origin-session -b block:scout'*'send -s fixture-origin-session -b block:scout HCOM_ACCOUNT=scout-agent team:scout'*'send-key -s fixture-origin-session -b block:scout enter'* ]] || fail 'scout reset did not stop, check and replay its saved command'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:scout clear'* ]] || fail 'scout reset cleared its pane'
 
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset all >/dev/null || fail 'all-peer reset failed'
 [[ "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 && "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'all-peer reset did not restart every teammate'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *' clear'* ]] || fail 'all-peer reset cleared a pane'
 
 unset REX_SESSION
 assert_command_error 'team-reset: open the team in Rex before resetting a teammate.' team-reset scout

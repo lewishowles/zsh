@@ -1429,7 +1429,7 @@ _hcom_team_role_environment() {
 # Stops the agents in teammate panes, leaving the panes open.
 #
 # Waits up to about five seconds for each pane to return to its shell prompt
-# and returns non-zero when any pane has not.
+# and sets reply to the panes that did. Returns non-zero when any pane has not.
 #
 # @param  {string}  session_id
 #     Rex session that contains the team.
@@ -1448,6 +1448,7 @@ _hcom_team_stop_peers() {
 	local returned_to_shell
 	# Whether every teammate returned to its shell.
 	local stop_status=0
+	reply=()
 	shift
 	for block_id in "$@"; do
 		returned_to_shell=0
@@ -1466,6 +1467,8 @@ _hcom_team_stop_peers() {
 		if (( ! returned_to_shell )); then
 			print -ru2 -- "team: peer pane $block_id did not return to a shell prompt."
 			stop_status=1
+		else
+			reply+=("$block_id")
 		fi
 	done
 	return "$stop_status"
@@ -1528,8 +1531,33 @@ _hcom_team_run_orchestrator() {
 	# Whether every teammate returned to its shell.
 	local stop_status=0
 	_hcom_team_stop_peers "$session_id" "$implementer_block" "$reviewer_block" "$scout_block" || stop_status=$?
+	# Teammate pane that returned to its shell prompt.
+	local block_id
+	for block_id in "${reply[@]}"; do
+		if ! _hcom_team_clear_peer "$session_id" "$block_id"; then
+			print -ru2 -- "team: peer pane $block_id could not be cleared."
+			stop_status=1
+		fi
+	done
 	_hcom_clear_team_scope
 	return "$stop_status"
+}
+
+# Clears a teammate pane after its agent has returned to the shell prompt.
+# Returns non-zero when Rex cannot type into the pane.
+#
+# @param  {string}  session_id
+#     Rex session that contains the pane.
+# @param  {string}  block_id
+#     Teammate pane confirmed at a shell prompt.
+_hcom_team_clear_peer() {
+	# Rex session that contains the pane.
+	local session_id="$1"
+	# Pane to clear.
+	local block_id="$2"
+
+	command rex send -s "$session_id" -b "$block_id" clear || return 1
+	command rex send-key -s "$session_id" -b "$block_id" enter
 }
 
 # Finds or creates the Rex session for a team, with one labelled pane per role.
