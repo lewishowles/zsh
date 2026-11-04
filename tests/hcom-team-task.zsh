@@ -230,6 +230,11 @@ case "$1" in
 			*'--label scout'*) print -r -- '{"block_ids":["block:scout"]}' ;;
 		esac
 		;;
+	api)
+		if [[ "${HCOM_FIXTURE_REX_RESIZE_FAIL:-0}" == 1 ]]; then
+			exit 1
+		fi
+		;;
 	send)
 		if [[ -n "${HCOM_FIXTURE_REX_SEND_ERROR_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_SEND_ERROR_BLOCK"* ]]; then
 			exit 1
@@ -1270,6 +1275,7 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 [[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/orchestrator" ]] || fail 'new-session orchestrator prompt was saved on disk'
 [[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task -c '*'--window Fixture · fixture-task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'new Rex session was resized'
 for role in implementer reviewer scout; do
 	# The command typed into this role's pane, which must set the pane title and
 	# stop both agents changing it.
@@ -1298,10 +1304,24 @@ long_prompt="$(printf '%01500d' 0)"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex "$long_prompt" 1 codex tsk_A_B || fail 'unused current Rex session reuse'
 [[ "${reply[2]}" == fixture-origin-session ]] || fail 'current Rex session ID was not returned'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s fixture-origin-session -b block:origin'*'session rename fixture-origin-session Fixture · fixture-task'*'window rename -s fixture-origin-session window:origin Fixture · fixture-task'*'block rename -s fixture-origin-session block:origin orchestrator'*'split -s fixture-origin-session -b block:origin --split=right'* ]] || fail 'unused current session was not checked, relabelled and split'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'split -s fixture-origin-session -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'api call -s fixture-origin-session session.resize_pane {"direction":"horizontal","before_block_id":"block:origin","after_block_id":"block:implementer","ratio":0.67}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:implementer","after_block_id":"block:reviewer","ratio":0.33}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:reviewer","after_block_id":"block:scout","ratio":0.5}'* ]] || fail 'reused Rex session did not get the new-session pane proportions'
+[[ "$(grep -c 'session.resize_pane' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'reused Rex session resized an unexpected number of borders'
 orchestrator_send="$(grep '^send -s fixture-origin-session -b block:origin ' "$HCOM_FIXTURE_REX_CALLS")"
 saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/orchestrator"
 [[ "$orchestrator_send" == "send -s fixture-origin-session -b block:origin source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'reused pane received a long orchestrator command'
 [[ "$(<"$saved_orchestrator_command")" == *" ${(qq)long_prompt}" && "$(<"$saved_orchestrator_command")" == "cd -- ${(qq)checkout_path} && terminal_title_set orchestrator && "* ]] || fail 'saved orchestrator command lost the checkout or prompt'
+
+# A resize failure warns and still starts all four roles in the reused tab.
+export REX_SESSION=fixture-resize-failure
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-resize-failure","label":"Plain session"}]}'
+export HCOM_FIXTURE_REX_RESIZE_FAIL=1
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_resize_failure 2>"$error_file" || fail 'resize failure stopped the team launch'
+[[ "$(<"$error_file")" == 'team:codex: Rex panes could not be resized; the team is starting anyway.' ]] || fail 'resize failure did not give one warning'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'api call -s fixture-resize-failure session.resize_pane'* && "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 && "${reply[2]}" == fixture-resize-failure ]] || fail 'resize failure did not start all four roles'
+unset HCOM_FIXTURE_REX_RESIZE_FAIL
+export REX_SESSION=fixture-origin-session
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"}]}'
 
 # A pane running an agent cannot become the new team's orchestrator pane.
 export HCOM_FIXTURE_REX_BUSY_BLOCK=block:origin

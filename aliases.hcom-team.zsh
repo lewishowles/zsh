@@ -1646,6 +1646,8 @@ _hcom_team_create_session() {
 	local process_json
 	# Tab to build the team in when the launcher's own session is unused.
 	local current_window_id=""
+	# Whether the team is being built in the launcher's current tab.
+	local reused_current_session=0
 
 	sessions_json="$(command rex ls --json)" || return 1
 	if [[ -n "$previous_session_id" ]] && jq -e --arg id "$previous_session_id" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
@@ -1684,6 +1686,7 @@ _hcom_team_create_session() {
 			_hcom_team_prepare_current_session "$command_name" "$session_label" "${REX_SESSION}" "${REX_BLOCK}" "$current_window_id" || return 1
 			session_id="${REX_SESSION}"
 			orchestrator_block="${REX_BLOCK}"
+			reused_current_session=1
 		else
 			new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
 			session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
@@ -1716,8 +1719,48 @@ _hcom_team_create_session() {
 		fi
 		scout_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
 	fi
+	if (( reused_current_session )) && ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
+		print -u2 -- "$command_name: Rex panes could not be resized; the team is starting anyway."
+	fi
 
 	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block")
+}
+
+# Gives a team built in the launcher's tab the same pane sizes as a new session:
+# two thirds of the width for the orchestrator and three equal panes on the
+# right. Rex ignores the split ratio in a tab that is already on screen, so the
+# borders are moved once all four panes exist.
+#
+# @param  {string}  session_id
+#     The Rex session containing the team.
+# @param  {string}  orchestrator_block
+#     The orchestrator's pane, on the left.
+# @param  {string}  implementer_block
+#     The implementer's pane, at the top on the right.
+# @param  {string}  reviewer_block
+#     The reviewer's pane, in the middle on the right.
+# @param  {string}  scout_block
+#     The scout's pane, at the bottom on the right.
+_hcom_team_resize_current_session() {
+	# Rex session containing the team.
+	local session_id="$1"
+	# Pane on the left.
+	local orchestrator_block="$2"
+	# Top pane on the right.
+	local implementer_block="$3"
+	# Middle pane on the right.
+	local reviewer_block="$4"
+	# Bottom pane on the right.
+	local scout_block="$5"
+	# The border to move and the share of space before it, sent to Rex as JSON.
+	local resize_args
+
+	resize_args="$(jq -nc --arg before "$orchestrator_block" --arg after "$implementer_block" '{direction:"horizontal",before_block_id:$before,after_block_id:$after,ratio:0.67}')" || return 1
+	command rex api call -s "$session_id" session.resize_pane "$resize_args" >/dev/null || return 1
+	resize_args="$(jq -nc --arg before "$implementer_block" --arg after "$reviewer_block" '{direction:"vertical",before_block_id:$before,after_block_id:$after,ratio:0.33}')" || return 1
+	command rex api call -s "$session_id" session.resize_pane "$resize_args" >/dev/null || return 1
+	resize_args="$(jq -nc --arg before "$reviewer_block" --arg after "$scout_block" '{direction:"vertical",before_block_id:$before,after_block_id:$after,ratio:0.5}')" || return 1
+	command rex api call -s "$session_id" session.resize_pane "$resize_args" >/dev/null
 }
 
 # Finds the tab to build a team in when the launcher's Rex session holds only
