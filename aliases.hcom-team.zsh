@@ -1472,7 +1472,7 @@ _hcom_team_stop_peers() {
 				if ! process_json="$(command rex block call process -s "$session_id" -b "$block_id")"; then
 					break
 				fi
-				if jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
+				if _hcom_team_pane_is_idle "$process_json"; then
 					returned_to_shell=1
 					break
 				fi
@@ -1487,6 +1487,14 @@ _hcom_team_stop_peers() {
 		fi
 	done
 	return "$stop_status"
+}
+
+# Succeeds when a pane is back at its zsh prompt, so no agent is running there.
+#
+# @param  {string}  process_json
+#     Process details returned by Rex for the pane.
+_hcom_team_pane_is_idle() {
+	jq -e '.foreground.name == "zsh"' >/dev/null <<<"$1"
 }
 
 # Runs the orchestrator role in its pane and cleans up the team when it exits.
@@ -1647,7 +1655,7 @@ _hcom_team_create_session() {
 			block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 			[[ -z "$block_id" ]] && continue
 			process_json="$(command rex block call process -s "$session_id" -b "$block_id")" || return 1
-			if ! jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
+			if ! _hcom_team_pane_is_idle "$process_json"; then
 				_hcom_command_error "$command_name" "$role pane $block_id is still running an agent; stop it before relaunching."
 				return 1
 			fi
@@ -1660,15 +1668,8 @@ _hcom_team_create_session() {
 		done
 	fi
 	if [[ -z "$orchestrator_block" ]]; then
-		if [[ -n "$previous_session_id" && -n "$task_id" ]]; then
-			# The team can't be laid out in that session, so the task stops pointing at it.
-			local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
-			if [[ -f "$task_session_file" ]]; then
-				trash "$task_session_file" || return 1
-			fi
-		fi
-		if [[ -n "$previous_session_id" && -d "$(_hcom_team_state_directory "$previous_session_id")" ]]; then
-			trash "$(_hcom_team_state_directory "$previous_session_id")" || return 1
+		if [[ -n "$previous_session_id" ]]; then
+			_hcom_team_forget_session "$task_id" "$previous_session_id" || return 1
 		fi
 		# Panes found in the earlier session stay there; the new session gets its own.
 		implementer_block=""
@@ -1751,7 +1752,7 @@ _hcom_team_unused_current_window() {
 		return 0
 	fi
 	process_json="$(command rex block call process -s "$session_id" -b "$current_block")" || return 1
-	if ! jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
+	if ! _hcom_team_pane_is_idle "$process_json"; then
 		return 0
 	fi
 
@@ -1813,6 +1814,93 @@ _hcom_team_role_block() {
 
 	block_id="$(jq -r --arg role "$role" '.blocks[] | select(.label == $role) | .block_id' <<<"$blocks_json")" || return 1
 	print -r -- "${block_id%%$'\n'*}"
+}
+
+# Closes the implementer, reviewer and scout panes of a cleaned-up task's Rex
+# team, then forgets the task's saved session so the next launch can build a
+# team in the orchestrator's tab.
+# The orchestrator pane and the pane running cleanup stay open, and a pane
+# still running an agent is left open with a message.
+# Returns non-zero when Rex cannot list the session or its panes, or when the
+# saved session cannot be forgotten.
+#
+# @param  {string}  task_id
+#     Task whose worktree was cleaned up.
+_hcom_team_cleanup_task() {
+	# Task whose worktree was cleaned up.
+	local task_id="$1"
+	# File naming the Rex session saved for the task.
+	local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
+	[[ -f "$task_session_file" ]] || return 0
+	# Rex session saved for the task.
+	local session_id="$(<"$task_session_file")"
+	[[ -n "$session_id" ]] || return 0
+	# Labelled panes in that session.
+	local blocks_json
+	# Teammate role currently being inspected.
+	local role
+	# Pane carrying the teammate role.
+	local block_id
+	# Foreground process for that pane.
+	local process_json
+	# Open Rex sessions.
+	local sessions_json
+	# Whether the saved Rex session is still open.
+	local session_present
+
+	sessions_json="$(command rex ls --json)" || return 1
+	session_present="$(jq -r --arg id "$session_id" 'any(.sessions[]; .session_id == $id)' <<<"$sessions_json")" || return 1
+	if [[ "$session_present" != true ]]; then
+		_hcom_team_forget_session "$task_id" "$session_id"
+		return $?
+	fi
+
+	if ! blocks_json="$(command rex block ls -s "$session_id" --json)"; then
+		print -u2 -- "cleanup: could not inspect Rex session $session_id; its saved state was kept."
+		return 1
+	fi
+	for role in implementer reviewer scout; do
+		block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
+		[[ -n "$block_id" && "$block_id" != "${REX_BLOCK:-}" ]] || continue
+		if ! process_json="$(command rex block call process -s "$session_id" -b "$block_id")"; then
+			print -u2 -- "cleanup: $role pane $block_id was left open because its process could not be checked."
+			continue
+		fi
+		if _hcom_team_pane_is_idle "$process_json"; then
+			if ! command rex block close "$block_id" -s "$session_id"; then
+				print -u2 -- "cleanup: $role pane $block_id could not be closed."
+			fi
+		else
+			print -u2 -- "cleanup: $role pane $block_id was left open because an agent is still running there."
+		fi
+	done
+
+	_hcom_team_forget_session "$task_id" "$session_id"
+}
+
+# Trashes the task's link to a Rex session and the launch commands saved for
+# that session, so the launcher no longer treats it as a team session.
+#
+# @param  {string}  task_id
+#     Task mapped to the session, or empty for a root team.
+# @param  {string}  session_id
+#     Rex session whose saved launch commands should be forgotten.
+_hcom_team_forget_session() {
+	# Task mapped to the session.
+	local task_id="$1"
+	# Rex session to forget.
+	local session_id="$2"
+	# File linking the task to the session.
+	local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
+	# Saved launch commands for the session.
+	local state_directory="$(_hcom_team_state_directory "$session_id")"
+
+	if [[ -n "$task_id" && -f "$task_session_file" ]]; then
+		trash "$task_session_file" || return 1
+	fi
+	if [[ -d "$state_directory" ]]; then
+		trash "$state_directory" || return 1
+	fi
 }
 
 # Saves a role's launch command so its pane can run it now or replay it after

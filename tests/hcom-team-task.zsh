@@ -30,6 +30,12 @@ sleep() { :; }
 # Supplies task records and active-task IDs without consulting the real project.
 cat > "$fixture_dir/bin/progress" <<'STUB'
 #!/usr/bin/env zsh
+if [[ "$1" == worktree && "$2" == cleanup ]]; then
+	print -r -- "$*" >> "$HCOM_FIXTURE_CLEANUP_CALLS"
+	[[ "${HCOM_FIXTURE_CLEANUP_FAIL:-0}" == 1 ]] && exit 1
+	print -r -- 'Worktree cleaned'
+	exit 0
+fi
 if [[ "$1" == task && "$2" == list && "$3" == --all && "$4" == --json ]]; then
 	if [[ "${HCOM_FIXTURE_ALL_TASKS:-0}" == 1 ]]; then
 		print -r -- '{"ok":true,"data":{"items":[{"id":"tsk_a_B","title":"Other task","status":"in-progress","position":1},{"id":"tsk_A-B","title":"Earlier ready task","status":"ready","position":2},{"id":"tsk_A_B","title":"First task","status":"in-progress","position":3},{"id":"tsk_ready_two","title":"Second ready task","status":"ready","position":4},{"id":"tsk_done","title":"Finished task","status":"done","position":5}]}}'
@@ -209,6 +215,11 @@ case "$1" in
 					print -r -- "{\"foreground\":{\"name\":\"${HCOM_FIXTURE_REX_PROCESS:-zsh}\"}}"
 				fi
 				;;
+			close)
+				if [[ -n "${HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK"* ]]; then
+					exit 1
+				fi
+				;;
 		esac
 		;;
 	split)
@@ -238,6 +249,7 @@ export HCOM_FIXTURE_CONTEXT_CALLS="$fixture_dir/context-calls"
 export HCOM_FIXTURE_WORKTREE_STATE_DIR="$fixture_dir/worktree-state"
 export HCOM_FIXTURE_WORKTREE_ROOT="$fixture_dir"
 export HCOM_FIXTURE_REX_CALLS="$fixture_dir/rex-calls"
+export HCOM_FIXTURE_CLEANUP_CALLS="$fixture_dir/cleanup-calls"
 export XDG_STATE_HOME="$fixture_dir/state"
 export HCOM_FIXTURE_GIT_DIRTY=0
 export ZSH_CONFIG_ROOT="$repo_root"
@@ -247,6 +259,7 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 source "$repo_root/aliases.hcom-core.zsh"
 source "$repo_root/aliases.hcom-workflow.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
+source "$repo_root/aliases.progress.zsh"
 functions -c _hcom_team_create_panes _hcom_team_create_panes_real
 source "$repo_root/aliases.hcom-roles.zsh"
 source "$repo_root/aliases.hcom-learn.zsh"
@@ -1438,6 +1451,86 @@ _hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout
 functions[_hcom_team_create_panes]="$fixture_create_panes_definition"
 [[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:orphan"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == session:replacement && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s session:orphan -b block:scout'*'new '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'orphan session was not replaced and saved'
 unset HCOM_FIXTURE_REX_BLOCKS HCOM_FIXTURE_REX_NEW_SESSION_ID
+# A successful worktree cleanup closes idle teammate panes and forgets the task's saved session.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:cleanup"},{"session_id":"session:busy"},{"session_id":"session:self"},{"session_id":"session:close-error"}]}'
+export REX_SESSION=fixture-origin-session
+export REX_BLOCK=block:orchestrator
+mkdir -p "$XDG_STATE_HOME/hcom-team/tasks" "$XDG_STATE_HOME/hcom-team/session:cleanup"
+print -r -- session:cleanup > "$XDG_STATE_HOME/hcom-team/tasks/tsk_cleanup"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup_output="$(cleanup tsk_cleanup)" || fail 'worktree cleanup with idle teammates'
+[[ "$cleanup_output" == 'Worktree cleaned' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:implementer -s session:cleanup'*'block close block:reviewer -s session:cleanup'*'block close block:scout -s session:cleanup'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:orchestrator'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_cleanup" && ! -e "$XDG_STATE_HOME/hcom-team/session:cleanup" ]] || fail 'idle teammate panes or saved session survived cleanup'
+
+# A running teammate stays open with an explanation while the task state is forgotten.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:busy"
+print -r -- session:busy > "$XDG_STATE_HOME/hcom-team/tasks/tsk_busy"
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup_output="$(cleanup tsk_busy 2>&1)" || fail 'worktree cleanup with running teammate'
+[[ "$cleanup_output" == *'reviewer pane block:reviewer was left open because an agent is still running there.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:implementer -s session:busy'*'block close block:scout -s session:busy'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:reviewer'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_busy" && ! -e "$XDG_STATE_HOME/hcom-team/session:busy" ]] || fail 'running teammate pane was closed or not explained'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+
+# Cleanup never closes its own pane, even when it has a teammate label.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:self"
+print -r -- session:self > "$XDG_STATE_HOME/hcom-team/tasks/tsk_self"
+export REX_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_self >/dev/null || fail 'worktree cleanup from a teammate pane'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:reviewer'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:implementer -s session:self'*'block close block:scout -s session:self'* ]] || fail 'cleanup closed its own pane'
+export REX_BLOCK=block:orchestrator
+
+# A successful cleanup that keeps the checkout leaves the panes and saved state alone.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:kept"
+mkdir -p "$fixture_dir/tsk_kept"
+print -r -- session:kept > "$XDG_STATE_HOME/hcom-team/tasks/tsk_kept"
+print -r -- "$fixture_dir/tsk_kept" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_kept"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_kept >/dev/null || fail 'worktree cleanup that kept its checkout'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_kept" && -d "$XDG_STATE_HOME/hcom-team/session:kept" ]] || fail 'kept checkout changed Rex panes or saved state'
+
+# A saved session that has closed is forgotten without trying to inspect its panes.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:missing"
+print -r -- session:missing > "$XDG_STATE_HOME/hcom-team/tasks/tsk_missing"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_missing >/dev/null || fail 'worktree cleanup with a closed session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == 'ls --json' && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_missing" && ! -e "$XDG_STATE_HOME/hcom-team/session:missing" ]] || fail 'closed Rex session kept its saved state or inspected panes'
+
+# A pane that Rex cannot close is reported while cleanup continues with other panes.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:close-error"
+print -r -- session:close-error > "$XDG_STATE_HOME/hcom-team/tasks/tsk_close_error"
+export HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup_output="$(cleanup tsk_close_error 2>&1)" || fail 'worktree cleanup with a pane close failure'
+[[ "$cleanup_output" == *'reviewer pane block:reviewer could not be closed.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:reviewer -s session:close-error'*'block close block:scout -s session:close-error'* ]] || fail 'pane close failure stopped cleanup or hid the error'
+unset HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK
+
+# Help output never changes Rex panes or saved state.
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_kept --help >/dev/null || fail 'worktree cleanup help'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_kept" ]] || fail 'worktree cleanup help changed Rex state'
+
+# Outside Rex and without a saved session, worktree cleanup still runs alone.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:outside"
+print -r -- session:outside > "$XDG_STATE_HOME/hcom-team/tasks/tsk_outside"
+unset REX_SESSION
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_outside >/dev/null || fail 'worktree cleanup outside Rex'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_outside" ]] || fail 'cleanup changed a Rex team outside Rex'
+export REX_SESSION=fixture-origin-session
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_without_session >/dev/null || fail 'worktree cleanup without a saved session'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'cleanup inspected Rex without a saved session'
+
+# A failed worktree cleanup leaves every pane and saved file untouched.
+export HCOM_FIXTURE_CLEANUP_FAIL=1
+: > "$HCOM_FIXTURE_REX_CALLS"
+if cleanup tsk_outside >/dev/null; then
+	fail 'failed worktree cleanup reported success'
+fi
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_outside" && -d "$XDG_STATE_HOME/hcom-team/session:outside" ]] || fail 'failed worktree cleanup touched Rex state'
+unset HCOM_FIXTURE_CLEANUP_FAIL
+[[ "$(<"$HCOM_FIXTURE_CLEANUP_CALLS")" == *'worktree cleanup tsk_cleanup'*'worktree cleanup tsk_busy'*'worktree cleanup tsk_self'*'worktree cleanup tsk_outside'*'worktree cleanup tsk_without_session'* ]] || fail 'cleanup did not pass task IDs to Progress'
+
 unfunction trash
 unset HCOM_FIXTURE_REX_SESSIONS
 
