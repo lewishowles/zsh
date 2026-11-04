@@ -214,7 +214,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 ## Commands
 
-Run `team` or `cont` from inside Rex to open a team in its own Rex session. The orchestrator takes the left two thirds, with the implementer, reviewer and scout stacked on the right. Starting the same task's team again from any shell reuses its open session when every role pane is at a shell prompt. A team without a task opens a new session each time and refuses if its role tags are already live. When the orchestrator exits, the other three agents stop and all four panes stay open at shell prompts. After changing these shell functions, open a new Rex tab so it loads the new versions.
+Run `team` or `cont` from inside Rex to open a team in its own Rex session. The orchestrator takes the left two thirds, with the implementer, reviewer and scout stacked on the right. Each pane's terminal title shows its role. Starting the same task's team again from any shell reuses its open session when every role pane is at a shell prompt. A team without a task opens a new session each time and refuses if its role tags are already live. When the orchestrator exits, the other three agents stop and all four panes stay open at shell prompts. After changing these shell functions, open a new Rex tab so it loads the new versions.
 <!-- commands:start -->
 
 ### agent

@@ -1245,12 +1245,19 @@ assert_command_error 'team:done: task completed, but checkout cleanup is pending
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex || fail 'Rex team session creation'
 [[ "${reply[2]}" == 'session:fixture' ]] || fail 'Rex session ID was not returned'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/reviewer")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture reviewer:codex'* ]] || fail 'reviewer reset command lost its account or team scope'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/implementer")" == *'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture implementer'* ]] || fail 'implementer reset command lost its account or team scope'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture scout'* ]] || fail 'scout reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/reviewer")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '*' reviewer:codex'* ]] || fail 'reviewer reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/implementer")" == *'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '*' implementer'* ]] || fail 'implementer reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '*' scout'* ]] || fail 'scout reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == 'terminal_title_set scout; '*"CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 HCOM_CODEX_ARGS='-c tui.terminal_title=[]' "* ]] || fail 'scout reset command lost its title or agent title settings'
 [[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/orchestrator" ]] || fail 'orchestrator prompt was saved on disk'
 [[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task -c '*'--window Fixture · fixture-task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
+for role in orchestrator implementer reviewer scout; do
+	# The command typed into this role's pane, which must set the pane title and
+	# stop both agents changing it.
+	role_send="$(grep "^send -s session:fixture -b block:$role " "$HCOM_FIXTURE_REX_CALLS")"
+	[[ "$role_send" == *"terminal_title_set $role; "* && "$role_send" == *"CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 HCOM_CODEX_ARGS='-c tui.terminal_title=[]' "* ]] || fail "$role pane lost its title or agent title settings"
+done
 # Exact directory at the end of the typed orchestrator command.
 checkout_path="$fixture_dir/project"
 # Exact first prompt at the end of that command.

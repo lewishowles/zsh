@@ -1332,6 +1332,10 @@ _hcom_team_create_panes() {
 	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
 	[[ -n "${HCOM_TEAM_PROJECT_TAG:-}" ]] && team_env+="HCOM_TEAM_PROJECT_TAG=${(q)HCOM_TEAM_PROJECT_TAG} "
 
+	# Settings that stop Claude Code and Codex replacing the pane's role title
+	# with their own, typed before every role command.
+	local keep_title_env="CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 HCOM_CODEX_ARGS='-c tui.terminal_title=[]' "
+
 	# Account settings typed before the reviewer command.
 	local reviewer_env="$(_hcom_team_role_environment "$reviewer_account" "$reviewer_provider")"
 	# Account settings typed before the implementer command.
@@ -1340,11 +1344,11 @@ _hcom_team_create_panes() {
 	local scout_env="$(_hcom_team_role_environment "$scout_account" "$scout_provider")"
 
 	# Typed reviewer launch command.
-	local reviewer_command="${reviewer_env}${team_env}$reviewer_launcher$working_directory_suffix"
+	local reviewer_command="terminal_title_set reviewer; ${reviewer_env}${team_env}${keep_title_env}$reviewer_launcher$working_directory_suffix"
 	# Typed implementer launch command.
-	local implementer_command="${implementer_env}${team_env}$implementer_launcher$working_directory_suffix"
+	local implementer_command="terminal_title_set implementer; ${implementer_env}${team_env}${keep_title_env}$implementer_launcher$working_directory_suffix"
 	# Typed scout launch command.
-	local scout_command="${scout_env}${team_env}$scout_launcher$working_directory_suffix"
+	local scout_command="terminal_title_set scout; ${scout_env}${team_env}${keep_title_env}$scout_launcher$working_directory_suffix"
 	# Orchestrator pane's account environment prefix.
 	# Account settings typed before the orchestrator command.
 	local orchestrator_env="$(_hcom_team_role_environment "$orchestrator_account" "$orchestrator_provider")"
@@ -1374,7 +1378,7 @@ _hcom_team_create_panes() {
 	local scout_block="${reply[5]}"
 	# Typed orchestrator command. It runs through a wrapper that stores the team
 	# scope in the orchestrator's shell and stops the teammates when it exits.
-	local orchestrator_command="${orchestrator_env}${team_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
+	local orchestrator_command="terminal_title_set orchestrator; ${orchestrator_env}${team_env}${keep_title_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
 	if ! {
 		_hcom_team_save_role "$session_id" reviewer "$reviewer_command" &&
 		_hcom_team_save_role "$session_id" implementer "$implementer_command" &&
