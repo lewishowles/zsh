@@ -237,26 +237,6 @@ _hcom_stop_team_tags() {
 	return "$kill_status"
 }
 
-# Closes tracked Ghostty panes and optionally focuses a remaining pane.
-#
-# Returns 0 when no terminal IDs are tracked, otherwise the osascript exit
-# status so the caller can detect a failed close.
-#
-# @param  {string}  terminal_ids
-#     Pipe-separated Ghostty terminal IDs to close.
-# @param  {string}  focus_terminal_id
-#     Optional Ghostty terminal ID to focus after closing the tracked panes.
-_hcom_close_team_terminals() {
-	local terminal_ids="$1"  # Pipe-separated Ghostty terminal IDs to close.
-	local focus_terminal_id="${2:-}"  # Remaining Ghostty pane to focus after cleanup.
-
-	if [[ -z "$terminal_ids" ]]; then
-		return 0
-	fi
-
-	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" --close "$terminal_ids" "$focus_terminal_id" >/dev/null 2>&1
-}
-
 # Clears all stored state for the active team in the launching shell.
 #
 # The function has no parameters or output. It only unsets the active-team
@@ -265,8 +245,7 @@ _hcom_clear_team_scope() {
 	unset HCOM_ACTIVE_TEAM_DIRECTORY
 	unset HCOM_ACTIVE_TEAM_LABEL
 	unset HCOM_ACTIVE_TEAM_TAGS
-	unset HCOM_ACTIVE_TEAM_TERMINAL_IDS
-	unset HCOM_TEAM_TERMINAL_IDS
+	unset HCOM_TEAM_SESSION_ID
 	unset HCOM_ACTIVE_TEAM_TASK_ID
 }
 
@@ -411,20 +390,26 @@ _hcom_refuse_original_checkout_clashes() {
 
 # Starts a complete hcom team with the requested orchestrator and reviewer.
 #
-# Creates this layout in the current Ghostty tab:
+# Creates this layout in a Rex session named after the task, with the
+# orchestrator in the left two thirds:
 #
 #   orchestrator | implementer
-#   reviewer     | scout
+#                | reviewer
+#                | scout
+#
+# Starting a task's team again reuses that task's Rex session while it is
+# open, even from another shell. A team without a task opens a new session and
+# refuses only when its role tags are already live. When the orchestrator exits,
+# the three teammates stop, its active scope is cleared, and all four panes
+# stay open at a shell prompt.
 #
 # A team label with no mode and no task finds or creates the label's quick task
 # and launches the team for that task instead.
 #
-# Prints a labelled start notice when a team label is supplied and returns the
-# foreground orchestrator's exit status. Validation, pane-launch, and
-# both-providers-exhausted failures return their own non-zero status. The
-# function stores the new team scope, replaces a previous same-shell team when
-# both prior tags and pane IDs exist, and cleans up teammate agents and panes.
-# A local INT trap lets normal exit and Ctrl-C use the same cleanup path.
+# Prints a labelled start notice when a team label is supplied. Validation,
+# pane-launch, and both-providers-exhausted failures return non-zero. The
+# function saves a task team's session ID for relaunch from any shell. The
+# orchestrator pane owns the active team scope while its agent runs.
 #
 # @param  {string}  command_name
 #     The public command named in errors. team:codex and team:claude start a
@@ -462,24 +447,6 @@ _hcom_launch_team() {
 	local initial_prompt="${reply[4]}"  # Optional prompt passed to the orchestrator.
 	local skip_confirmation="${reply[5]}"  # Whether to start a continuation without prompting.
 	local requested_task_id="${reply[6]}"  # Task named with --task, or empty to find the in-progress task.
-	local origin_terminal_id="${reply[7]}"  # Ghostty pane that ran the command, where the team opens.
-	local origin_terminal_id_set="${reply[8]}"  # Whether a relaunch already captured the launching pane.
-	# The Ghostty lookup error, held until the task checks have run. A picker or
-	# quick-task relaunch runs inside this call, so zsh's dynamic scope lets it
-	# read the outer call's error here.
-	local origin_terminal_error="${origin_terminal_error:-}"
-
-	# Note the pane before the task lookup, the task picker or the quota wait, so
-	# switching tabs in the meantime cannot move the team. Picker and quick-task
-	# relaunches pass the captured pane in instead. A failed lookup is reported
-	# after the task and named-team checks, before checkout or launch work begins.
-	if [[ "$origin_terminal_id_set" != 1 ]]; then
-		origin_terminal_error=""
-		origin_terminal_id="$(_hcom_focused_ghostty_terminal_id "$command_name" 2>&1)" || {
-			origin_terminal_error="$origin_terminal_id"
-			origin_terminal_id=""
-		}
-	fi
 
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local team_project_tag=""  # Main checkout folder tag for a task team, or original checkout folder tag for a root team.
@@ -497,12 +464,21 @@ _hcom_launch_team() {
 	local picker_chosen=0  # Whether a task was chosen from the interactive picker.
 	local -a chosen_task_args  # Arguments that relaunch the team on a picked or quick task, as cont <task-id> --yes would.
 
+	# An explicit task is checked first so an unknown ID keeps its useful error.
+	if [[ -n "$requested_task_id" ]]; then
+		_hcom_read_task_team "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
+	fi
+	if [[ -z "${REX_SESSION:-}" ]]; then
+		_hcom_command_error "$command_name" 'open Rex to start a team.'
+		return 1
+	fi
+
 	if [[ -n "$team_label" && -z "$launch_mode" && -z "$requested_task_id" ]]; then
 		_hcom_find_or_create_quick_task "$command_name" "$team_scope_directory" "$team_label" "$initial_prompt" || return 1
 		# Whether this launch created the quick task. The relaunch below reads it
 		# as a local rather than an environment variable, so agent panes never inherit it.
 		local quick_task_created="${reply[2]}"
-		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes --origin-terminal-id "$origin_terminal_id")
+		chosen_task_args=(continue --task "${reply[1]}" --dir "$team_scope_directory" --yes)
 		if [[ -n "$initial_prompt" ]]; then
 			chosen_task_args+=(--forwarded-message "$initial_prompt")
 		fi
@@ -511,7 +487,6 @@ _hcom_launch_team() {
 	fi
 
 	if [[ -n "$requested_task_id" ]]; then
-		_hcom_read_task_team "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
 		team_project_tag="${reply[1]}"
 		team_label="${reply[2]}"
 		requested_task_status="${reply[3]}"
@@ -587,7 +562,7 @@ _hcom_launch_team() {
 		# A chosen task launches as cont <task-id> would, so it gets the same checks
 		# for its checkout and live team without asking a second time.
 		if (( picker_chosen )); then
-			chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes --origin-terminal-id "$origin_terminal_id")
+		chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes)
 			if [[ -n "$initial_prompt" ]]; then
 				chosen_task_args+=(--forwarded-message "$initial_prompt")
 			fi
@@ -640,12 +615,6 @@ _hcom_launch_team() {
 	if [[ -z "$requested_task_id" ]]; then
 		# Name the root team's roles after the original checkout, even when they launch in a task checkout.
 		team_project_tag="$(_hcom_scoped_tag "$command_name" "$team_scope_directory")" || return 1
-	fi
-
-	# Report a failed pane lookup before any checkout, install or team stop.
-	if [[ -n "$origin_terminal_error" ]]; then
-		print -ru2 -- "$origin_terminal_error"
-		return 1
 	fi
 
 	if [[ -n "$ensure_task_id" ]]; then
@@ -825,41 +794,41 @@ _hcom_launch_team() {
 		fi
 	fi
 
-	# A terminal ID survives the agent session. Ordinary same-shell launches
-	# replace the prior ordinary team, while task teams keep their own scope.
-	local previous_terminal_ids="${HCOM_TEAM_TERMINAL_IDS:-}"  # Prior same-shell pane IDs, if any.
-	local previous_team_tags="${HCOM_ACTIVE_TEAM_TAGS:-}"  # Prior same-shell exact tags, if any.
-	local replace_terminal_ids=""  # Panes of an ordinary prior team, when replacement applies.
-	if [[ -z "$requested_task_id" && -z "${HCOM_ACTIVE_TEAM_TASK_ID:-}" && -n "$previous_terminal_ids" && -n "$previous_team_tags" ]]; then
-		_hcom_stop_team_tags "$previous_team_tags"
-		replace_terminal_ids="$previous_terminal_ids"
+	# The task's earlier Rex session, reused while it is still open.
+	local replace_session_id=""
+	# One state file records this task's Rex session across shells.
+	local task_session_file=""
+	if [[ -n "$requested_task_id" ]]; then
+		task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$requested_task_id"
+		if [[ -f "$task_session_file" ]]; then
+			replace_session_id="$(<"$task_session_file")"
+		fi
 	fi
 
 	if [[ -z "$requested_task_id" ]]; then
-		# A root team checks its tags only after this shell's previous team has
-		# stopped, so relaunching that team in the same shell is not refused.
+		# A root team never stops another team; the live-tag check refuses duplicates.
 		launch_team_tags="$(HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_tags "$command_name" "$team_scope_directory" "$team_label")" || return 1
 		_hcom_refuse_live_tags "$command_name" "$launch_team_tags" || return 1
 	fi
 
-	# A non-zero return is a tag-derivation failure (1) or the osascript exit
-	# status, propagated so the command reports the real pane-launch failure.
+	# A non-zero return reports a tag or Rex launch failure.
 	# Accounts and providers were paired to roles above; the orchestrator's own
 	# pair is passed separately below.
-	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_terminal_ids" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$origin_terminal_id" || return $?
-	local team_tags="${reply[1]}"  # Exact role tags for the new team scope.
-	local team_terminal_ids="${reply[2]}"  # Pipe-separated IDs returned for the new team panes.
-
-	_hcom_store_team_scope "$team_scope_directory" "$team_label" "$team_tags" "$team_terminal_ids" "$requested_task_id"
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_session_id" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$orchestrator_launcher" "$initial_prompt" "$orchestrator_account" "$orchestrator_provider" "$requested_task_id" || return $?
+	# Rex session ID returned for the new team.
+	local team_session_id="${reply[2]}"
+	if [[ -n "$task_session_file" ]]; then
+		if ! mkdir -p "${task_session_file:h}" || ! print -r -- "$team_session_id" > "$task_session_file"; then
+			_hcom_command_error "$command_name" "team session $team_session_id was left partly built; its task session ID could not be saved."
+			return 1
+		fi
+	fi
 
 	if [[ -n "$team_label" ]]; then
 		printf 'Starting hcom team %s in %s.\n' "$team_label" "$team_scope_directory"
 	fi
 
-	# Runs the orchestrator in the foreground and cleans up teammates on return;
-	# its exit status is this function's result.
-	# It takes the account and provider reserved for it above.
-	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_run_team_orchestrator "$orchestrator_launcher" "$team_label" "$working_directory" "$initial_prompt" "$team_tags" "$team_terminal_ids" "$orchestrator_account" "$orchestrator_provider"
+	return 0
 }
 
 # Shows the task a team will continue, with its purpose, every chunk and its
@@ -1273,11 +1242,10 @@ _hcom_select_in_progress_task() {
 	reply=("$task_id" 0)
 }
 
-# Builds the typed teammate pane commands and creates the Ghostty layout.
+# Starts each team role in its own labelled pane of a new Rex session, then
+# moves the human to the orchestrator pane.
 #
-# Returns reply=(team_tags, team_terminal_ids). A non-zero return is a
-# tag-derivation failure (1) or the osascript exit status, so the caller can
-# surface a failed pane launch.
+# Returns reply=(team_tags, Rex session ID), or non-zero on a failed launch.
 #
 # @param  {string}  command_name
 #     The public command shown if tag creation fails.
@@ -1292,8 +1260,8 @@ _hcom_select_in_progress_task() {
 #     panes use the directory this shell is in.
 # @param  {string}  team_label
 #     Optional label that scopes the team.
-# @param  {string}  previous_terminal_ids
-#     Prior same-shell pane IDs, passed through so the layout can replace them.
+# @param  {string}  previous_session_id
+#     The team's earlier Rex session, reused when it is still open.
 # @param  {string}  reviewer_account
 #     Account number for the reviewer pane, or empty to use the calling shell's own overrides.
 # @param  {string}  implementer_account
@@ -1306,94 +1274,428 @@ _hcom_select_in_progress_task() {
 #     Provider the implementer account belongs to, claude or codex. Defaults to codex.
 # @param  {string}  scout_provider
 #     Provider the scout account belongs to, claude or codex. Defaults to codex.
-# @param  {string}  origin_terminal_id
-#     Ghostty ID of the pane that ran the team command, noted before the quota wait.
+# @param  {string}  orchestrator_launcher
+#     Function that starts the orchestrator role.
+# @param  {string}  initial_prompt
+#     First prompt passed to the orchestrator.
+# @param  {string}  orchestrator_account
+#     Account number for the orchestrator pane, or empty to use the calling shell's own overrides.
+# @param  {string}  orchestrator_provider
+#     Provider the orchestrator account belongs to, claude or codex. Defaults to claude.
+# @param  {string}  task_id
+#     The task the team works on, or empty for a team without one. It is
+#     stored so a later launch for the same task can find this session.
 _hcom_team_create_panes() {
-	local command_name="$1"  # Public command responsible for the pane launch.
+	# Public command responsible for the pane launch.
+	local command_name="$1"
 	shift
-	local reviewer_launcher="$1"  # Function that starts the reviewer role.
-	local implementer_launcher="$2"  # Function that starts the implementer role.
-	local scout_launcher="$3"  # Function that starts the scout role.
-	local working_directory="$4"  # Project directory for the team.
-	local team_label="$5"  # Optional label that scopes the team.
-	local previous_terminal_ids="$6"  # Prior same-shell pane IDs to replace.
-	local reviewer_account="${7:-}"  # Account number assigned to the reviewer pane.
-	local implementer_account="${8:-}"  # Account number assigned to the implementer pane.
-	local scout_account="${9:-}"  # Account number assigned to the scout pane.
-	local reviewer_provider="${10:-claude}"  # Provider whose config directory the reviewer account names.
-	local implementer_provider="${11:-codex}"  # Provider whose config directory the implementer account names.
-	local scout_provider="${12:-codex}"  # Provider whose config directory the scout account names.
-	local origin_terminal_id="${13}"  # Ghostty ID of the launching pane.
+	# Function that starts the reviewer role.
+	local reviewer_launcher="$1"
+	# Function that starts the implementer role.
+	local implementer_launcher="$2"
+	# Function that starts the scout role.
+	local scout_launcher="$3"
+	# Project directory for the team.
+	local working_directory="$4"
+	# Optional label that scopes the team.
+	local team_label="$5"
+	# The team's earlier Rex session, if any.
+	local previous_session_id="$6"
+	# Account number assigned to the reviewer pane.
+	local reviewer_account="${7:-}"
+	# Account number assigned to the implementer pane.
+	local implementer_account="${8:-}"
+	# Account number assigned to the scout pane.
+	local scout_account="${9:-}"
+	# Provider whose config directory the reviewer account names.
+	local reviewer_provider="${10:-claude}"
+	# Provider whose config directory the implementer account names.
+	local implementer_provider="${11:-codex}"
+	# Provider whose config directory the scout account names.
+	local scout_provider="${12:-codex}"
+	# Function that starts the orchestrator role.
+	local orchestrator_launcher="${13}"
+	# First prompt passed to the orchestrator.
+	local initial_prompt="${14}"
+	# Account number assigned to the orchestrator pane.
+	local orchestrator_account="${15:-}"
+	# Provider whose config directory the orchestrator account names.
+	local orchestrator_provider="${16:-claude}"
+	# Task the team works on, or empty.
+	local task_id="${17:-}"
 
-	local working_directory_suffix=" ${(q)${working_directory:-$PWD}}"  # The team's directory, quoted for each typed pane command, so agents never start in whichever folder Ghostty gives a new split.
+	# The team's directory, quoted for each typed role command.
+	local working_directory_suffix=" ${(qq)${working_directory:-$PWD}}"
 
-	# Ghostty panes start fresh shells that don't inherit this shell's
-	# exported env, so an active account override must ride along in the
-	# typed command line instead.
-	local account_env  # Account override prefix copied into each new pane command.
-	account_env="$(_hcom_account_environment)"
-
-	local team_env=""  # Optional HCOM_TEAM_LABEL and HCOM_TEAM_PROJECT_TAG assignments for new panes.
+	# Optional HCOM_TEAM_LABEL and HCOM_TEAM_PROJECT_TAG assignments for new panes.
+	local team_env=""
 	[[ -n "$team_label" ]] && team_env+="HCOM_TEAM_LABEL=${(q)team_label} "
 	[[ -n "${HCOM_TEAM_PROJECT_TAG:-}" ]] && team_env+="HCOM_TEAM_PROJECT_TAG=${(q)HCOM_TEAM_PROJECT_TAG} "
 
-	local reviewer_env="${account_env}HCOM_ACCOUNT=${reviewer_account:-default} "  # Reviewer pane's environment prefix, overridden below for account 2.
-	local implementer_env="${account_env}HCOM_ACCOUNT=${implementer_account:-default} "  # Implementer pane's environment prefix, overridden below for account 2.
-	local scout_env="${account_env}HCOM_ACCOUNT=${scout_account:-default} "  # Scout pane's environment prefix, overridden below for account 2.
-	local claude_account_directory="$HOME/.claude-2"  # Config directory for the second Claude account.
-	local codex_account_directory="$HOME/.codex-2"  # Config directory for the second Codex account.
-	if [[ "$reviewer_account" == "2" ]]; then
-		if [[ "$reviewer_provider" == "claude" ]]; then
-			reviewer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} HCOM_ACCOUNT=2 "
-		else
-			reviewer_env="CODEX_HOME=${(q)codex_account_directory} HCOM_ACCOUNT=2 "
-		fi
-	fi
-	if [[ "$implementer_account" == "2" ]]; then
-		if [[ "$implementer_provider" == "claude" ]]; then
-			implementer_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} HCOM_ACCOUNT=2 "
-		else
-			implementer_env="CODEX_HOME=${(q)codex_account_directory} HCOM_ACCOUNT=2 "
-		fi
-	fi
-	if [[ "$scout_account" == "2" ]]; then
-		if [[ "$scout_provider" == "claude" ]]; then
-			scout_env="CLAUDE_CONFIG_DIR=${(q)claude_account_directory} HCOM_ACCOUNT=2 "
-		else
-			scout_env="CODEX_HOME=${(q)codex_account_directory} HCOM_ACCOUNT=2 "
-		fi
-	fi
+	# Account settings typed before the reviewer command.
+	local reviewer_env="$(_hcom_team_role_environment "$reviewer_account" "$reviewer_provider")"
+	# Account settings typed before the implementer command.
+	local implementer_env="$(_hcom_team_role_environment "$implementer_account" "$implementer_provider")"
+	# Account settings typed before the scout command.
+	local scout_env="$(_hcom_team_role_environment "$scout_account" "$scout_provider")"
 
-	local reviewer_command="${reviewer_env}${team_env}$reviewer_launcher$working_directory_suffix"  # Typed reviewer launch command.
-	local implementer_command="${implementer_env}${team_env}$implementer_launcher$working_directory_suffix"  # Typed implementer launch command.
-	local scout_command="${scout_env}${team_env}$scout_launcher$working_directory_suffix"  # Typed scout launch command.
+	# Typed reviewer launch command.
+	local reviewer_command="${reviewer_env}${team_env}$reviewer_launcher$working_directory_suffix"
+	# Typed implementer launch command.
+	local implementer_command="${implementer_env}${team_env}$implementer_launcher$working_directory_suffix"
+	# Typed scout launch command.
+	local scout_command="${scout_env}${team_env}$scout_launcher$working_directory_suffix"
+	# Orchestrator pane's account environment prefix.
+	# Account settings typed before the orchestrator command.
+	local orchestrator_env="$(_hcom_team_role_environment "$orchestrator_account" "$orchestrator_provider")"
 
-	local team_tags  # Exact role tags for the new team scope.
-	local team_scope_directory="${working_directory:-$PWD}"  # Directory used only for team tag derivation.
+	# Exact role tags for the new team scope.
+	local team_tags
+	# The team's directory, which sets its tags, session name and pane directory.
+	local team_scope_directory="${working_directory:-$PWD}"
 	team_tags="$(_hcom_team_tags "$command_name" "$team_scope_directory" "$team_label")" || return 1
 
-	local team_terminal_ids  # Pipe-separated IDs returned for the new team panes.
-	team_terminal_ids="$(
-		/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-team.applescript" \
-			"$reviewer_command" \
-			"$implementer_command" \
-			"$scout_command" \
-			"$previous_terminal_ids" \
-			"$origin_terminal_id"
-	)"
-	local osascript_exit_code=$?  # Result of creating and wiring the Ghostty panes.
-
-	if (( osascript_exit_code != 0 )); then
-		return "$osascript_exit_code"
+	# Rex session and tab label for this team.
+	local session_label="${HCOM_TEAM_PROJECT_TAG:-${team_scope_directory:t}} · $team_label"
+	if [[ -z "$team_label" ]]; then
+		session_label="${HCOM_TEAM_PROJECT_TAG:-${team_scope_directory:t}}"
 	fi
 
-	reply=("$team_tags" "$team_terminal_ids")
+	_hcom_team_create_session "$command_name" "$session_label" "$team_scope_directory" "$previous_session_id" "$task_id" || return 1
+	# New Rex session that contains the team's panes.
+	local session_id="${reply[1]}"
+	# Pane where the orchestrator starts.
+	local orchestrator_block="${reply[2]}"
+	# Pane where the implementer starts.
+	local implementer_block="${reply[3]}"
+	# Pane where the reviewer starts.
+	local reviewer_block="${reply[4]}"
+	# Pane where the scout starts.
+	local scout_block="${reply[5]}"
+	# Typed orchestrator command. It runs through a wrapper that stores the team
+	# scope in the orchestrator's shell and stops the teammates when it exits.
+	local orchestrator_command="${orchestrator_env}${team_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
+	if ! {
+		_hcom_team_save_role "$session_id" reviewer "$reviewer_command" &&
+		_hcom_team_save_role "$session_id" implementer "$implementer_command" &&
+		_hcom_team_save_role "$session_id" scout "$scout_command" &&
+		_hcom_team_type_role "$session_id" "$reviewer_block" "$reviewer_command" &&
+		_hcom_team_type_role "$session_id" "$implementer_block" "$implementer_command" &&
+		_hcom_team_type_role "$session_id" "$scout_block" "$scout_command" &&
+		_hcom_team_type_role "$session_id" "$orchestrator_block" "$orchestrator_command" &&
+		command rex focus -s "$session_id" "$orchestrator_block"
+	}; then
+		_hcom_command_error "$command_name" "team session $session_id was left partly built."
+		return 1
+	fi
+	reply=("$team_tags" "$session_id")
 }
 
-# Stores the active team scope in the launching shell.
+# Prints the account settings to type before a role's launch command.
 #
-# The next team launched from this shell reads it to stop the earlier team
-# first, and team:done reads it to close this shell's panes.
+# Rex panes start fresh shells that don't inherit this shell's exported
+# environment, so an active account override has to be typed with the command.
+#
+# @param  {string}  account
+#     The role's account number. Account 2 selects that provider's second
+#     config directory; any other value keeps the calling shell's override.
+# @param  {string}  provider
+#     The role's provider, claude or codex.
+_hcom_team_role_environment() {
+	# The role's account number.
+	local account="$1"
+	# The role's provider, claude or codex.
+	local provider="$2"
+	# Config directory for the second account.
+	local account_directory
+
+	if [[ "$account" == 2 ]]; then
+		if [[ "$provider" == claude ]]; then
+			account_directory="$HOME/.claude-2"
+			print -rn -- "CLAUDE_CONFIG_DIR=${(q)account_directory} HCOM_ACCOUNT=2 "
+		else
+			account_directory="$HOME/.codex-2"
+			print -rn -- "CODEX_HOME=${(q)account_directory} HCOM_ACCOUNT=2 "
+		fi
+	else
+		print -rn -- "$(_hcom_account_environment)HCOM_ACCOUNT=${account:-default} "
+	fi
+}
+
+# Stops the teammates when the orchestrator returns to its shell, leaving all panes open.
+#
+# @param  {string}  session_id
+#     Rex session that contains the team.
+# @param  {string}  ...
+#     Implementer, reviewer and scout pane IDs.
+_hcom_team_stop_peers() {
+	# Team session containing the peer panes.
+	local session_id="$1"
+	# Peer pane to stop.
+	local block_id
+	# Foreground process returned after the stop keys.
+	local process_json
+	# Bounded shell-prompt checks for each peer.
+	local attempt
+	# Whether the current peer has returned to zsh.
+	local returned_to_shell
+	# Whether every teammate returned to its shell.
+	local stop_status=0
+	shift
+	for block_id in "$@"; do
+		returned_to_shell=0
+		if command rex send-key -s "$session_id" -b "$block_id" ctrl+c ctrl+c; then
+			for attempt in {1..10}; do
+				if ! process_json="$(command rex block call process -s "$session_id" -b "$block_id")"; then
+					break
+				fi
+				if jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
+					returned_to_shell=1
+					break
+				fi
+				sleep 0.2
+			done
+		fi
+		if (( ! returned_to_shell )); then
+			print -ru2 -- "team: peer pane $block_id did not return to a shell prompt."
+			stop_status=1
+		fi
+	done
+	return "$stop_status"
+}
+
+# Runs the orchestrator role in its pane and cleans up the team when it exits.
+#
+# The team scope is stored in this shell while the orchestrator runs. When the
+# orchestrator exits, the three teammates are stopped and the scope is
+# cleared; the session and its panes stay open. Returns non-zero when a
+# teammate did not return to its shell prompt.
+#
+# @param  {string}  session_id
+#     Team session kept open after the role exits.
+# @param  {string}  implementer_block
+#     Implementer pane to stop.
+# @param  {string}  reviewer_block
+#     Reviewer pane to stop.
+# @param  {string}  scout_block
+#     Scout pane to stop.
+# @param  {string}  team_tags
+#     Exact tags stored for the active team.
+# @param  {string}  team_label
+#     Team label stored for a relaunch.
+# @param  {string}  task_id
+#     Task ID stored for a relaunch.
+# @param  {string}  launcher
+#     Role launcher to run.
+# @param  {string}  working_directory
+#     Checkout passed to the launcher.
+# @param  {string}  initial_prompt
+#     First prompt passed to the launcher.
+_hcom_team_run_orchestrator() {
+	# Ctrl-C must return from the role launcher so peer cleanup still runs.
+	setopt localoptions localtraps
+	trap ':' INT
+	# Team session containing the panes.
+	local session_id="$1"
+	# Implementer pane.
+	local implementer_block="$2"
+	# Reviewer pane.
+	local reviewer_block="$3"
+	# Scout pane.
+	local scout_block="$4"
+	# Exact role tags stored as the team scope while the orchestrator runs.
+	local team_tags="$5"
+	# Team label stored with that scope.
+	local team_label="$6"
+	# Task the team works on, stored with that scope.
+	local task_id="$7"
+	# Orchestrator role launcher.
+	local launcher="$8"
+	# Checkout passed to the launcher.
+	local working_directory="$9"
+	# Initial orchestrator prompt.
+	local initial_prompt="${10}"
+
+	_hcom_store_team_scope "$working_directory" "$team_label" "$team_tags" "$session_id" "$task_id"
+	"$launcher" "$working_directory" "$initial_prompt" || :
+	# Whether every teammate returned to its shell.
+	local stop_status=0
+	_hcom_team_stop_peers "$session_id" "$implementer_block" "$reviewer_block" "$scout_block" || stop_status=$?
+	_hcom_clear_team_scope
+	return "$stop_status"
+}
+
+# Finds or creates the Rex session for a team, with one labelled pane per role.
+#
+# The team's earlier session is reused while it is open, found by its ID
+# because a Claude agent's startup hook renames its session. Each existing role
+# pane must be at a shell prompt; missing role panes are created. When the
+# earlier session has closed, its saved commands and the task's saved session
+# ID are moved to the trash and a new session is created.
+#
+# Returns reply=(session ID, orchestrator block, implementer block, reviewer block,
+# scout block).
+#
+# @param  {string}  command_name
+#     Public command shown if a role pane is busy.
+# @param  {string}  session_label
+#     Name shared by the new session and its tab.
+# @param  {string}  team_scope_directory
+#     Directory opened by the new session.
+# @param  {string}  previous_session_id
+#     Stored session ID to reuse when it is still open.
+# @param  {string}  task_id
+#     The task whose saved session ID is removed when that session has closed.
+_hcom_team_create_session() {
+	# Public command shown in diagnostics.
+	local command_name="$1"
+	# Name for a new session and tab.
+	local session_label="$2"
+	# Directory opened by new panes.
+	local team_scope_directory="$3"
+	# Stored ID of the team's previous session.
+	local previous_session_id="$4"
+	# Task that owns the saved session ID.
+	local task_id="${5:-}"
+	# Open Rex sessions.
+	local sessions_json
+	# Labelled panes in a reused session.
+	local blocks_json
+	# Response from new session creation.
+	local new_json
+	# Response from a pane split.
+	local split_json
+	# Session to launch the team in.
+	local session_id=""
+	# Orchestrator pane.
+	local orchestrator_block=""
+	# Implementer pane.
+	local implementer_block=""
+	# Reviewer pane.
+	local reviewer_block=""
+	# Scout pane.
+	local scout_block=""
+	# Role whose existing pane is being checked.
+	local role
+	# The existing pane for that role.
+	local block_id
+	# The pane's foreground process.
+	local process_json
+
+	sessions_json="$(command rex ls --json)" || return 1
+	if [[ -n "$previous_session_id" ]] && jq -e --arg id "$previous_session_id" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
+		session_id="$previous_session_id"
+		blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+		for role in orchestrator implementer reviewer scout; do
+			block_id="$(jq -r --arg role "$role" '.blocks[] | select(.label == $role) | .block_id' <<<"$blocks_json")" || return 1
+			block_id="${block_id%%$'\n'*}"
+			[[ -z "$block_id" ]] && continue
+			process_json="$(command rex block call process -s "$session_id" -b "$block_id")" || return 1
+			if ! jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
+				_hcom_command_error "$command_name" "$role pane $block_id is still running an agent; stop it before relaunching."
+				return 1
+			fi
+			case "$role" in
+				orchestrator) orchestrator_block="$block_id" ;;
+				implementer) implementer_block="$block_id" ;;
+				reviewer) reviewer_block="$block_id" ;;
+				scout) scout_block="$block_id" ;;
+			esac
+		done
+		if [[ -z "$orchestrator_block" ]]; then
+			_hcom_command_error "$command_name" "session $session_id has no orchestrator pane to anchor the layout."
+			return 1
+		fi
+	else
+		if [[ -n "$previous_session_id" && -n "$task_id" ]]; then
+			# A closed session no longer has a reusable task ID.
+			local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
+			if [[ -f "$task_session_file" ]]; then
+				trash "$task_session_file" || return 1
+			fi
+		fi
+		if [[ -n "$previous_session_id" && -d "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$previous_session_id" ]]; then
+			trash "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$previous_session_id" || return 1
+		fi
+		new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
+		session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
+		orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1
+		if ! command rex block rename -s "$session_id" "$orchestrator_block" orchestrator; then
+			_hcom_command_error "$command_name" "team session $session_id was left partly built."
+			return 1
+		fi
+	fi
+
+	if [[ -z "$implementer_block" ]]; then
+		if ! split_json="$(command rex split -s "$session_id" -b "$orchestrator_block" --split=right --ratio 33 --label implementer --focus=false --json)"; then
+			_hcom_command_error "$command_name" "team session $session_id was left partly built."
+			return 1
+		fi
+		implementer_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
+	fi
+	if [[ -z "$reviewer_block" ]]; then
+		if ! split_json="$(command rex split -s "$session_id" -b "$implementer_block" --split=below --ratio 67 --label reviewer --focus=false --json)"; then
+			_hcom_command_error "$command_name" "team session $session_id was left partly built."
+			return 1
+		fi
+		reviewer_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
+	fi
+	if [[ -z "$scout_block" ]]; then
+		if ! split_json="$(command rex split -s "$session_id" -b "$reviewer_block" --split=below --ratio 50 --label scout --focus=false --json)"; then
+			_hcom_command_error "$command_name" "team session $session_id was left partly built."
+			return 1
+		fi
+		scout_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
+	fi
+
+	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block")
+}
+
+# Saves one teammate's launch command for a later reset.
+#
+# @param  {string}  session_id
+#     Rex session that contains the teammate's pane.
+# @param  {string}  role
+#     Role used to name the saved command file.
+# @param  {string}  launch_command
+#     Exact command to replay for a later reset.
+_hcom_team_save_role() {
+	# Rex session that contains the teammate's pane.
+	local session_id="$1"
+	# Role that names the saved command file.
+	local role="$2"
+	# Exact command to replay on reset.
+	local launch_command="$3"
+	# Folder holding this session's saved teammate commands.
+	local state_directory="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$session_id"
+
+	mkdir -p "$state_directory" || return 1
+	print -rn -- "$launch_command" > "$state_directory/$role" || return 1
+}
+
+# Types and submits a launch command in an idle role pane.
+#
+# @param  {string}  session_id
+#     Rex session that contains the role's pane.
+# @param  {string}  block_id
+#     Pane that receives the launch command.
+# @param  {string}  launch_command
+#     Exact command to type and submit.
+_hcom_team_type_role() {
+	# Rex session that contains the pane.
+	local session_id="$1"
+	# Pane that receives the command.
+	local block_id="$2"
+	# Command typed into the pane.
+	local launch_command="$3"
+
+	command rex send -s "$session_id" -b "$block_id" "$launch_command" || return 1
+	command rex send-key -s "$session_id" -b "$block_id" enter
+}
+
+# Stores the active team scope in the orchestrator pane.
+#
+# The scope remains available to the role while it runs and is cleared on exit.
 #
 # @param  {string}  working_directory
 #     Project directory for the team.
@@ -1401,102 +1703,38 @@ _hcom_team_create_panes() {
 #     Optional label that scopes the team.
 # @param  {string}  team_tags
 #     Pipe-separated exact role tags for the active scope.
-# @param  {string}  team_terminal_ids
-#     Pipe-separated Ghostty pane IDs for matching cleanup.
+# @param  {string}  team_session_id
+#     Rex session holding the active team.
 # @param  {string}  task_id
 #     Task ID for a named task team, or empty for an ordinary team.
 _hcom_store_team_scope() {
-	local working_directory="$1"  # Project directory for the team.
-	local team_label="$2"  # Optional label that scopes the team.
-	local team_tags="$3"  # Exact role tags for the active scope.
-	local team_terminal_ids="$4"  # Ghostty pane IDs for matching cleanup.
-	local task_id="${5:-}"  # Task identity that prevents cross-team replacement.
+	# Project directory for the team.
+	local working_directory="$1"
+	# Optional label that scopes the team.
+	local team_label="$2"
+	# Exact role tags for the active scope.
+	local team_tags="$3"
+	# Rex session holding the active team.
+	local team_session_id="$4"
+	# Task the team works on, or empty.
+	local task_id="${5:-}"
 
-	typeset -g HCOM_ACTIVE_TEAM_DIRECTORY="$working_directory"  # Stored directory for implicit or matching stops.
-	typeset -g HCOM_ACTIVE_TEAM_LABEL="$team_label"  # Stored optional label for the active scope.
-	typeset -g HCOM_ACTIVE_TEAM_TAGS="$team_tags"  # Stored exact role tags for the active scope.
-	typeset -g HCOM_ACTIVE_TEAM_TERMINAL_IDS="$team_terminal_ids"  # Stored IDs for matching pane cleanup.
-	typeset -g HCOM_TEAM_TERMINAL_IDS="$team_terminal_ids"  # Current IDs used by same-shell relaunch cleanup.
-	typeset -g HCOM_ACTIVE_TEAM_TASK_ID="$task_id"  # Empty for ordinary teams; non-empty for task teams.
-}
-
-# Runs the foreground orchestrator and cleans up the team on return.
-#
-# A local INT trap lets normal exit and Ctrl-C reach the same cleanup block;
-# localtraps restores the prior INT trap on any return path. Then it stops the
-# teammate agents, closes their panes and clears the stored team scope.
-# Returns the orchestrator's exit status.
-#
-# @param  {string}  orchestrator_launcher
-#     Function that starts the orchestrator role.
-# @param  {string}  team_label
-#     Optional label passed to the orchestrator environment.
-# @param  {string}  working_directory
-#     Optional project directory. Empty lets the launcher use its own directory.
-# @param  {string}  initial_prompt
-#     Optional initial prompt for the orchestrator.
-# @param  {string}  team_tags
-#     Pipe-separated exact role tags, used to stop teammates.
-# @param  {string}  team_terminal_ids
-#     Pipe-separated pane IDs; the first is the orchestrator pane to refocus.
-# @param  {string}  orchestrator_account
-#     Account number for the foreground orchestrator, or empty to use the calling shell's own overrides.
-# @param  {string}  orchestrator_provider
-#     Provider the orchestrator account belongs to, claude or codex. Defaults to claude.
-_hcom_run_team_orchestrator() {
-	local orchestrator_launcher="$1"  # Function that starts the orchestrator role.
-	local team_label="$2"  # Optional label for the orchestrator environment.
-	local working_directory="$3"  # Optional project directory. Empty lets the launcher use its own.
-	local initial_prompt="$4"  # Optional initial prompt for the orchestrator.
-	local team_tags="$5"  # Exact role tags used to stop teammates.
-	local team_terminal_ids="$6"  # Pane IDs for teammate cleanup and refocus.
-	local orchestrator_account="${7:-}"  # Account number assigned to the foreground orchestrator.
-	local orchestrator_provider="${8:-claude}"  # Provider whose config directory the orchestrator account names.
-
-	local orchestrator_exit_code  # Foreground orchestrator result returned by this function.
-
-	# Without this, SIGINT during the foreground orchestrator call aborts this
-	# function before the cleanup below; localtraps restores the prior INT trap
-	# on any return path.
-	setopt localoptions localtraps
-	trap ':' INT
-
-	# Branched rather than building a shared env-prefix variable so the
-	# default call never sets a config directory at all, and instead inherits
-	# the calling shell's, the same way acct2 already does.
-	# An empty directory argument lets the launcher use the pane's own directory.
-	if [[ "$orchestrator_account" == "2" ]]; then
-		if [[ "$orchestrator_provider" == "claude" ]]; then
-			if CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_ACCOUNT=2 HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
-				orchestrator_exit_code=0
-			else
-				orchestrator_exit_code=$?
-			fi
-		else
-			if CODEX_HOME="$HOME/.codex-2" HCOM_ACCOUNT=2 HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
-				orchestrator_exit_code=0
-			else
-				orchestrator_exit_code=$?
-			fi
-		fi
-	elif HCOM_ACCOUNT=default HCOM_TEAM_LABEL="$team_label" "$orchestrator_launcher" "$working_directory" "$initial_prompt"; then
-		orchestrator_exit_code=0
-	else
-		orchestrator_exit_code=$?
-	fi
-
-	_hcom_stop_team_tags "${team_tags#*|}"
-	local orchestrator_terminal_id="${team_terminal_ids%%|*}"  # Orchestrator pane restored after teammate cleanup.
-	_hcom_close_team_terminals "${team_terminal_ids#*|}" "$orchestrator_terminal_id"
-	_hcom_clear_team_scope
-
-	return "$orchestrator_exit_code"
+	# Stored directory for matching stops.
+	typeset -g HCOM_ACTIVE_TEAM_DIRECTORY="$working_directory"
+	# Stored optional label for the active scope.
+	typeset -g HCOM_ACTIVE_TEAM_LABEL="$team_label"
+	# Stored exact role tags for the active scope.
+	typeset -g HCOM_ACTIVE_TEAM_TAGS="$team_tags"
+	# Session ID of the active team.
+	typeset -g HCOM_TEAM_SESSION_ID="$team_session_id"
+	# Empty for ordinary teams; non-empty for task teams.
+	typeset -g HCOM_ACTIVE_TEAM_TASK_ID="$task_id"
 }
 
 # Parses the team argument list and validates it.
-# Sets the standard zsh `reply` array to eight values in order: launch mode,
+# Sets the standard zsh `reply` array to six values in order: launch mode,
 # team label, working directory, initial prompt, the skip-confirmation flag,
-# requested task, origin Ghostty pane ID, and whether that ID was passed in.
+# and requested task.
 # Returns non-zero with a diagnostic when parsing or validation fails.
 #
 # @param  {string}  command_name
@@ -1529,8 +1767,6 @@ _hcom_parse_team_args() {
 	# Whether --clipboard supplied the note.
 	local clipboard_set=0
 	local task_id=""  # The --task identifier of the task this team continues.
-	local origin_terminal_id=""  # Ghostty pane passed in by a picker or quick-task relaunch.
-	local origin_terminal_id_set=0  # Whether a relaunch passed the pane in, even an empty one from outside Ghostty.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--dir)
@@ -1601,16 +1837,6 @@ _hcom_parse_team_args() {
 				task_id="$2"
 				shift 2
 				;;
-			--origin-terminal-id)
-				if [[ $# -lt 2 ]]; then
-					_hcom_command_error "$command_name" '' '--origin-terminal-id' ' requires a pane ID.'
-					return 1
-				fi
-
-				origin_terminal_id="$2"
-				origin_terminal_id_set=1
-				shift 2
-				;;
 			-y|--yes)
 				skip_confirmation=1
 				shift
@@ -1656,7 +1882,7 @@ _hcom_parse_team_args() {
 		return 1
 	fi
 
-	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id" "$origin_terminal_id" "$origin_terminal_id_set")
+	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
 }
 
 # @desc  Start an hcom team or quick task, continue or hand over a task, with an optional clipboard note
@@ -1718,12 +1944,14 @@ team:done() {
 		return 1
 	fi
 
-	local team_label="$2"  # Label used to find the unfinished quick task.
+	# Label used to find the unfinished quick task.
+	local team_label="$2"
 	local task_id  # Unfinished task matching the quick-team label.
 	local progress_message  # Error returned by Progress.
 	local checkout_path  # Managed checkout for the quick task, when present.
 	local git_changes  # Uncommitted or untracked work in the managed checkout.
-	local team_tags terminal_ids scope_matches_active  # Exact stop scope and any tracked panes.
+	# Exact stop scope and whether it is active here.
+	local team_tags scope_matches_active
 	local completed_json  # Progress result for completing the quick task.
 	local cleanup_reason cleanup_command unmerged_commits count_error base_branch merge_instruction commit_phrase  # Manual merge details when Progress cannot finish checkout cleanup.
 
@@ -1751,9 +1979,8 @@ team:done() {
 
 	_hcom_resolve_team_stop_scope team:done "$PWD" "$task_id" || return 1
 	team_tags="${reply[1]}"
-	terminal_ids="${reply[2]}"
-	scope_matches_active="${reply[3]}"
-	_hcom_run_team_stop_cleanup "$team_tags" "$terminal_ids" "$scope_matches_active" || return 1
+	scope_matches_active="${reply[2]}"
+	_hcom_run_team_stop_cleanup "$team_tags" "$scope_matches_active" || return 1
 
 	if ! completed_json="$(progress task complete "$task_id" --json 2>/dev/null)" || ! jq -e '.ok == true and .data.status == "done"' >/dev/null 2>&1 <<<"$completed_json"; then
 		progress_message="$(jq -r '.error.message // empty' <<<"$completed_json" 2>/dev/null)"
@@ -1796,9 +2023,8 @@ team:done() {
 # Resolves the task team that team:done stops.
 #
 # Derives the task's exact tags and records whether its scope matches the
-# stored team, so its panes and stored state can also be cleared.
-# Sets the standard zsh `reply` array to three values in order: exact team
-# tags, pane IDs for cleanup, scope-matches-active flag. Returns non-zero on
+# stored team, so its stored state can be cleared.
+# Sets `reply` to the team tags and scope-matches-active flag. Returns non-zero on
 # a directory, task, or tag-resolution failure.
 #
 # @param  {string}  command_name
@@ -1808,14 +2034,20 @@ team:done() {
 # @param  {string}  task_id
 #     Task ID used to recover the project and task address.
 _hcom_resolve_team_stop_scope() {
-	local command_name="$1"  # Public command responsible for the stop.
-	local working_directory="$2"  # Project directory where the task is recorded.
-	local task_id="$3"  # Task ID used to derive the team address.
-	local team_project_tag=""  # Main checkout folder tag for the task team.
-	local team_label=""  # Label derived from the task.
-	local team_tags=""  # Exact tags resolved for the requested stop scope.
-	local terminal_ids=""  # Stored pane IDs available for matching pane cleanup.
-	local scope_matches_active=0  # Whether the task scope matches stored directory and label, so its stored state can be cleared too.
+	# Public command responsible for the stop.
+	local command_name="$1"
+	# Project directory where the task is recorded.
+	local working_directory="$2"
+	# Task ID used to derive the team address.
+	local task_id="$3"
+	# Main checkout folder tag for the task team.
+	local team_project_tag=""
+	# Label derived from the task.
+	local team_label=""
+	# Exact tags resolved for the requested stop scope.
+	local team_tags=""
+	# Whether the task scope matches stored directory and label, so its stored state can be cleared too.
+	local scope_matches_active=0
 
 	if [[ ! -d "$working_directory" ]]; then
 		_hcom_command_error "$command_name" 'working directory not found: ' "$working_directory"
@@ -1829,51 +2061,34 @@ _hcom_resolve_team_stop_scope() {
 
 	if [[ -n "${HCOM_ACTIVE_TEAM_DIRECTORY:-}" ]] && [[ "${working_directory:A}" = "${HCOM_ACTIVE_TEAM_DIRECTORY:A}" ]] && [[ "$team_label" = "${HCOM_ACTIVE_TEAM_LABEL:-}" ]]; then
 		scope_matches_active=1
-		terminal_ids="${HCOM_ACTIVE_TEAM_TERMINAL_IDS:-}"
 	fi
 
-	reply=("$team_tags" "$terminal_ids" "$scope_matches_active")
+	reply=("$team_tags" "$scope_matches_active")
 }
 
-# Stops the team's agents, closes its panes, and clears the stored scope.
+# Stops the team's agents and clears the stored scope.
 #
 # Every step runs even when an earlier one fails. The stored team scope is
 # cleared only when the task scope matches it.
 # Stopping agents is best-effort: `hcom kill` reports a non-zero status when
 # no agent matches the tag, which is the normal case for a repeat stop, so
-# that status is not propagated. Returns the first non-zero status from
-# closing panes or clearing scope, otherwise 0.
+# that status is not propagated. Returns the scope-clearing status.
 #
 # @param  {string}  team_tags
 #     Pipe-separated exact role tags to stop.
-# @param  {string}  terminal_ids
-#     Pipe-separated Ghostty pane IDs to close, or empty.
 # @param  {string}  scope_matches_active
 #     1 when the task scope matches the stored team.
 _hcom_run_team_stop_cleanup() {
 	local team_tags="$1"  # Pipe-separated exact role tags to stop.
-	local terminal_ids="$2"  # Pipe-separated Ghostty pane IDs to close.
-	local scope_matches_active="$3"  # Whether the task scope matches the stored team.
-	local cleanup_status=0  # First non-zero status from closing panes or clearing scope, returned to the caller.
-	local step_status=0  # Exit status of the cleanup step currently running.
+	local scope_matches_active="$2"  # Whether the task scope matches the stored team.
 
 	# Best-effort: a repeat stop finds no agents and `hcom kill` returns non-zero,
 	# which must not fail an otherwise clean stop.
 	_hcom_stop_team_tags "$team_tags"
 
-	step_status=0
-	_hcom_close_team_terminals "$terminal_ids" || step_status=$?
-	if (( cleanup_status == 0 && step_status != 0 )); then
-		cleanup_status="$step_status"
-	fi
-
 	if (( scope_matches_active == 1 )); then
-		step_status=0
-		_hcom_clear_team_scope || step_status=$?
-		if (( cleanup_status == 0 && step_status != 0 )); then
-			cleanup_status="$step_status"
-		fi
+		_hcom_clear_team_scope || return $?
 	fi
 
-	return "$cleanup_status"
+	return 0
 }

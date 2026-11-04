@@ -170,7 +170,52 @@ cat > "$fixture_dir/bin/hcom" <<'STUB'
 [[ "$1" == list && "$2" == --json ]] || exit 1
 cat "$HCOM_FIXTURE_AGENTS"
 STUB
-chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/git"
+
+# Records every rex call and answers the session list, new session and pane splits with fixture IDs.
+cat > "$fixture_dir/bin/rex" <<'STUB'
+#!/usr/bin/env zsh
+print -r -- "$*" >> "$HCOM_FIXTURE_REX_CALLS"
+case "$1" in
+	ls)
+		if [[ -n "${HCOM_FIXTURE_REX_SESSIONS:-}" ]]; then
+			print -r -- "$HCOM_FIXTURE_REX_SESSIONS"
+		else
+			print -r -- '{"sessions":[]}'
+		fi
+		;;
+	new) print -r -- '{"session_id":"session:fixture","initial_windows":[{"block_ids":["block:orchestrator"]}]}' ;;
+	block)
+		case "$2" in
+			ls)
+				if [[ -n "${HCOM_FIXTURE_REX_BLOCKS:-}" ]]; then
+					print -r -- "$HCOM_FIXTURE_REX_BLOCKS"
+				else
+					print -r -- '{"blocks":[{"block_id":"block:orchestrator","label":"orchestrator"},{"block_id":"block:implementer","label":"implementer"},{"block_id":"block:reviewer","label":"reviewer"},{"block_id":"block:scout","label":"scout"}]}'
+				fi
+				;;
+			call)
+				if [[ -n "${HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK"* ]]; then
+					exit 1
+				fi
+				if [[ -n "${HCOM_FIXTURE_REX_BUSY_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_BUSY_BLOCK"* ]]; then
+					print -r -- '{"foreground":{"name":"claude"}}'
+				else
+					print -r -- "{\"foreground\":{\"name\":\"${HCOM_FIXTURE_REX_PROCESS:-zsh}\"}}"
+				fi
+				;;
+		esac
+		;;
+	split)
+		[[ "${HCOM_FIXTURE_REX_SPLIT_FAIL:-0}" == 1 ]] && exit 1
+		case "$*" in
+			*'--label implementer'*) print -r -- '{"block_ids":["block:implementer"]}' ;;
+			*'--label reviewer'*) print -r -- '{"block_ids":["block:reviewer"]}' ;;
+			*'--label scout'*) print -r -- '{"block_ids":["block:scout"]}' ;;
+		esac
+		;;
+esac
+STUB
+chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/git" "$fixture_dir/bin/rex"
 export PATH="$fixture_dir/bin:$PATH"
 export HCOM_FIXTURE_AGENTS="$fixture_dir/agents.json"
 export HCOM_FIXTURE_WORKTREE_CALLS="$fixture_dir/worktree-calls"
@@ -181,31 +226,28 @@ export HCOM_FIXTURE_MAIN_CHECKOUT="$fixture_dir/Agents"
 export HCOM_FIXTURE_CONTEXT_CALLS="$fixture_dir/context-calls"
 export HCOM_FIXTURE_WORKTREE_STATE_DIR="$fixture_dir/worktree-state"
 export HCOM_FIXTURE_WORKTREE_ROOT="$fixture_dir"
+export HCOM_FIXTURE_REX_CALLS="$fixture_dir/rex-calls"
+export XDG_STATE_HOME="$fixture_dir/state"
 export HCOM_FIXTURE_GIT_DIRTY=0
 export ZSH_CONFIG_ROOT="$repo_root"
+export REX_SESSION=fixture-origin-session
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
 source "$repo_root/aliases.hcom-core.zsh"
 source "$repo_root/aliases.hcom-workflow.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
+functions -c _hcom_team_create_panes _hcom_team_create_panes_real
 source "$repo_root/aliases.hcom-roles.zsh"
 source "$repo_root/aliases.hcom-learn.zsh"
 source "$repo_root/aliases.hcom-session.zsh"
 
-# Supplies the launching pane ID without contacting Ghostty and records each lookup.
-# HCOM_FIXTURE_GHOSTTY_ERROR=1 makes the lookup fail with the Ghostty refusal.
+# Supplies a pane ID for the learner and planning launch fixtures.
 #
 # @param  {string}  command_name
 #     Public command requesting the pane ID.
 _hcom_focused_ghostty_terminal_id() {
-	print -r -- call >> "$fixture_dir/focused-pane-calls"
-	if [[ "${HCOM_FIXTURE_GHOSTTY_ERROR:-0}" == 1 ]]; then
-		_hcom_command_error "$1" 'run this command from a Ghostty terminal.'
-		return 1
-	fi
 	print -r -- 'fixture-origin-pane'
 }
-: > "$fixture_dir/focused-pane-calls"
 
 # Shows preview text without relying on the installed colour helper.
 #
@@ -544,17 +586,21 @@ fi
 # @param  {string}  command_name
 #     The public command whose pane creation is being tested.
 # @param  {string}  ...
-#     Pane launch arguments, including prior IDs.
+#     Pane launch arguments, including the prior Rex session ID.
 _hcom_team_create_panes() {
-	local command_name="$1"  # Public command responsible for the pane launch.
+	# Public command responsible for the pane launch.
+	local command_name="$1"
 	shift
-	replaced_terminal_ids="$6"
+	replaced_session_id="$6"
 	launched_pane_directory="$4"
-	launched_origin_terminal_id="${13}"
+	launched_orchestrator_prompt="${14}"
+	launched_task_id="${17:-}"
 	pane_calls=$((pane_calls + 1))
-	local resolved_tags  # Tags derived using the launch's project scope.
+	# Tags derived using the launch's project scope.
+	local resolved_tags
 	resolved_tags="$(_hcom_team_tags "$command_name" "${4:-$PWD}" "$5")"
-	reply=("$resolved_tags" "new|panes")
+	launched_team_tags="$resolved_tags"
+	reply=("$resolved_tags" "session:new")
 }
 
 # Records the tags that an ordinary relaunch would stop.
@@ -563,16 +609,6 @@ _hcom_team_create_panes() {
 #     Prior ordinary team tags.
 _hcom_stop_team_tags() {
 	stopped_team_tags="$1"
-}
-
-# Keeps launch verification inside the fixture shell.
-#
-# @param  {string}  ...
-#     Foreground orchestrator arguments.
-_hcom_run_team_orchestrator() {
-	launched_orchestrator_directory="$3"
-	launched_orchestrator_prompt="$4"
-	return 0
 }
 
 # Supplies enough account data to reach the pane boundary.
@@ -616,13 +652,20 @@ _hcom_select_in_progress_task() {
 	reply=("${3:-${HCOM_FIXTURE_ONLY_TASK_ID:-}}" 0)
 }
 
-pane_calls=0  # Number of pane boundaries reached by test launches.
-replaced_terminal_ids=""  # Prior pane IDs passed to the pane boundary.
-stopped_team_tags=""  # Prior tags passed to the stop boundary.
-launched_pane_directory=""  # Folder given to the role panes; empty means the original checkout.
-launched_origin_terminal_id=""  # Origin pane ID passed to the layout boundary.
-launched_orchestrator_directory=""  # Folder given to the orchestrator; empty means the original checkout.
-launched_orchestrator_prompt=""  # Continuation prompt given to the orchestrator.
+# Number of pane boundaries reached by test launches.
+pane_calls=0
+# Prior Rex session ID that the launch was asked to reuse.
+replaced_session_id=""
+# Prior tags passed to the stop boundary.
+stopped_team_tags=""
+# Folder given to the role panes; empty means the original checkout.
+launched_pane_directory=""
+# Continuation prompt given to the orchestrator.
+launched_orchestrator_prompt=""
+# Tags that the pane boundary received.
+launched_team_tags=""
+# Task ID that the pane boundary received.
+launched_task_id=""
 print -r -- "[{\"tag\":\"${team_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 if cont --task tsk_A_B --yes 2>"$error_file"; then
 	fail 'cont launched a duplicate task team'
@@ -640,23 +683,17 @@ fi
 [[ "$pane_calls" == 0 && -z "$stopped_team_tags" ]] || fail 'duplicate root team created panes or stopped agents'
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
-HCOM_ACTIVE_TEAM_TAGS='old-root-orchestrator|old-root-reviewer'  # Existing ordinary team tags.
-HCOM_TEAM_TERMINAL_IDS='old|panes'  # Existing ordinary team panes.
-HCOM_ACTIVE_TEAM_TASK_ID=''  # Existing team is not task-scoped.
 _hcom_launch_team team:codex unused unused unused unused || fail 'ordinary team relaunch'
-[[ "$stopped_team_tags" == 'old-root-orchestrator|old-root-reviewer' && "$replaced_terminal_ids" == 'old|panes' ]] || fail 'ordinary team did not replace prior root'
-[[ "$launched_origin_terminal_id" == 'fixture-origin-pane' ]] || fail 'launch did not pass the origin pane ID as argument 13'
-ordinary_team_tags="$(_hcom_team_tags team "$PWD" '')"  # Exact tags stored for the ordinary team.
+[[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_team_tags" == "$root_tags" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'root launch stopped another team or stored scope in the launching shell'
+# Exact tags passed to the ordinary team.
+ordinary_team_tags="$(_hcom_team_tags team "$PWD" '')"
 stopped_team_tags=''
 _hcom_launch_team team:codex unused unused unused unused || fail 'root relaunch'
-[[ "$stopped_team_tags" == "$ordinary_team_tags" && "$replaced_terminal_ids" == 'new|panes' ]] || fail 'root did not replace prior ordinary team'
+[[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_team_tags" == "$ordinary_team_tags" ]] || fail 'root relaunch stopped or reused another team'
 
 stopped_team_tags=''
-HCOM_ACTIVE_TEAM_TASK_ID=tsk_A_B
-HCOM_ACTIVE_TEAM_TAGS="$team_tags"
-HCOM_TEAM_TERMINAL_IDS='task|panes'
 _hcom_launch_team team:codex unused unused unused unused || fail 'root after task team'
-[[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" ]] || fail 'root replaced prior task team'
+[[ -z "$stopped_team_tags" && -z "$replaced_session_id" ]] || fail 'root replaced prior task team'
 
 stopped_team_tags=''
 # A ready named task creates its checkout once and gives it to every role.
@@ -666,25 +703,25 @@ export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
 [[ ! -s "$HCOM_FIXTURE_CONTEXT_CALLS" && "$launched_orchestrator_prompt" != *'progress context get --task tsk_A_B --json'* ]] || fail 'ready task launch read a leftover handoff'
 unset HCOM_FIXTURE_HAS_HANDOFF
-[[ -z "$stopped_team_tags" && -z "$replaced_terminal_ids" && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A_B ]] || fail 'task team replaced prior ordinary team'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
+[[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_task_id" == tsk_A_B && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == session:new && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'task launch replaced another team or lost its stored session ID'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'named task did not look up then create its checkout'
 # A named task skips the preview even when stdin cannot answer a prompt.
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B </dev/null &> "$fixture_dir/named-task-output" || fail 'named task without --yes did not launch'
 [[ "$(<"$fixture_dir/named-task-output")" != *'Start this task?'* ]] || fail 'named task without --yes showed a confirmation'
-export HCOM_FIXTURE_GHOSTTY_ERROR=1
+unset REX_SESSION
 assert_command_error "team:codex: could not read task tsk_unknown in $PWD." _hcom_launch_team team:codex unused unused unused unused continue --task tsk_unknown
 prior_pane_calls="$pane_calls"
-assert_command_error 'team:codex: run this command from a Ghostty terminal.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B
-[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'Ghostty refusal reached pane creation'
-HCOM_ACTIVE_TEAM_TAGS='old-root-orchestrator|old-root-reviewer'
-HCOM_TEAM_TERMINAL_IDS='old|panes'
-HCOM_ACTIVE_TEAM_TASK_ID=''
+assert_command_error 'team:codex: open Rex to start a team.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B
+[[ "$pane_calls" == "$prior_pane_calls" ]] || fail 'Rex refusal reached pane creation'
+: > "$HCOM_FIXTURE_QUICK_CALLS"
+assert_command_error 'team:codex: open Rex to start a team.' _hcom_launch_team team:codex unused unused unused unused --team blue
+[[ ! -s "$HCOM_FIXTURE_QUICK_CALLS" ]] || fail 'Rex refusal created or searched for a quick task'
 stopped_team_tags=''
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
-assert_command_error 'team:codex: run this command from a Ghostty terminal.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_ready_two
-[[ -z "$stopped_team_tags" && "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_ready_two' ]] || fail 'Ghostty refusal stopped the prior team or created a checkout'
-unset HCOM_FIXTURE_GHOSTTY_ERROR
+assert_command_error 'team:codex: open Rex to start a team.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_ready_two
+[[ -z "$stopped_team_tags" && ! -s "$HCOM_FIXTURE_WORKTREE_CALLS" ]] || fail 'Rex refusal stopped the prior team or checked out a task'
+export REX_SESSION=fixture-origin-session
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
@@ -693,12 +730,10 @@ _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B
 # A label creates its quick task and launches through the named-task checkout path.
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
-prior_focused_pane_calls=$(wc -l < "$fixture_dir/focused-pane-calls")  # Pane lookups before the quick-task relaunch.
 _hcom_launch_team team:codex unused unused unused unused --team blue --message 'Investigate the prompt' || fail 'labelled quick task launch'
-[[ $(wc -l < "$fixture_dir/focused-pane-calls") -eq $((prior_focused_pane_calls + 1)) ]] || fail 'quick-task relaunch captured the pane more than once'
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == *'task add '*'--slug quick-blue --title Quick: blue --overview Investigate the prompt --done-when The human says this quick work is done. --json'* ]] || fail 'quick task creation lost its details'
-[[ "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick && "$HCOM_ACTIVE_TEAM_TAGS" == 'Agents-quick-blue-orchestrator|Agents-quick-blue-reviewer|Agents-quick-blue-implementer|Agents-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_quick" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_quick" ]] || fail 'quick task team opened outside its checkout'
+[[ "$launched_task_id" == tsk_quick && "$launched_team_tags" == 'Agents-quick-blue-orchestrator|Agents-quick-blue-reviewer|Agents-quick-blue-implementer|Agents-quick-blue-scout' ]] || fail 'quick task launch lost task-scoped tags'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_quick" ]] || fail 'quick task team opened outside its checkout'
 [[ "$launched_orchestrator_prompt" == 'Investigate the prompt' ]] || fail 'new quick task changed the human note'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_quick\nensure tsk_quick' ]] || fail 'quick task did not create its checkout'
 
@@ -720,14 +755,14 @@ _hcom_launch_team team:codex unused unused unused unused --team green || fail 'q
 export HCOM_FIXTURE_QUICK_STATE=unfinished
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'unfinished quick task reuse'
-[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick ]] || fail 'unfinished quick task was added again'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$launched_task_id" == tsk_quick ]] || fail 'unfinished quick task was added again'
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '* && "$launched_orchestrator_prompt" != *'progress task start'* ]] || fail 'existing quick task skipped the normal prompt'
 
 # A ready quick task from an earlier launch gets the normal start prompt.
 export HCOM_FIXTURE_QUICK_STATE=ready
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'ready quick task reuse'
-[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_quick ]] || fail 'ready quick task was added again'
+[[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$launched_task_id" == tsk_quick ]] || fail 'ready quick task was added again'
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '*$'Your command to start the task is:\nprogress task start tsk_quick --secondary'* ]] || fail 'ready quick task skipped the normal start prompt'
 
 # A finished quick task is ignored, so the launcher asks Progress for a new one.
@@ -754,15 +789,11 @@ unset HCOM_FIXTURE_QUICK_STATE
 # A picker choice enters the same named-task path and skips the confirmation.
 export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B
 prior_pane_calls="$pane_calls"
-prior_focused_pane_calls=$(wc -l < "$fixture_dir/focused-pane-calls")
 _hcom_launch_team team:codex unused unused unused unused continue || fail 'picker choice did not launch a ready task'
-[[ $(wc -l < "$fixture_dir/focused-pane-calls") -eq $((prior_focused_pane_calls + 1)) ]] || fail 'picker relaunch captured the pane more than once'
-[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B with '* ]] || fail 'picker choice missed the named ready-task launch path'
-export HCOM_FIXTURE_GHOSTTY_ERROR=1
-prior_focused_pane_calls=$(wc -l < "$fixture_dir/focused-pane-calls")
-assert_command_error 'team:codex: run this command from a Ghostty terminal.' _hcom_launch_team team:codex unused unused unused unused continue
-[[ $(wc -l < "$fixture_dir/focused-pane-calls") -eq $((prior_focused_pane_calls + 1)) ]] || fail 'picker relaunch repeated a failed pane lookup'
-unset HCOM_FIXTURE_GHOSTTY_ERROR
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B with '* ]] || fail 'picker choice missed the named ready-task launch path'
+unset REX_SESSION
+assert_command_error 'team:codex: open Rex to start a team.' _hcom_launch_team team:codex unused unused unused unused continue
+export REX_SESSION=fixture-origin-session
 unset HCOM_FIXTURE_PICKER_TASK_ID
 export HCOM_FIXTURE_PICKER_CANCEL=1
 prior_pane_calls="$pane_calls"
@@ -809,20 +840,20 @@ unfunction _hcom_saved_preview_team_continuation
 print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B"
 export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'named in-progress task with a handoff'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named in-progress task ignored its recorded checkout'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named in-progress task ignored its recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'named in-progress task did not use the resume prompt'
 # The public cont command launches the task it is given, under that task's team label.
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 prior_pane_calls="$pane_calls"
 cont tsk_a_B --yes || fail 'public cont task ID did not launch'
-[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$HCOM_ACTIVE_TEAM_TASK_ID" == tsk_a_B && "$HCOM_ACTIVE_TEAM_LABEL" == another-task ]] || fail 'public cont task ID selected the wrong task or team label'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_a_B && "$launched_team_tags" == *'-another-task-orchestrator|'* ]] || fail 'public cont task ID selected the wrong task or team label'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'public cont task ID lost the selected task handoff'
 cont tsk_a_B </dev/null &> "$fixture_dir/cont-task-output" || fail 'public cont task ID without --yes did not launch'
 [[ "$(<"$fixture_dir/cont-task-output")" != *'Start this task?'* ]] || fail 'public cont task ID without --yes showed a confirmation'
 # A blocked task can resume only when a saved handoff exists.
 print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_blocked"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_blocked --yes || fail 'blocked task with a handoff did not resume'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'blocked task ignored its recorded checkout'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'blocked task ignored its recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_blocked --json'* ]] || fail 'blocked task did not use the resume prompt'
 unset HCOM_FIXTURE_HAS_HANDOFF
 prior_pane_calls="$pane_calls"
@@ -831,14 +862,14 @@ assert_command_error 'team:codex: blocked task tsk_blocked has no saved handoff 
 export HCOM_FIXTURE_HAS_HANDOFF=1
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue with a sole in-progress task and handoff'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'plain continue ignored the recorded checkout'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'plain continue ignored the recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'plain continue did not use the resume prompt'
 unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
 
 # A named handoff uses the task checkout when Progress records one.
 pbpaste() { print -rn -- 'Copied handoff messages'; }
 handoff tsk_a_B || fail 'named handoff with a checkout did not launch'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named handoff ignored its recorded checkout'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named handoff ignored its recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'The handover is for task tsk_a_B.'* ]] || fail 'named handoff did not name its task'
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B.old"
 
@@ -846,18 +877,18 @@ mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'sole in-progress task without a handoff did not continue'
-[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'sole in-progress task without a checkout left the original checkout'
+[[ -z "$launched_pane_directory" ]] || fail 'sole in-progress task without a checkout left the original checkout'
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'sole in-progress task without a handoff did not use the continue prompt'
 unset HCOM_FIXTURE_ONLY_TASK_ID
 
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'started task without a checkout did not continue'
-[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'started task left the original checkout'
+[[ -z "$launched_pane_directory" ]] || fail 'started task left the original checkout'
 [[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'started task without a handoff did not use the continue prompt'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_a_B\nget tsk_A_B' ]] || fail 'started task created or skipped a checkout lookup'
 
 handoff tsk_a_B || fail 'named handoff without a checkout did not launch'
-[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'named handoff without a checkout left the original checkout'
+[[ -z "$launched_pane_directory" ]] || fail 'named handoff without a checkout left the original checkout'
 
 prior_pane_calls="$pane_calls"  # Pane count before live-team refusal cases.
 print -r -- "[{\"tag\":\"${root_tags%%|*}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
@@ -873,14 +904,14 @@ unfunction pbpaste
 
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'task in another checkout blocked continuation'
-[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'another task checkout changed the selected checkout'
+[[ -z "$launched_pane_directory" ]] || fail 'another task checkout changed the selected checkout'
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default without checkout'
-[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'in-progress default without checkout left the original directory'
+[[ -z "$launched_pane_directory" ]] || fail 'in-progress default without checkout left the original directory'
 unset HCOM_FIXTURE_ONLY_TASK_ID
 export HCOM_FIXTURE_SEVERAL_TASKS=1
 prior_pane_calls="$pane_calls"
@@ -921,18 +952,18 @@ unset HCOM_FIXTURE_ENSURE_ERROR
 # A dirty original checkout gives a ready default task its own checkout.
 HCOM_FIXTURE_GIT_DIRTY=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'dirty-root continuation'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'dirty-root roles did not use the checkout'
-[[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'dirty-root default changed the root tags'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'dirty-root roles did not use the checkout'
+[[ "$launched_team_tags" == "$root_tags" ]] || fail 'dirty-root default changed the root tags'
 export HCOM_FIXTURE_NEXT_STATUS=in-progress
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_A_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'in-progress default continuation'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'in-progress default ignored the recorded checkout'
-[[ "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'in-progress default changed the root tags'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'in-progress default ignored the recorded checkout'
+[[ "$launched_team_tags" == "$root_tags" ]] || fail 'in-progress default changed the root tags'
 HCOM_FIXTURE_NEXT_STATUS=ready
 unset HCOM_FIXTURE_ONLY_TASK_ID
 HCOM_FIXTURE_GIT_DIRTY=0
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'clean-root continuation'
-[[ -z "$launched_pane_directory" && -z "$launched_orchestrator_directory" ]] || fail 'clean original checkout did not retain its launch path'
+[[ -z "$launched_pane_directory" ]] || fail 'clean original checkout did not retain its launch path'
 
 # The root task completes before the secondary task team resumes its checkout.
 export HCOM_FIXTURE_FINISHED_TASK_ID=tsk_A_B
@@ -944,7 +975,7 @@ if progress worktree get tsk_A_B --json >/dev/null; then
 	fail 'completed root task kept a recorded checkout'
 fi
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'task after root completion'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_a_B" && "$HCOM_ACTIVE_TEAM_TAGS" != "$root_tags" ]] || fail 'task after root completion lost its own checkout or tags'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" && "$launched_team_tags" != "$root_tags" ]] || fail 'task after root completion lost its own checkout or tags'
 
 # The secondary task completes before the next root task starts.
 HCOM_FIXTURE_FINISHED_TASK_ID=tsk_a_B
@@ -955,7 +986,7 @@ if progress worktree get tsk_a_B --json >/dev/null; then
 	fail 'completed secondary task kept a recorded checkout'
 fi
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'root after task completion'
-[[ "$launched_pane_directory" == "$fixture_dir/tsk_A_-B" && "$launched_orchestrator_directory" == "$fixture_dir/tsk_A_-B" && "$HCOM_ACTIVE_TEAM_TAGS" == "$root_tags" ]] || fail 'root after task completion lost its own checkout or tags'
+[[ "$launched_pane_directory" == "$fixture_dir/tsk_A_-B" && "$launched_team_tags" == "$root_tags" ]] || fail 'root after task completion lost its own checkout or tags'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == *'ensure tsk_A-B' ]] || fail 'root after task completion did not select the next task'
 
 # Records solo tool launches without starting an installed agent.
@@ -1205,4 +1236,90 @@ export HCOM_FIXTURE_COMPLETE_PENDING=1
 assert_command_error 'team:done: task completed, but checkout cleanup is pending: rebase conflict. Run: progress worktree cleanup tsk_quick' team:done --team blue
 [[ "$(<"$HCOM_FIXTURE_COMPLETE_CALLS")" == tsk_quick ]] || fail 'pending checkout clean-up did not complete the task'
 
-print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, and planning duplicates and team labels'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex || fail 'Rex team session creation'
+[[ "${reply[2]}" == 'session:fixture' ]] || fail 'Rex session ID was not returned'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/reviewer")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture reviewer:codex'* ]] || fail 'reviewer reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/implementer")" == *'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture implementer'* ]] || fail 'implementer reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture scout'* ]] || fail 'scout reset command lost its account or team scope'
+[[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/orchestrator" ]] || fail 'orchestrator prompt was saved on disk'
+[[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task -c '*'--window Fixture · fixture-task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
+# Exact directory at the end of the typed orchestrator command.
+checkout_path="$fixture_dir/project"
+# Exact first prompt at the end of that command.
+prompt_text='Continue fixture task.'
+# Directory and prompt as the shell sees them.
+expected_suffix=" ${(qq)checkout_path} ${(qq)prompt_text}"
+# One typed role command.
+orchestrator_send="$(grep '^send -s session:fixture -b block:orchestrator ' "$HCOM_FIXTURE_REX_CALLS")"
+[[ "$orchestrator_send" == *"$expected_suffix" ]] || fail 'orchestrator command lost its quoted checkout or prompt'
+
+# The orchestrator wrapper stops peers and clears scope after its role exits.
+fixture_orchestrator() { return 0; }
+: > "$HCOM_FIXTURE_REX_CALLS"
+_hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" || fail 'orchestrator exit cleanup'
+[[ "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'orchestrator exit lost a pane or scope cleanup'
+# A peer that stays busy reports its pane while the wrapper still clears scope.
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
+	fail 'orchestrator exit accepted a busy reviewer pane'
+fi
+[[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" && "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'busy peer exit missed its pane message or scope cleanup'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+# A failed process lookup uses the same pane message and clears scope.
+export HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK=block:reviewer
+if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
+	fail 'orchestrator exit accepted a failed reviewer process check'
+fi
+[[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed process lookup missed its pane message or scope cleanup'
+unset HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK
+unfunction fixture_orchestrator
+print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'task session bookmark relaunch'
+[[ "$replaced_session_id" == session:fixture ]] || fail 'task relaunch ignored the stored session ID from another shell'
+
+# A Claude startup hook can rename the session; its stored ID still finds the panes.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:fixture","label":"renamed by Claude"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex || fail 'renamed Rex session reuse'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s session:fixture --json'*'block call process -s session:fixture -b block:orchestrator'*'focus -s session:fixture block:orchestrator'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'stored session ID was not reused'
+
+# A busy role pane stops relaunch before any command is typed.
+export HCOM_FIXTURE_REX_PROCESS=claude
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'team:codex: orchestrator pane block:orchestrator is still running an agent; stop it before relaunching.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send '* ]] || fail 'busy pane received a launch command'
+unset HCOM_FIXTURE_REX_PROCESS
+
+# A missing scout pane is created beneath the reviewer in the reused session.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:orchestrator","label":"orchestrator"},{"block_id":"block:implementer","label":"implementer"},{"block_id":"block:reviewer","label":"reviewer"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex || fail 'missing Rex scout pane creation'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout'* ]] || fail 'missing scout pane was not restored'
+unset HCOM_FIXTURE_REX_BLOCKS
+
+# A failed split identifies the Rex session that needs manual inspection.
+export HCOM_FIXTURE_REX_SPLIT_FAIL=1
+assert_command_error 'team:codex: team session session:fixture was left partly built.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex
+unset HCOM_FIXTURE_REX_SPLIT_FAIL
+
+# A closed stored session discards its old commands before a new session starts.
+trash() { print -r -- "$1" >> "$fixture_dir/trashed"; mkdir -p "$fixture_dir/trashed-state"; mv "$1" "$fixture_dir/trashed-state/${1:t}"; }
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'closed Rex session replacement'
+[[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:fixture"* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* ]] || fail 'closed session ID or commands were not discarded'
+unfunction trash
+unset HCOM_FIXTURE_REX_SESSIONS
+
+# Root teams create a new session even when another session has the same label.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:old-root","label":"Fixture"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'root Rex session creation'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'root team reused or closed another session'
+unset HCOM_FIXTURE_REX_SESSIONS
+
+print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, and Rex pane creation'
