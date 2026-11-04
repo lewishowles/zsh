@@ -5,3 +5,7 @@ export PATH="$PATH:/Users/lewis/.docker/bin"
 ZSH_CONFIG_ROOT="${ZSH_CONFIG_ROOT:-$HOME/Dev/Repositories/Configuration/zsh}"
 
 [[ -r "$ZSH_CONFIG_ROOT/environment.zsh" ]] && source "$ZSH_CONFIG_ROOT/environment.zsh"
+
+
+# Added by Antigravity CLI installer
+export PATH="/Users/lewis/.local/bin:$PATH"

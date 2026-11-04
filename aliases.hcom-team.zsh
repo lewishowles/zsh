@@ -1537,8 +1537,9 @@ _hcom_team_run_orchestrator() {
 # The team's earlier session is reused while it is open, found by its ID
 # because a Claude agent's startup hook renames its session. Each existing role
 # pane must be at a shell prompt; missing role panes are created. When the
-# earlier session has closed, its saved commands and the task's saved session
-# ID are moved to the trash and a new session is created.
+# earlier session has closed or has lost its orchestrator pane, its saved
+# commands and the task's saved session ID are moved to the trash and a new
+# session is created. An open earlier session is left for the human to close.
 #
 # Returns reply=(session ID, orchestrator block, implementer block, reviewer block,
 # scout block).
@@ -1552,7 +1553,8 @@ _hcom_team_run_orchestrator() {
 # @param  {string}  previous_session_id
 #     Stored session ID to reuse when it is still open.
 # @param  {string}  task_id
-#     The task whose saved session ID is removed when that session has closed.
+#     The task whose saved session ID is removed when that session has closed
+#     or has lost its orchestrator pane.
 _hcom_team_create_session() {
 	# Public command shown in diagnostics.
 	local command_name="$1"
@@ -1608,13 +1610,10 @@ _hcom_team_create_session() {
 				scout) scout_block="$block_id" ;;
 			esac
 		done
-		if [[ -z "$orchestrator_block" ]]; then
-			_hcom_command_error "$command_name" "session $session_id has no orchestrator pane to anchor the layout."
-			return 1
-		fi
-	else
+	fi
+	if [[ -z "$orchestrator_block" ]]; then
 		if [[ -n "$previous_session_id" && -n "$task_id" ]]; then
-			# A closed session no longer has a reusable task ID.
+			# The team can't be laid out in that session, so the task stops pointing at it.
 			local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
 			if [[ -f "$task_session_file" ]]; then
 				trash "$task_session_file" || return 1
@@ -1623,6 +1622,10 @@ _hcom_team_create_session() {
 		if [[ -n "$previous_session_id" && -d "$(_hcom_team_state_directory "$previous_session_id")" ]]; then
 			trash "$(_hcom_team_state_directory "$previous_session_id")" || return 1
 		fi
+		# Panes found in the earlier session stay there; the new session gets its own.
+		implementer_block=""
+		reviewer_block=""
+		scout_block=""
 		new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
 		session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
 		orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1

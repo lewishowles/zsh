@@ -189,7 +189,7 @@ case "$1" in
 			print -r -- '{"sessions":[]}'
 		fi
 		;;
-	new) print -r -- '{"session_id":"session:fixture","initial_windows":[{"block_ids":["block:orchestrator"]}]}' ;;
+	new) print -r -- "{\"session_id\":\"${HCOM_FIXTURE_REX_NEW_SESSION_ID:-session:fixture}\",\"initial_windows\":[{\"block_ids\":[\"block:orchestrator\"]}]}" ;;
 	block)
 		case "$2" in
 			ls)
@@ -1325,6 +1325,26 @@ export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[]}'
 print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'closed Rex session replacement'
 [[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:fixture"* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* ]] || fail 'closed session ID or commands were not discarded'
+
+# An open session without an orchestrator pane is replaced after every old role is checked.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:orphan","label":"Fixture · fixture-task"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:implementer","label":"implementer"},{"block_id":"block:reviewer","label":"reviewer"},{"block_id":"block:scout","label":"scout"}]}'
+export HCOM_FIXTURE_REX_NEW_SESSION_ID=session:replacement
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:orphan"
+print -r -- session:orphan > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:scout
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'team:codex: scout pane block:scout is still running an agent; stop it before relaunching.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:orphan 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B" ]] || fail 'busy orphan session was replaced'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+: > "$HCOM_FIXTURE_REX_CALLS"
+# Run the public launcher so the test also checks that it saves the new session for the task.
+fixture_create_panes_definition="${functions[_hcom_team_create_panes]}"
+functions[_hcom_team_create_panes]="${functions[_hcom_team_create_panes_real]}"
+_hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout continue --task tsk_A_B --yes || fail 'orphan Rex session replacement'
+functions[_hcom_team_create_panes]="$fixture_create_panes_definition"
+[[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:orphan"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == session:replacement && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s session:orphan -b block:scout'*'new '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'orphan session was not replaced and saved'
+unset HCOM_FIXTURE_REX_BLOCKS HCOM_FIXTURE_REX_NEW_SESSION_ID
 unfunction trash
 unset HCOM_FIXTURE_REX_SESSIONS
 

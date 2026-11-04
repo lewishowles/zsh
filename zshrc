@@ -76,3 +76,7 @@ fi
 
 # bun completions
 [ -s "/Users/lewis/.bun/_bun" ] && source "/Users/lewis/.bun/_bun"
+
+
+# Added by Antigravity CLI installer
+export PATH="/Users/lewis/.local/bin:$PATH"
