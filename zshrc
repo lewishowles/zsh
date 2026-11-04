@@ -54,8 +54,9 @@ if (( $+commands[zoxide] )); then
 	eval "$(zoxide init zsh)"
 fi
 
-# Fuzzy file, directory and history search.
-if (( $+commands[fzf] )); then
+# Fuzzy file, directory and history search. fzf's key bindings need a
+# terminal: loading them in zsh -ic with no terminal prints zle warnings.
+if (( $+commands[fzf] )) && [[ -t 0 ]]; then
 	eval "$(fzf --zsh)"
 fi
 

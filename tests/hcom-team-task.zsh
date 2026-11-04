@@ -1394,6 +1394,32 @@ team-reset scout >/dev/null || fail 'scout reset failed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'send-key -s fixture-origin-session -b block:scout ctrl+c ctrl+c'*'block call process -s fixture-origin-session -b block:scout'*'send -s fixture-origin-session -b block:scout HCOM_ACCOUNT=scout-agent team:scout'*'send-key -s fixture-origin-session -b block:scout enter'* ]] || fail 'scout reset did not stop, check and replay its saved command'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:scout clear'* ]] || fail 'scout reset cleared its pane'
 
+# Claude's shell has the public command but no private helpers. team-reset retries once in a full zsh that loads them.
+mkdir -p "$fixture_dir/zdotdir"
+cat > "$fixture_dir/zdotdir/.zshrc" <<'STUB'
+source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-core.zsh"
+source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"
+STUB
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_FIXTURE_REPO_ROOT="$repo_root" ZDOTDIR="$fixture_dir/zdotdir" zsh -c 'source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"; unfunction _hcom_team_reset_role; team-reset scout' > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'reset did not reload missing helpers'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout.' && ! -s "$fixture_dir/reset-error" && "$(grep -c '^block ls -s fixture-origin-session --json$' "$HCOM_FIXTURE_REX_CALLS")" == 1 ]] || fail 'missing-helper reset did not restart scout exactly once'
+
+# A retried reset still refuses a busy pane and passes on its failure.
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:scout
+: > "$HCOM_FIXTURE_REX_CALLS"
+if HCOM_FIXTURE_REPO_ROOT="$repo_root" ZDOTDIR="$fixture_dir/zdotdir" zsh -c 'source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"; unfunction _hcom_team_reset_role; team-reset scout' > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'missing-helper reset lost the inner failure status'
+fi
+[[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:scout did not return to a shell prompt.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:scout '* ]] || fail 'missing-helper reset typed into a busy pane'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+
+# A shell that is already the retry fails instead of retrying again.
+: > "$HCOM_FIXTURE_REX_CALLS"
+if HCOM_TEAM_RESET_RETRIED=1 HCOM_FIXTURE_REPO_ROOT="$repo_root" ZDOTDIR="$fixture_dir/zdotdir" zsh -c 'source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"; unfunction _hcom_team_reset_role; team-reset scout' > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'reset retried after the full shell lacked its helpers'
+fi
+[[ "$(<"$fixture_dir/reset-error")" == 'team-reset: a full interactive zsh did not load the team helpers.' && ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'missing helpers caused a second retry'
+
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset all >/dev/null || fail 'all-peer reset failed'
 [[ "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 && "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'all-peer reset did not restart every teammate'

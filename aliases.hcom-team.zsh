@@ -1812,6 +1812,9 @@ _hcom_team_reset_role() {
 # Usage: team-reset scout|implementer|reviewer|all
 # Run it from any pane in the team's Rex session. With all, a teammate that
 # cannot restart does not stop the others; the command then returns non-zero.
+# Claude Code's shell loads public commands but not the private helpers they
+# call. When those helpers are missing, the command runs itself once in a full
+# interactive zsh.
 #
 team-reset() {
 	# Teammate role to restart, or all.
@@ -1824,6 +1827,17 @@ team-reset() {
 	local result=0
 	# Teammate being restarted when the role is all.
 	local peer
+
+	if (( ! $+functions[_hcom_team_reset_role] || ! $+functions[_hcom_command_error] )); then
+		# The marker stops the inner shell from retrying when it lacks the helpers too.
+		if [[ "${HCOM_TEAM_RESET_RETRIED:-}" == 1 ]]; then
+			print -u2 -- 'team-reset: a full interactive zsh did not load the team helpers.'
+			return 1
+		fi
+
+		HCOM_TEAM_RESET_RETRIED=1 REX_SESSION="$session_id" command zsh -ic 'team-reset "$@"' -- "$@"
+		return $?
+	fi
 
 	if [[ "$#" != 1 || "$role" != (scout|implementer|reviewer|all) ]]; then
 		_hcom_command_error team-reset 'usage: team-reset scout|implementer|reviewer|all'
