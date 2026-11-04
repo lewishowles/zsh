@@ -1376,9 +1376,24 @@ _hcom_team_create_panes() {
 	local reviewer_block="${reply[4]}"
 	# Pane where the scout starts.
 	local scout_block="${reply[5]}"
-	# Typed orchestrator command. It runs through a wrapper that stores the team
+	# Orchestrator command. It runs through a wrapper that stores the team
 	# scope in the orchestrator's shell and stops the teammates when it exits.
-	local orchestrator_command="terminal_title_set orchestrator; ${orchestrator_env}${team_env}${keep_title_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
+	# It changes to the team checkout first, because a reused pane is still in
+	# the folder the launcher ran from.
+	local orchestrator_command="cd -- ${(qq)team_scope_directory} && terminal_title_set orchestrator && ${orchestrator_env}${team_env}${keep_title_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
+	# Line typed into the orchestrator pane. A reused pane is still running the
+	# launcher, and macOS holds only about 1,024 bytes of typed input until it
+	# finishes, so that pane gets a short line that runs the saved command.
+	local orchestrator_typed_command="$orchestrator_command"
+	if [[ "$session_id" == "${REX_SESSION:-}" && "$orchestrator_block" == "${REX_BLOCK:-}" ]]; then
+		# Saved orchestrator command file that the short typed line runs.
+		local saved_orchestrator_command="$(_hcom_team_state_directory "$session_id")/orchestrator"
+		if ! _hcom_team_save_role "$session_id" orchestrator "$orchestrator_command"; then
+			_hcom_command_error "$command_name" "team session $session_id was left partly built."
+			return 1
+		fi
+		orchestrator_typed_command="source ${(qq)saved_orchestrator_command}"
+	fi
 	if ! {
 		_hcom_team_save_role "$session_id" reviewer "$reviewer_command" &&
 		_hcom_team_save_role "$session_id" implementer "$implementer_command" &&
@@ -1386,7 +1401,7 @@ _hcom_team_create_panes() {
 		_hcom_team_type_role "$session_id" "$reviewer_block" "$reviewer_command" &&
 		_hcom_team_type_role "$session_id" "$implementer_block" "$implementer_command" &&
 		_hcom_team_type_role "$session_id" "$scout_block" "$scout_command" &&
-		_hcom_team_type_role "$session_id" "$orchestrator_block" "$orchestrator_command" &&
+		_hcom_team_type_role "$session_id" "$orchestrator_block" "$orchestrator_typed_command" &&
 		command rex focus -s "$session_id" "$orchestrator_block"
 	}; then
 		_hcom_command_error "$command_name" "team session $session_id was left partly built."
@@ -1566,8 +1581,11 @@ _hcom_team_clear_peer() {
 # because a Claude agent's startup hook renames its session. Each existing role
 # pane must be at a shell prompt; missing role panes are created. When the
 # earlier session has closed or has lost its orchestrator pane, its saved
-# commands and the task's saved session ID are moved to the trash and a new
-# session is created. An open earlier session is left for the human to close.
+# commands and the task's saved session ID are moved to the trash. A task team
+# is then built in the launcher's own session when that session holds only the
+# launcher's pane, that pane is at a zsh prompt and no other task has saved the
+# session; otherwise a new session is created. An open earlier session that is
+# not reused is left for the human to close.
 #
 # Returns reply=(session ID, orchestrator block, implementer block, reviewer block,
 # scout block).
@@ -1618,6 +1636,8 @@ _hcom_team_create_session() {
 	local block_id
 	# The pane's foreground process.
 	local process_json
+	# Tab to build the team in when the launcher's own session is unused.
+	local current_window_id=""
 
 	sessions_json="$(command rex ls --json)" || return 1
 	if [[ -n "$previous_session_id" ]] && jq -e --arg id "$previous_session_id" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
@@ -1654,12 +1674,23 @@ _hcom_team_create_session() {
 		implementer_block=""
 		reviewer_block=""
 		scout_block=""
-		new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
-		session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
-		orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1
-		if ! command rex block rename -s "$session_id" "$orchestrator_block" orchestrator; then
-			_hcom_command_error "$command_name" "team session $session_id was left partly built."
-			return 1
+		# A task team can be built in the launcher's session when its earlier session can't be used.
+		if [[ -n "$task_id" && -n "${REX_BLOCK:-}" ]] && jq -e --arg id "${REX_SESSION:-}" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
+			_hcom_team_unused_current_window "${REX_SESSION}" "${REX_BLOCK}" || return $?
+			current_window_id="${reply[1]}"
+		fi
+		if [[ -n "$current_window_id" ]]; then
+			_hcom_team_prepare_current_session "$command_name" "$session_label" "${REX_SESSION}" "${REX_BLOCK}" "$current_window_id" || return 1
+			session_id="${REX_SESSION}"
+			orchestrator_block="${REX_BLOCK}"
+		else
+			new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
+			session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
+			orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1
+			if ! command rex block rename -s "$session_id" "$orchestrator_block" orchestrator; then
+				_hcom_command_error "$command_name" "team session $session_id was left partly built."
+				return 1
+			fi
 		fi
 	fi
 
@@ -1688,6 +1719,84 @@ _hcom_team_create_session() {
 	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block")
 }
 
+# Finds the tab to build a team in when the launcher's Rex session holds only
+# the launcher's own pane, that pane is at a zsh prompt and no task has saved
+# the session as its team session.
+#
+# Sets reply to that tab's window ID, or to an empty string when the launcher
+# should open a new session instead.
+#
+# @param  {string}  session_id
+#     Current Rex session.
+# @param  {string}  current_block
+#     Pane running the launcher.
+_hcom_team_unused_current_window() {
+	# Current Rex session.
+	local session_id="$1"
+	# Pane running the launcher.
+	local current_block="$2"
+	# Pane listing for this session.
+	local blocks_json
+	# Window containing the launcher pane when it is alone.
+	local window_id
+	# A task's saved session file, checked for this session's ID.
+	local task_session_file
+	# The process running in the launcher's pane.
+	local process_json
+
+	reply=("")
+	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	window_id="$(jq -r --arg id "$current_block" 'if (.blocks | length) == 1 and .blocks[0].block_id == $id then .blocks[0].window_id // empty else empty end' <<<"$blocks_json")" || return 1
+	if [[ -z "$window_id" ]]; then
+		return 0
+	fi
+	process_json="$(command rex block call process -s "$session_id" -b "$current_block")" || return 1
+	if ! jq -e '.foreground.name == "zsh"' >/dev/null <<<"$process_json"; then
+		return 0
+	fi
+
+	for task_session_file in "${XDG_STATE_HOME:-$HOME/.local/state}"/hcom-team/tasks/*(N.); do
+		if [[ "$(<"$task_session_file")" == "$session_id" ]]; then
+			return 0
+		fi
+	done
+
+	reply=("$window_id")
+}
+
+# Names the launcher's Rex session and tab after the team and labels the
+# launcher's pane as the orchestrator.
+#
+# @param  {string}  command_name
+#     Public command shown if Rex cannot rename a resource.
+# @param  {string}  session_label
+#     Label for the session and tab.
+# @param  {string}  session_id
+#     Current Rex session.
+# @param  {string}  current_block
+#     Pane running the launcher.
+# @param  {string}  window_id
+#     Tab containing the launcher pane.
+_hcom_team_prepare_current_session() {
+	# Public command shown in diagnostics.
+	local command_name="$1"
+	# Label for the session and tab.
+	local session_label="$2"
+	# Current Rex session.
+	local session_id="$3"
+	# Pane running the launcher.
+	local current_block="$4"
+	# Tab containing the launcher pane.
+	local window_id="$5"
+
+	if ! command rex session rename "$session_id" "$session_label" ||
+		! command rex window rename -s "$session_id" "$window_id" "$session_label" ||
+		! command rex block rename -s "$session_id" "$current_block" orchestrator; then
+		_hcom_command_error "$command_name" "team session $session_id was left partly built."
+		return 1
+	fi
+}
+
 # Prints the ID of the first pane labelled with a role, or nothing when no pane has that label.
 #
 # @param  {string}  blocks_json
@@ -1706,16 +1815,17 @@ _hcom_team_role_block() {
 	print -r -- "${block_id%%$'\n'*}"
 }
 
-# Saves one teammate's launch command for a later reset.
+# Saves a role's launch command so its pane can run it now or replay it after
+# a reset.
 #
 # @param  {string}  session_id
-#     Rex session that contains the teammate's pane.
+#     Rex session that contains the role's pane.
 # @param  {string}  role
 #     Role used to name the saved command file.
 # @param  {string}  launch_command
-#     Exact command to replay for a later reset.
+#     Exact command to run in the role's pane.
 _hcom_team_save_role() {
-	# Rex session that contains the teammate's pane.
+	# Rex session that contains the role's pane.
 	local session_id="$1"
 	# Role that names the saved command file.
 	local role="$2"
@@ -1728,7 +1838,7 @@ _hcom_team_save_role() {
 	print -rn -- "$launch_command" > "$state_directory/$role" || return 1
 }
 
-# Prints the folder that holds a team session's saved teammate launch commands.
+# Prints the folder that holds a team session's saved launch commands.
 #
 # @param  {string}  session_id
 #     Rex session that the commands belong to.

@@ -1254,15 +1254,17 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 [[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/implementer")" == *'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '*' implementer'* ]] || fail 'implementer reset command lost its account or team scope'
 [[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '*' scout'* ]] || fail 'scout reset command lost its account or team scope'
 [[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == 'terminal_title_set scout; '*"CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 HCOM_CODEX_ARGS='-c tui.terminal_title=[]' "* ]] || fail 'scout reset command lost its title or agent title settings'
-[[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/orchestrator" ]] || fail 'orchestrator prompt was saved on disk'
+[[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/orchestrator" ]] || fail 'new-session orchestrator prompt was saved on disk'
 [[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task -c '*'--window Fixture · fixture-task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
-for role in orchestrator implementer reviewer scout; do
+for role in implementer reviewer scout; do
 	# The command typed into this role's pane, which must set the pane title and
 	# stop both agents changing it.
 	role_send="$(grep "^send -s session:fixture -b block:$role " "$HCOM_FIXTURE_REX_CALLS")"
 	[[ "$role_send" == *"terminal_title_set $role; "* && "$role_send" == *"CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 HCOM_CODEX_ARGS='-c tui.terminal_title=[]' "* ]] || fail "$role pane lost its title or agent title settings"
 done
+orchestrator_send="$(grep '^send -s session:fixture -b block:orchestrator ' "$HCOM_FIXTURE_REX_CALLS")"
+[[ "$orchestrator_send" == *'terminal_title_set orchestrator && '*"CLAUDE_CODE_DISABLE_TERMINAL_TITLE=1 HCOM_CODEX_ARGS='-c tui.terminal_title=[]' "* ]] || fail 'orchestrator pane lost its title or agent title settings'
 # Exact directory at the end of the typed orchestrator command.
 checkout_path="$fixture_dir/project"
 # Exact first prompt at the end of that command.
@@ -1273,6 +1275,43 @@ expected_suffix=" ${(qq)checkout_path} ${(qq)prompt_text}"
 orchestrator_send="$(grep '^send -s session:fixture -b block:orchestrator ' "$HCOM_FIXTURE_REX_CALLS")"
 [[ "$orchestrator_send" == *"$expected_suffix" ]] || fail 'orchestrator command lost its quoted checkout or prompt'
 [[ "$orchestrator_send" == *'HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '* ]] || fail 'orchestrator command lost its team scope'
+
+# A lone current pane becomes the orchestrator pane for a task team.
+export REX_BLOCK=block:origin
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+long_prompt="$(printf '%01500d' 0)"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex "$long_prompt" 1 codex tsk_A_B || fail 'unused current Rex session reuse'
+[[ "${reply[2]}" == fixture-origin-session ]] || fail 'current Rex session ID was not returned'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s fixture-origin-session -b block:origin'*'session rename fixture-origin-session Fixture · fixture-task'*'window rename -s fixture-origin-session window:origin Fixture · fixture-task'*'block rename -s fixture-origin-session block:origin orchestrator'*'split -s fixture-origin-session -b block:origin --split=right'* ]] || fail 'unused current session was not checked, relabelled and split'
+orchestrator_send="$(grep '^send -s fixture-origin-session -b block:origin ' "$HCOM_FIXTURE_REX_CALLS")"
+saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/orchestrator"
+[[ "$orchestrator_send" == "send -s fixture-origin-session -b block:origin source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'reused pane received a long orchestrator command'
+[[ "$(<"$saved_orchestrator_command")" == *" ${(qq)long_prompt}" && "$(<"$saved_orchestrator_command")" == "cd -- ${(qq)checkout_path} && terminal_title_set orchestrator && "* ]] || fail 'saved orchestrator command lost the checkout or prompt'
+
+# A pane running an agent cannot become the new team's orchestrator pane.
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:origin
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'busy current pane fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s fixture-origin-session -b block:origin'*'new Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'busy current pane was reused'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+
+# More than one pane keeps the existing new-session path.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'multi-pane current session fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'multi-pane session was reused'
+
+# Another task's saved session also keeps the new-session path.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
+mkdir -p "$XDG_STATE_HOME/hcom-team/tasks"
+print -r -- fixture-origin-session > "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'other task session fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'other task session was reused'
+mv "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task" "$fixture_dir/other-task-session"
+unset REX_BLOCK HCOM_FIXTURE_REX_SESSIONS HCOM_FIXTURE_REX_BLOCKS
 
 # The orchestrator wrapper stops peers and clears scope after its role exits.
 fixture_orchestrator() { return 0; }
@@ -1355,6 +1394,30 @@ export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[]}'
 print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'closed Rex session replacement'
 [[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:fixture"* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* ]] || fail 'closed session ID or commands were not discarded'
+
+# A task whose saved session has closed is built in the current plain pane.
+export REX_BLOCK=block:origin
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
+print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'closed saved session current-pane reuse'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* ]] || fail 'closed saved session prevented current-pane reuse'
+unset REX_BLOCK HCOM_FIXTURE_REX_BLOCKS
+
+# A task can reuse its own saved session after its old orchestrator pane closes.
+export REX_BLOCK=block:origin
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Fixture · fixture-task"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
+print -r -- fixture-origin-session > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
+: > "$HCOM_FIXTURE_REX_CALLS"
+fixture_create_panes_definition="${functions[_hcom_team_create_panes]}"
+functions[_hcom_team_create_panes]="${functions[_hcom_team_create_panes_real]}"
+_hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout continue --task tsk_A_B --yes || fail 'saved current Rex session reuse'
+functions[_hcom_team_create_panes]="$fixture_create_panes_definition"
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'session rename fixture-origin-session Agents · continue-parallel-task-teams'*'window rename -s fixture-origin-session window:origin Agents · continue-parallel-task-teams'*'block rename -s fixture-origin-session block:origin orchestrator'*'split -s fixture-origin-session -b block:origin --split=right'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'saved current session was not reused as the team session'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == fixture-origin-session ]] || fail 'task was not saved to its reused session'
+unset REX_BLOCK HCOM_FIXTURE_REX_BLOCKS
 
 # An open session without an orchestrator pane is replaced after every old role is checked.
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:orphan","label":"Fixture · fixture-task"}]}'
