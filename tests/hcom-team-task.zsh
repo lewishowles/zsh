@@ -1311,6 +1311,18 @@ saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/orc
 [[ "$orchestrator_send" == "send -s fixture-origin-session -b block:origin source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'reused pane received a long orchestrator command'
 [[ "$(<"$saved_orchestrator_command")" == *" ${(qq)long_prompt}" && "$(<"$saved_orchestrator_command")" == "cd -- ${(qq)checkout_path} && terminal_title_set orchestrator && "* ]] || fail 'saved orchestrator command lost the checkout or prompt'
 
+# A team without a task also builds in an unused current tab and resizes its panes to match a new session's layout.
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'bare team current Rex session reuse'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'*'window rename -s fixture-origin-session window:origin Fixture'*'split -s fixture-origin-session -b block:origin --split=right'*'api call -s fixture-origin-session session.resize_pane'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'bare team did not reuse and resize the unused tab'
+
+# A team without a task opens a new session when the current tab has two panes.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'bare team busy tab fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'bare team reused or resized a busy tab'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
+
 # A resize failure warns and still starts all four roles in the reused tab.
 export REX_SESSION=fixture-resize-failure
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-resize-failure","label":"Plain session"}]}'

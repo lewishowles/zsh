@@ -1589,11 +1589,11 @@ _hcom_team_clear_peer() {
 # because a Claude agent's startup hook renames its session. Each existing role
 # pane must be at a shell prompt; missing role panes are created. When the
 # earlier session has closed or has lost its orchestrator pane, its saved
-# commands and the task's saved session ID are moved to the trash. A task team
-# is then built in the launcher's own session when that session holds only the
-# launcher's pane, that pane is at a zsh prompt and no other task has saved the
-# session; otherwise a new session is created. An open earlier session that is
-# not reused is left for the human to close.
+# commands and the task's saved session ID are moved to the trash. A team, with
+# or without a task, is then built in the launcher's own session when that
+# session holds only the launcher's pane, that pane is at a zsh prompt and no
+# task has saved the session; otherwise a new session is created. An open
+# earlier session that is not reused is left for the human to close.
 #
 # Returns reply=(session ID, orchestrator block, implementer block, reviewer block,
 # scout block).
@@ -1677,8 +1677,8 @@ _hcom_team_create_session() {
 		implementer_block=""
 		reviewer_block=""
 		scout_block=""
-		# A task team can be built in the launcher's session when its earlier session can't be used.
-		if [[ -n "$task_id" && -n "${REX_BLOCK:-}" ]] && jq -e --arg id "${REX_SESSION:-}" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
+		# Build the team in the launcher's own tab when that tab is unused, with or without a task.
+		if [[ -n "${REX_BLOCK:-}" ]] && jq -e --arg id "${REX_SESSION:-}" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
 			_hcom_team_unused_current_window "${REX_SESSION}" "${REX_BLOCK}" || return $?
 			current_window_id="${reply[1]}"
 		fi
