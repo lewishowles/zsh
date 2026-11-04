@@ -1591,9 +1591,10 @@ _hcom_team_clear_peer() {
 # earlier session has closed or has lost its orchestrator pane, its saved
 # commands and the task's saved session ID are moved to the trash. A team, with
 # or without a task, is then built in the launcher's own session when that
-# session holds only the launcher's pane, that pane is at a zsh prompt and no
-# task has saved the session; otherwise a new session is created. An open
-# earlier session that is not reused is left for the human to close.
+# session holds only the launcher's pane; otherwise a new session is created.
+# Once every pane is built in the launcher's session, other tasks' saved records
+# for that session are moved to the trash. An open earlier session that is not
+# reused is left for the human to close.
 #
 # Returns reply=(session ID, orchestrator block, implementer block, reviewer block,
 # scout block).
@@ -1608,7 +1609,8 @@ _hcom_team_clear_peer() {
 #     Stored session ID to reuse when it is still open.
 # @param  {string}  task_id
 #     The task whose saved session ID is removed when that session has closed
-#     or has lost its orchestrator pane.
+#     or has lost its orchestrator pane. Its own saved record is kept when
+#     other tasks' records for the reused session are removed.
 _hcom_team_create_session() {
 	# Public command shown in diagnostics.
 	local command_name="$1"
@@ -1719,6 +1721,9 @@ _hcom_team_create_session() {
 		fi
 		scout_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
 	fi
+	if (( reused_current_session )); then
+		_hcom_team_forget_other_tasks_in_session "$session_id" "$task_id" || return 1
+	fi
 	if (( reused_current_session )) && ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
 		print -u2 -- "$command_name: Rex panes could not be resized; the team is starting anyway."
 	fi
@@ -1764,8 +1769,7 @@ _hcom_team_resize_current_session() {
 }
 
 # Finds the tab to build a team in when the launcher's Rex session holds only
-# the launcher's own pane, that pane is at a zsh prompt and no task has saved
-# the session as its team session.
+# the launcher's own pane.
 #
 # Sets reply to that tab's window ID, or to an empty string when the launcher
 # should open a new session instead.
@@ -1783,29 +1787,38 @@ _hcom_team_unused_current_window() {
 	local blocks_json
 	# Window containing the launcher pane when it is alone.
 	local window_id
-	# A task's saved session file, checked for this session's ID.
-	local task_session_file
-	# The process running in the launcher's pane.
-	local process_json
 
 	reply=("")
 	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
 	window_id="$(jq -r --arg id "$current_block" 'if (.blocks | length) == 1 and .blocks[0].block_id == $id then .blocks[0].window_id // empty else empty end' <<<"$blocks_json")" || return 1
-	if [[ -z "$window_id" ]]; then
-		return 0
-	fi
-	process_json="$(command rex block call process -s "$session_id" -b "$current_block")" || return 1
-	if ! _hcom_team_pane_is_idle "$process_json"; then
-		return 0
-	fi
+	reply=("$window_id")
+}
+
+# Moves other tasks' saved session records for a session to the trash, so
+# `cont` for those tasks no longer reopens a session that now holds this team.
+#
+# @param  {string}  session_id
+#     The session that now holds the new team.
+# @param  {string}  task_id
+#     The task being launched. Its own record is kept; empty for a team without
+#     a task.
+_hcom_team_forget_other_tasks_in_session() {
+	# Session now holding the new team.
+	local session_id="$1"
+	# The task being launched, whose own record is kept.
+	local task_id="$2"
+	# One task's saved session record.
+	local task_session_file
 
 	for task_session_file in "${XDG_STATE_HOME:-$HOME/.local/state}"/hcom-team/tasks/*(N.); do
+		if [[ "${task_session_file:t}" == "$task_id" ]]; then
+			continue
+		fi
+
 		if [[ "$(<"$task_session_file")" == "$session_id" ]]; then
-			return 0
+			trash "$task_session_file" || return 1
 		fi
 	done
-
-	reply=("$window_id")
 }
 
 # Names the launcher's Rex session and tab after the team and labels the
