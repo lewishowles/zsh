@@ -41,6 +41,9 @@ main() {
 	# lighter and exhausted. Quota figures are percentages left. Reset offsets are seconds from
 	# test_now, and all session windows last five hours.
 	local -a cases=(
+		'account 2 empty week resetting within its session window gives both roles to default|29|59|518400|76|0|3600|default default 0'
+		'account 2 under five percent of its week resetting within its session window gives both roles to default|29|59|518400|76|4|3600|default default 0'
+		'both accounts under five percent of their week resetting within the session window flag the provider as spent|60|3|3600|76|4|3600|2 default 1'
 		'account 2 week resets within its session window takes the heavier role|29|59|518400|76|14|3600|2 default 0'
 		'account 2 week resets in two days keeps both roles on default|29|59|518400|76|14|172800|default default 0'
 		'clear winner more than 20 points apart|80|80|518400|40|40|518400|default 2 0'

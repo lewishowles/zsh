@@ -83,7 +83,9 @@ print("\n".join(lines))
 # Each account is ranked by its usable quota: its session window left, capped by its
 # weekly window left. The cap is dropped when the week resets within one session window,
 # because the weekly quota refills before the session quota could run out, and weekly
-# quota left unspent at that reset is lost.
+# quota left unspent at that reset is lost. An account with under 5% of its week left
+# counts as having none, even when the week resets soon, because it would stop part-way
+# through the session.
 #
 # An account running ahead of its weekly reset would lose quota when the week refills,
 # so it takes the heavier role whatever the usable gap. When both accounts or neither
@@ -122,7 +124,7 @@ _hcom_quota_allocate() {
 	local -a account_ids=(default 2)  # Account IDs in the order every per-account array uses.
 	local -a quota_values  # One account's six probe values, split for indexing.
 	local -a quota_lines  # Both accounts' six-value lines from one agent-quota run.
-	local -a usable_remaining  # Percentage each account can still spend: its session figure, capped by its weekly figure unless the week resets within one session window.
+	local -a usable_remaining  # Percentage each account can still spend: zero when under 5% of its week is left, otherwise its session figure capped by its weekly figure unless the week resets within one session window.
 	local -a weekly_remaining  # Percentage of each account's weekly window left.
 	local -a weekly_reset  # Unix timestamp each account's weekly window refills at.
 	local -a weekly_window  # Length of each account's weekly window in seconds.
@@ -151,9 +153,12 @@ _hcom_quota_allocate() {
 
 	for account_index in {1..2}; do
 		read -rA quota_values <<< "${quota_lines[account_index]}"
-		# A week that resets within one session window refills before the session quota can
-		# run out, so only the session quota limits the account.
-		if (( quota_values[5] - current_time <= quota_values[3] )); then
+		# An account with under 5% of its week left cannot take a role until the week resets.
+		# With more left, a week that resets within one session window refills before the
+		# session quota runs out, so only the session quota limits the account.
+		if (( quota_values[4] < 5 )); then
+			usable_remaining+=(0)
+		elif (( quota_values[5] - current_time <= quota_values[3] )); then
 			usable_remaining+=("${quota_values[1]}")
 		else
 			usable_remaining+=("$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))")

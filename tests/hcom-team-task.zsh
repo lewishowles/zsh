@@ -1272,6 +1272,7 @@ expected_suffix=" ${(qq)checkout_path} ${(qq)prompt_text}"
 # One typed role command.
 orchestrator_send="$(grep '^send -s session:fixture -b block:orchestrator ' "$HCOM_FIXTURE_REX_CALLS")"
 [[ "$orchestrator_send" == *"$expected_suffix" ]] || fail 'orchestrator command lost its quoted checkout or prompt'
+[[ "$orchestrator_send" == *'HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '* ]] || fail 'orchestrator command lost its team scope'
 
 # The orchestrator wrapper stops peers and clears scope after its role exits.
 fixture_orchestrator() { return 0; }
