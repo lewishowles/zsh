@@ -160,6 +160,8 @@ case "$3" in
 	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_overview='Finish the fixture work in order.'; task_chunks='[{"id":"chk_pending","title":"Pending chunk","status":"pending","position":3},{"id":"chk_skipped","title":"Skipped chunk","status":"skipped","position":4},{"id":"chk_active","title":"Active chunk","status":"active","position":2},{"id":"chk_done","title":"Finished chunk","status":"done","position":1}]' ;;
 	tsk_A-B) task_slug=third-task ;;
 	tsk_ready_two) task_slug=second-ready-task ;;
+	tsk_team_b) task_slug=other-task ;;
+	tsk_legacy) task_slug=older-task ;;
 	tsk_bad_slug) task_slug='Bad_Task' ;;
 	tsk_blocked) task_slug=blocked-task; task_status=blocked ;;
 	tsk_needs_decision) task_slug=decision-task; task_status=needs-decision ;;
@@ -206,10 +208,31 @@ case "$1" in
 		fi
 		;;
 	new) print -r -- "{\"session_id\":\"${HCOM_FIXTURE_REX_NEW_SESSION_ID:-session:fixture}\",\"initial_windows\":[{\"block_ids\":[\"block:orchestrator\"]}]}" ;;
+	window)
+		if [[ "$2" == ls ]]; then
+			if [[ -n "${HCOM_FIXTURE_REX_WINDOWS:-}" ]]; then
+				print -r -- "$HCOM_FIXTURE_REX_WINDOWS"
+			else
+				print -r -- '{"windows":[]}'
+			fi
+		fi
+		;;
 	block)
 		case "$2" in
 			ls)
-				if [[ -n "${HCOM_FIXTURE_REX_BLOCKS:-}" ]]; then
+				# Session named by the -s option.
+				session_id=""
+				for (( index = 1; index <= $#; index++ )); do
+					if [[ "${@[index]}" == -s ]]; then
+						session_id="${@[index+1]}"
+					fi
+				done
+				# Open sessions, used to recognise a session that the mock has just created.
+				sessions_json="${HCOM_FIXTURE_REX_SESSIONS:-}"
+				[[ -n "$sessions_json" ]] || sessions_json='{"sessions":[]}'
+				if [[ "$session_id" == "${HCOM_FIXTURE_REX_NEW_SESSION_ID:-session:fixture}" ]] && ! jq -e --arg id "$session_id" 'any(.sessions[]; .session_id == $id)' >/dev/null <<<"$sessions_json"; then
+					print -r -- '{"blocks":[{"block_id":"block:orchestrator","window_id":"window:fixture","label":"shell"}]}'
+				elif [[ -n "${HCOM_FIXTURE_REX_BLOCKS:-}" ]]; then
 					print -r -- "$HCOM_FIXTURE_REX_BLOCKS"
 				else
 					print -r -- '{"blocks":[{"block_id":"block:orchestrator","label":"orchestrator"},{"block_id":"block:implementer","label":"implementer"},{"block_id":"block:reviewer","label":"reviewer"},{"block_id":"block:scout","label":"scout"}]}'
@@ -639,7 +662,7 @@ _hcom_team_create_panes() {
 	local resolved_tags
 	resolved_tags="$(_hcom_team_tags "$command_name" "${4:-$PWD}" "$5")"
 	launched_team_tags="$resolved_tags"
-	reply=("$resolved_tags" "session:new")
+	reply=("$resolved_tags" "session:new" "window:new")
 }
 
 # Records the tags that an ordinary relaunch would stop.
@@ -742,7 +765,7 @@ export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
 [[ ! -s "$HCOM_FIXTURE_CONTEXT_CALLS" && "$launched_orchestrator_prompt" != *'progress context get --task tsk_A_B --json'* ]] || fail 'ready task launch read a leftover handoff'
 unset HCOM_FIXTURE_HAS_HANDOFF
-[[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_task_id" == tsk_A_B && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == session:new && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'task launch replaced another team or lost its stored session ID'
+[[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_task_id" == tsk_A_B && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == $'session:new\nwindow:new' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'task launch replaced another team or lost its stored tab'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_A_B\nensure tsk_A_B' ]] || fail 'named task did not look up then create its checkout'
 # A named task skips the preview even when stdin cannot answer a prompt.
@@ -1278,15 +1301,15 @@ assert_command_error 'team:done: task completed, but checkout cleanup is pending
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex || fail 'Rex team session creation'
 [[ "${reply[2]}" == 'session:fixture' ]] || fail 'Rex session ID was not returned'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/reviewer")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture reviewer:codex'* ]] || fail 'reviewer reset command lost its account or team scope'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/implementer")" == *'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture implementer'* ]] || fail 'implementer reset command lost its account or team scope'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/scout")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture scout'* ]] || fail 'scout reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/reviewer")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture reviewer:codex'* ]] || fail 'reviewer reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/implementer")" == *'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture implementer'* ]] || fail 'implementer reset command lost its account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/scout")" == *'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture scout'* ]] || fail 'scout reset command lost its account or team scope'
 for role in reviewer implementer scout; do
 	# The command saved for this role, which a reset types into its pane again.
-	role_command="$(<"$XDG_STATE_HOME/hcom-team/session:fixture/$role")"
+	role_command="$(<"$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/$role")"
 	assert_no_role_title "$role_command" "$role reset command still sets or suppresses a title"
 done
-[[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/orchestrator" ]] || fail 'new-session orchestrator prompt was saved on disk'
+[[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/orchestrator" ]] || fail 'new-session orchestrator prompt was saved on disk'
 [[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task -c '*'--window Fixture · fixture-task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'new Rex session was resized'
@@ -1320,7 +1343,7 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'split -s fixture-origin-session -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'api call -s fixture-origin-session session.resize_pane {"direction":"horizontal","before_block_id":"block:origin","after_block_id":"block:implementer","ratio":0.67}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:implementer","after_block_id":"block:reviewer","ratio":0.33}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:reviewer","after_block_id":"block:scout","ratio":0.5}'* ]] || fail 'reused Rex session did not get the new-session pane proportions'
 [[ "$(grep -c 'session.resize_pane' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'reused Rex session resized an unexpected number of borders'
 orchestrator_send="$(grep '^send -s fixture-origin-session -b block:origin ' "$HCOM_FIXTURE_REX_CALLS")"
-saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/orchestrator"
+saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:origin/orchestrator"
 [[ "$orchestrator_send" == "send -s fixture-origin-session -b block:origin source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'reused pane received a long orchestrator command'
 [[ "$(<"$saved_orchestrator_command")" == *" ${(qq)long_prompt}" && "$(<"$saved_orchestrator_command")" == "cd -- ${(qq)checkout_path} && "* ]] || fail 'saved orchestrator command lost the checkout or prompt'
 assert_no_role_title "$(<"$saved_orchestrator_command")" 'saved orchestrator command still sets or suppresses a title'
@@ -1335,6 +1358,12 @@ export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'bare team busy tab fallback'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'bare team reused or resized a busy tab'
+
+# A launcher pane without a tab ID opens a new session even when older teams are ambiguous.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","label":"shell"},{"block_id":"block:older-a","label":"orchestrator"},{"block_id":"block:older-b","label":"orchestrator"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'launcher without a tab ID'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'launcher without a tab ID did not open a new session'
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
 
 # A resize failure warns and still starts all four roles in the reused tab.
@@ -1435,12 +1464,13 @@ unset HCOM_FIXTURE_REX_BLOCKS
 
 # A failed split identifies the Rex session that needs manual inspection.
 export HCOM_FIXTURE_REX_SPLIT_FAIL=1
-assert_command_error 'team:codex: team session session:fixture was left partly built.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex
-unset HCOM_FIXTURE_REX_SPLIT_FAIL
+export HCOM_FIXTURE_REX_NEW_SESSION_ID=session:split-fail
+assert_command_error 'team:codex: team session session:split-fail was left partly built.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex
+unset HCOM_FIXTURE_REX_SPLIT_FAIL HCOM_FIXTURE_REX_NEW_SESSION_ID
 
 # Records each path moved to the trash so tests can check what was removed.
 trash() { print -r -- "$1" >> "$fixture_dir/trashed"; mkdir -p "$fixture_dir/trashed-state"; mv "$1" "$fixture_dir/trashed-state/${1:t}"; }
-# A record for another task cannot keep a plain tab from being reused.
+# A record without a known tab cannot keep a plain tab from being reused.
 export REX_BLOCK=block:origin
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"}]}'
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
@@ -1450,11 +1480,15 @@ print -r -- fixture-origin-session > "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_
 : > "$fixture_dir/trashed"
 export HCOM_FIXTURE_REX_SPLIT_FAIL=1
 assert_command_error 'team:codex: team session fixture-origin-session was left partly built.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B
-[[ -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task" && ! -s "$fixture_dir/trashed" ]] || fail 'stale task record was removed before team panes were built'
+[[ -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task" && ! -s "$fixture_dir/trashed" ]] || fail 'saved task record was removed before team panes were built'
 unset HCOM_FIXTURE_REX_SPLIT_FAIL
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'plain tab reuse with another task record'
-[[ "${reply[2]}" == fixture-origin-session && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task" && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task"* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'stale task record blocked plain tab reuse or survived team creation'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'plain tab was not reused'
+trash "$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:origin" >/dev/null
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"orchestrator"}]}'
+_hcom_team_forget_other_tasks_in_session fixture-origin-session window:origin tsk_A_B || fail 'record check after the launcher pane was relabelled'
+[[ ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_other_task" ]] || fail 'an older record for the reused tab survived its pane rename'
 unset REX_BLOCK HCOM_FIXTURE_REX_BLOCKS
 
 # A closed stored session discards its old commands before a new session starts.
@@ -1485,7 +1519,7 @@ functions[_hcom_team_create_panes]="${functions[_hcom_team_create_panes_real]}"
 _hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout continue --task tsk_A_B --yes || fail 'saved current Rex session reuse'
 functions[_hcom_team_create_panes]="$fixture_create_panes_definition"
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'session rename fixture-origin-session Agents · continue-parallel-task-teams'*'window rename -s fixture-origin-session window:origin Agents · continue-parallel-task-teams'*'block rename -s fixture-origin-session block:origin orchestrator'*'split -s fixture-origin-session -b block:origin --split=right'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'saved current session was not reused as the team session'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == fixture-origin-session ]] || fail 'task was not saved to its reused session'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == $'fixture-origin-session\nwindow:origin' ]] || fail 'task was not saved to its reused tab'
 unset REX_BLOCK HCOM_FIXTURE_REX_BLOCKS
 
 # An open session without an orchestrator pane is replaced after every old role is checked.
@@ -1505,7 +1539,7 @@ fixture_create_panes_definition="${functions[_hcom_team_create_panes]}"
 functions[_hcom_team_create_panes]="${functions[_hcom_team_create_panes_real]}"
 _hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout continue --task tsk_A_B --yes || fail 'orphan Rex session replacement'
 functions[_hcom_team_create_panes]="$fixture_create_panes_definition"
-[[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:orphan"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == session:replacement && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s session:orphan -b block:scout'*'new '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'orphan session was not replaced and saved'
+[[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:orphan"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == $'session:replacement\nwindow:fixture' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block call process -s session:orphan -b block:scout'*'new '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'orphan session was not replaced and saved'
 unset HCOM_FIXTURE_REX_BLOCKS HCOM_FIXTURE_REX_NEW_SESSION_ID
 # A successful worktree cleanup closes idle teammate panes and forgets the task's saved session.
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:cleanup"},{"session_id":"session:busy"},{"session_id":"session:self"},{"session_id":"session:close-error"}]}'
@@ -1525,6 +1559,170 @@ export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
 cleanup_output="$(cleanup tsk_busy 2>&1)" || fail 'worktree cleanup with running teammate'
 [[ "$cleanup_output" == *'reviewer pane block:reviewer was left open because an agent is still running there.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:implementer -s session:busy'*'block close block:scout -s session:busy'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:reviewer'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_busy" && ! -e "$XDG_STATE_HOME/hcom-team/session:busy" ]] || fail 'running teammate pane was closed or not explained'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
+
+# Two teams in one session keep their panes and saved commands separate.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:shared"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:a-orchestrator","window_id":"window:a","label":"orchestrator"},{"block_id":"block:a-implementer","window_id":"window:a","label":"implementer"},{"block_id":"block:a-reviewer","window_id":"window:a","label":"reviewer"},{"block_id":"block:a-scout","window_id":"window:a","label":"scout"},{"block_id":"block:b-orchestrator","window_id":"window:b","label":"orchestrator"},{"block_id":"block:b-implementer","window_id":"window:b","label":"implementer"},{"block_id":"block:b-reviewer","window_id":"window:b","label":"reviewer"},{"block_id":"block:b-scout","window_id":"window:b","label":"scout"}]}'
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:a" "$XDG_STATE_HOME/hcom-team/session:shared/window:b"
+printf 'session:shared\nwindow:a\n' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_a"
+printf 'session:shared\nwindow:b\n' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b"
+print -rn -- 'team:a-scout' > "$XDG_STATE_HOME/hcom-team/session:shared/window:a/scout"
+print -rn -- 'team:b-scout' > "$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout"
+print -rn -- 'legacy-scout' > "$XDG_STATE_HOME/hcom-team/session:shared/scout"
+print -r -- session:shared > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy"
+print -r -- session:shared > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy_copy"
+: > "$HCOM_FIXTURE_REX_CALLS"
+_hcom_team_forget_other_tasks_in_session session:shared window:b tsk_team_b || fail 'shared session task record check'
+[[ -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_a" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy_copy" && "$(grep -c '^block ls -s session:shared --json$' "$HCOM_FIXTURE_REX_CALLS")" == 1 ]] || fail 'other team records changed or their panes were listed more than once'
+trash "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy_copy" >/dev/null
+export REX_SESSION=session:shared REX_BLOCK=block:a-orchestrator
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout >/dev/null || fail 'reset in a shared session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s session:shared --json'*'send -s session:shared -b block:a-scout team:a-scout'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block:b-scout'* ]] || fail 'reset reached another team in the shared session'
+# A side tab uses the only team with panes in its session.
+# Panes in both team tabs, reused by the side-tab checks.
+shared_blocks="$HCOM_FIXTURE_REX_BLOCKS"
+export HCOM_FIXTURE_REX_BLOCKS="$(jq -c '.blocks |= map(select(.window_id == "window:a")) | .blocks += [{"block_id":"block:side","window_id":"window:side","label":"shell"}]' <<<"$shared_blocks")"
+export REX_BLOCK=block:side
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout >/dev/null || fail 'reset from a side tab with one team'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s session:shared -b block:a-scout team:a-scout'* ]] || fail 'side-tab reset missed the only team'
+
+# A failed lookup of the current tab stops before another team can be selected.
+functions -c _hcom_team_blocks_in_window _hcom_team_blocks_in_window_real
+_hcom_team_blocks_in_window() { return 1; }
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'side-tab reset continued after its tab lookup failed'
+fi
+functions[_hcom_team_blocks_in_window]="${functions[_hcom_team_blocks_in_window_real]}"
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'window ls '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:shared '* ]] || fail 'failed side-tab lookup selected or reset another team'
+
+# A side tab with several teams lists their tabs and refuses to guess without a terminal.
+export HCOM_FIXTURE_REX_BLOCKS="$(jq -c '.blocks += [{"block_id":"block:side","window_id":"window:side","label":"shell"}]' <<<"$shared_blocks")"
+export HCOM_FIXTURE_REX_WINDOWS='{"windows":[{"window_id":"window:a","label":"First team"},{"window_id":"window:b","label":""}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset scout < /dev/null > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'side-tab reset guessed between two teams without a terminal'
+fi
+[[ "$(<"$fixture_dir/reset-error")" == *'1. First team'*'2. other-task'*'several teams share Rex session session:shared (First team, other-task); choose one from a terminal.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:shared '* ]] || fail "ambiguous side-tab reset did not name and preserve both teams: $(<"$fixture_dir/reset-error")"
+
+# An answered choice resets only the selected team and leaves the other command intact.
+functions -c _hcom_team_reset_selection _hcom_team_reset_selection_real
+_hcom_team_reset_selection() { reply=(2); }
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'side-tab reset with a chosen team'
+functions[_hcom_team_reset_selection]="${functions[_hcom_team_reset_selection_real]}"
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s session:shared -b block:b-scout team:b-scout'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block:a-scout'* && "$(<"$XDG_STATE_HOME/hcom-team/session:shared/window:a/scout")" == team:a-scout ]] || fail 'side-tab choice reached another team or changed its command'
+
+# A side tab with no team has nothing to reset.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:side","window_id":"window:side","label":"shell"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'team-reset: no team in Rex session session:shared.' team-reset scout
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:shared '* ]] || fail 'reset typed into a session without a team'
+export HCOM_FIXTURE_REX_BLOCKS="$shared_blocks" REX_BLOCK=block:a-orchestrator
+unset HCOM_FIXTURE_REX_WINDOWS
+trash "$XDG_STATE_HOME/hcom-team/session:shared/window:a" >/dev/null
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout >/dev/null || fail 'older team reset after another tab joined its session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s session:shared -b block:a-scout legacy-scout'* ]] || fail 'older team did not use its shared launch command'
+
+# A side tab can name and select an older team while another team has its own folder.
+export HCOM_FIXTURE_REX_BLOCKS="$(jq -c '.blocks += [{"block_id":"block:side","window_id":"window:side","label":"shell"}]' <<<"$shared_blocks")" REX_BLOCK=block:side
+export HCOM_FIXTURE_REX_WINDOWS='{"windows":[{"window_id":"window:a","label":""},{"window_id":"window:b","label":"Second team"}]}'
+functions -c _hcom_team_reset_selection _hcom_team_reset_selection_real
+_hcom_team_reset_selection() { reply=(2); }
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'older team selection from a side tab'
+functions[_hcom_team_reset_selection]="${functions[_hcom_team_reset_selection_real]}"
+[[ "$(<"$fixture_dir/reset-error")" == *'older-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s session:shared -b block:a-scout legacy-scout'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:shared -b block:b-scout '* ]] || fail 'side-tab choice did not use the older team name and command'
+export HCOM_FIXTURE_REX_BLOCKS="$shared_blocks" REX_BLOCK=block:a-orchestrator
+unset HCOM_FIXTURE_REX_WINDOWS
+
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:a"
+print -rn -- 'team:a-scout' > "$XDG_STATE_HOME/hcom-team/session:shared/window:a/scout"
+export REX_BLOCK=block:b-orchestrator
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout >/dev/null || fail 'reset from the second team in a shared session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s session:shared -b block:b-scout team:b-scout'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block:a-scout'* ]] || fail 'reset from the second team reached the first team'
+trash "$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout" >/dev/null
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'team-reset: no saved launch command for scout in Rex session session:shared.' team-reset scout
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:shared -b block:b-scout '* ]] || fail 'reset used another team command from the shared folder'
+export REX_BLOCK=block:a-orchestrator
+
+# Two tabs without saved folders cannot be assigned to an older team during cleanup.
+mv "$XDG_STATE_HOME/hcom-team/session:shared/window:a" "$fixture_dir/ambiguous-older-window-a"
+mv "$XDG_STATE_HOME/hcom-team/session:shared/window:b" "$fixture_dir/ambiguous-older-window-b"
+: > "$HCOM_FIXTURE_REX_CALLS"
+if cleanup tsk_legacy > "$fixture_dir/cleanup-output" 2> "$fixture_dir/cleanup-error"; then
+	fail 'cleanup guessed which tab held an older team'
+fi
+[[ "$(<"$fixture_dir/cleanup-error")" == *"cannot tell which tab holds this task's team in Rex session session:shared; its saved state was kept."* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy" && -f "$XDG_STATE_HOME/hcom-team/session:shared/scout" && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close '* ]] || fail 'ambiguous older-team cleanup lost its saved state or closed a pane'
+mv "$fixture_dir/ambiguous-older-window-a" "$XDG_STATE_HOME/hcom-team/session:shared/window:a"
+mv "$fixture_dir/ambiguous-older-window-b" "$XDG_STATE_HOME/hcom-team/session:shared/window:b"
+print -rn -- 'team:b-scout' > "$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout"
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup_output="$(cleanup tsk_legacy 2>&1)" || fail 'cleanup with an unknown tab in a shared session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close '* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy" && ! -e "$XDG_STATE_HOME/hcom-team/session:shared/scout" && -d "$XDG_STATE_HOME/hcom-team/session:shared/window:a" && -d "$XDG_STATE_HOME/hcom-team/session:shared/window:b" ]] || fail 'cleanup touched a saved team tab while forgetting an older task'
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_team_a >/dev/null || fail 'cleanup in a shared session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s session:shared --json'*'block close block:a-implementer -s session:shared'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:b-'* && ! -e "$XDG_STATE_HOME/hcom-team/session:shared/window:a" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b" && -d "$XDG_STATE_HOME/hcom-team/session:shared/window:b" ]] || fail 'cleanup touched another team in the shared session'
+
+# An older team's closed tab cannot adopt the remaining team's tab.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:b-orchestrator","window_id":"window:b","label":"orchestrator"},{"block_id":"block:b-implementer","window_id":"window:b","label":"implementer"},{"block_id":"block:b-reviewer","window_id":"window:b","label":"reviewer"},{"block_id":"block:b-scout","window_id":"window:b","label":"scout"}]}'
+print -rn -- 'team:b-scout' > "$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout"
+print -r -- session:shared > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_legacy >/dev/null || fail 'cleanup of an older team whose tab closed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:b-'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy" && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b" && "$(<"$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout")" == team:b-scout ]] || fail 'older team cleanup touched the remaining team'
+print -r -- session:shared > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:shared 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_legacy || fail 'relaunch of an older team whose tab closed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s session:shared -b block:b-'* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b" && "$(<"$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout")" == team:b-scout ]] || fail 'older team relaunch adopted the remaining team'
+
+# An older team's cleanup leaves a newer team's idle panes when the newer team's orchestrator pane has closed.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:b-implementer","window_id":"window:b","label":"implementer"},{"block_id":"block:b-reviewer","window_id":"window:b","label":"reviewer"},{"block_id":"block:b-scout","window_id":"window:b","label":"scout"}]}'
+print -r -- session:shared > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_legacy >/dev/null || fail 'cleanup after a newer orchestrator pane closed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:b-'* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b" && -f "$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout" ]] || fail 'older team cleanup closed newer team panes'
+
+# One orchestrator pane with no tab ID counts as one team, even when the session has no saved folder.
+_hcom_team_older_tab session:no-folder '{"blocks":[{"block_id":"block:only","label":"orchestrator"}]}' || fail 'older tab lookup without a tab ID'
+(( ${#reply} == 2 && reply[2] == 1 )) || fail 'one orchestrator pane with no tab ID was counted as several teams'
+
+# A saved tab can close while its Rex session and other team tabs stay open.
+printf 'session:shared\nwindow:gone\n' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab"
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:gone"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:shared 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_closed_tab || fail 'relaunch after a saved tab closed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab" && ! -e "$XDG_STATE_HOME/hcom-team/session:shared/window:gone" ]] || fail 'closed saved tab blocked relaunch or kept its state'
+printf 'session:shared\nwindow:gone\n' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab"
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:gone"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_closed_tab >/dev/null || fail 'cleanup after a saved tab closed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close '* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab" && ! -e "$XDG_STATE_HOME/hcom-team/session:shared/window:gone" ]] || fail 'cleanup touched another team after its saved tab closed'
+
+# An older one-team session removes its shared commands after its tab is found.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:legacy"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:legacy-orchestrator","window_id":"window:legacy","label":"orchestrator"},{"block_id":"block:legacy-scout","window_id":"window:legacy","label":"scout"}]}'
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:legacy"
+print -rn -- 'legacy-scout' > "$XDG_STATE_HOME/hcom-team/session:legacy/scout"
+print -r -- session:legacy > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy_single"
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup tsk_legacy_single >/dev/null || fail 'cleanup of an older team with a known tab'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:legacy-scout -s session:legacy'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy_single" && ! -e "$XDG_STATE_HOME/hcom-team/session:legacy/scout" ]] || fail 'older team shared commands survived cleanup'
+
+# Forgetting the last team removes its now empty session folder.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:empty/window:only"
+print -r -- 'session:empty' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_empty"
+_hcom_team_forget_session tsk_empty session:empty window:only || fail 'forgetting the last team'
+[[ ! -e "$XDG_STATE_HOME/hcom-team/session:empty" ]] || fail 'the empty session folder survived forgetting its last team'
+unset HCOM_FIXTURE_REX_BLOCKS
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:cleanup"},{"session_id":"session:busy"},{"session_id":"session:self"},{"session_id":"session:close-error"}]}'
+export REX_SESSION=fixture-origin-session REX_BLOCK=block:orchestrator
 
 # Cleanup never closes its own pane, even when it has a teammate label.
 mkdir -p "$XDG_STATE_HOME/hcom-team/session:self"

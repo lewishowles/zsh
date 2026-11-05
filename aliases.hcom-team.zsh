@@ -799,9 +799,10 @@ _hcom_launch_team() {
 	# One state file records this task's Rex session across shells.
 	local task_session_file=""
 	if [[ -n "$requested_task_id" ]]; then
-		task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$requested_task_id"
+		task_session_file="$(_hcom_team_task_record_path "$requested_task_id")"
 		if [[ -f "$task_session_file" ]]; then
-			replace_session_id="$(<"$task_session_file")"
+			_hcom_team_read_task_record "$task_session_file"
+			replace_session_id="${reply[1]}"
 		fi
 	fi
 
@@ -817,8 +818,11 @@ _hcom_launch_team() {
 	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_session_id" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$orchestrator_launcher" "$initial_prompt" "$orchestrator_account" "$orchestrator_provider" "$requested_task_id" || return $?
 	# Rex session ID returned for the new team.
 	local team_session_id="${reply[2]}"
+	# Tab holding the new team, or empty when Rex gave no tab ID.
+	local team_window_id="${reply[3]}"
 	if [[ -n "$task_session_file" ]]; then
-		if ! mkdir -p "${task_session_file:h}" || ! print -r -- "$team_session_id" > "$task_session_file"; then
+		# The record holds the session ID on its first line and the tab ID on its second.
+		if ! mkdir -p "${task_session_file:h}" || ! printf '%s\n%s\n' "$team_session_id" "$team_window_id" > "$task_session_file"; then
 			_hcom_command_error "$command_name" "team session $team_session_id was left partly built; its task session ID could not be saved."
 			return 1
 		fi
@@ -1242,10 +1246,10 @@ _hcom_select_in_progress_task() {
 	reply=("$task_id" 0)
 }
 
-# Starts each team role in its own labelled pane of a new Rex session, then
+# Starts each team role in its own labelled pane in the team's tab, then
 # moves the human to the orchestrator pane.
 #
-# Returns reply=(team_tags, Rex session ID), or non-zero on a failed launch.
+# Returns reply=(team tags, Rex session ID, tab ID), or non-zero on a failed launch.
 #
 # @param  {string}  command_name
 #     The public command shown if tag creation fails.
@@ -1372,6 +1376,8 @@ _hcom_team_create_panes() {
 	local reviewer_block="${reply[4]}"
 	# Pane where the scout starts.
 	local scout_block="${reply[5]}"
+	# Tab holding the new team's panes.
+	local window_id="${reply[6]}"
 	# Orchestrator command. It runs through a wrapper that stores the team
 	# scope in the orchestrator's shell and stops the teammates when it exits.
 	# It changes to the team checkout first, because a reused pane is still in
@@ -1383,17 +1389,17 @@ _hcom_team_create_panes() {
 	local orchestrator_typed_command="$orchestrator_command"
 	if [[ "$session_id" == "${REX_SESSION:-}" && "$orchestrator_block" == "${REX_BLOCK:-}" ]]; then
 		# Saved orchestrator command file that the short typed line runs.
-		local saved_orchestrator_command="$(_hcom_team_state_directory "$session_id")/orchestrator"
-		if ! _hcom_team_save_role "$session_id" orchestrator "$orchestrator_command"; then
+		local saved_orchestrator_command="$(_hcom_team_state_directory "$session_id" "$window_id")/orchestrator"
+		if ! _hcom_team_save_role "$session_id" "$window_id" orchestrator "$orchestrator_command"; then
 			_hcom_command_error "$command_name" "team session $session_id was left partly built."
 			return 1
 		fi
 		orchestrator_typed_command="source ${(qq)saved_orchestrator_command}"
 	fi
 	if ! {
-		_hcom_team_save_role "$session_id" reviewer "$reviewer_command" &&
-		_hcom_team_save_role "$session_id" implementer "$implementer_command" &&
-		_hcom_team_save_role "$session_id" scout "$scout_command" &&
+		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_command" &&
+		_hcom_team_save_role "$session_id" "$window_id" implementer "$implementer_command" &&
+		_hcom_team_save_role "$session_id" "$window_id" scout "$scout_command" &&
 		_hcom_team_type_role "$session_id" "$reviewer_block" "$reviewer_command" &&
 		_hcom_team_type_role "$session_id" "$implementer_block" "$implementer_command" &&
 		_hcom_team_type_role "$session_id" "$scout_block" "$scout_command" &&
@@ -1403,7 +1409,7 @@ _hcom_team_create_panes() {
 		_hcom_command_error "$command_name" "team session $session_id was left partly built."
 		return 1
 	fi
-	reply=("$team_tags" "$session_id")
+	reply=("$team_tags" "$session_id" "$window_id")
 }
 
 # Prints the account settings to type before a role's launch command.
@@ -1579,21 +1585,22 @@ _hcom_team_clear_peer() {
 	command rex send-key -s "$session_id" -b "$block_id" enter
 }
 
-# Finds or creates the Rex session for a team, with one labelled pane per role.
+# Finds or creates the team's tab, with one labelled pane per role.
 #
-# The team's earlier session is reused while it is open, found by its ID
-# because a Claude agent's startup hook renames its session. Each existing role
-# pane must be at a shell prompt; missing role panes are created. When the
-# earlier session has closed or has lost its orchestrator pane, its saved
-# commands and the task's saved session ID are moved to the trash. A team, with
-# or without a task, is then built in the launcher's own session when that
-# session holds only the launcher's pane; otherwise a new session is created.
-# Once every pane is built in the launcher's session, other tasks' saved records
-# for that session are moved to the trash. An open earlier session that is not
-# reused is left for the human to close.
+# The team's saved tab is reused while it is open and its role panes are idle.
+# Missing role panes are created there. If the saved tab has closed or lost its
+# orchestrator pane, its record and commands are forgotten. A new team uses the
+# launcher's tab when that tab holds only the launcher; otherwise it opens a new
+# session. Once every pane is built in the launcher's tab, other tasks' records
+# for that tab are moved to the trash. An open tab that is not reused is left for
+# the human to close.
+#
+# An older record has no tab ID, so its tab is found from the session's
+# orchestrator pane. The launch stops when several orchestrator panes are in
+# tabs without saved launch commands, because any could belong to the older team.
 #
 # Returns reply=(session ID, orchestrator block, implementer block, reviewer block,
-# scout block).
+# scout block, tab ID).
 #
 # @param  {string}  command_name
 #     Public command shown if a role pane is busy.
@@ -1646,11 +1653,31 @@ _hcom_team_create_session() {
 	local current_window_id=""
 	# Whether the team is being built in the launcher's current tab.
 	local reused_current_session=0
+	# Tab owned by the team, or empty for an older session without tab IDs.
+	local window_id=""
+	# Tab saved with the task or found from its older orchestrator pane.
+	local previous_window_id=""
+	# Whether the task's record is an older one, with its commands in the session folder.
+	local previous_legacy_record=0
+	if [[ -n "$previous_session_id" && -n "$task_id" && -f "$(_hcom_team_task_record_path "$task_id")" ]]; then
+		_hcom_team_read_task_record "$(_hcom_team_task_record_path "$task_id")"
+		previous_window_id="${reply[2]}"
+		[[ -n "$previous_window_id" ]] || previous_legacy_record=1
+	fi
 
 	sessions_json="$(command rex ls --json)" || return 1
 	if [[ -n "$previous_session_id" ]] && jq -e --arg id "$previous_session_id" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
 		session_id="$previous_session_id"
 		blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+		if [[ -z "$previous_window_id" ]]; then
+			_hcom_team_older_tab "$session_id" "$blocks_json" || return 1
+			previous_window_id="${reply[1]}"
+		fi
+		window_id="$previous_window_id"
+		if ! blocks_json="$(_hcom_team_blocks_in_window "$session_id" "$window_id" "$blocks_json")"; then
+			_hcom_command_error "$command_name" "the saved task tab cannot be identified in Rex session $session_id; no panes launched."
+			return 1
+		fi
 		for role in orchestrator implementer reviewer scout; do
 			block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 			[[ -z "$block_id" ]] && continue
@@ -1669,7 +1696,7 @@ _hcom_team_create_session() {
 	fi
 	if [[ -z "$orchestrator_block" ]]; then
 		if [[ -n "$previous_session_id" ]]; then
-			_hcom_team_forget_session "$task_id" "$previous_session_id" || return 1
+			_hcom_team_forget_session "$task_id" "$previous_session_id" "$previous_window_id" "$previous_legacy_record" || return 1
 		fi
 		# Panes found in the earlier session stay there; the new session gets its own.
 		implementer_block=""
@@ -1684,11 +1711,18 @@ _hcom_team_create_session() {
 			_hcom_team_prepare_current_session "$command_name" "$session_label" "${REX_SESSION}" "${REX_BLOCK}" "$current_window_id" || return 1
 			session_id="${REX_SESSION}"
 			orchestrator_block="${REX_BLOCK}"
+			window_id="$current_window_id"
 			reused_current_session=1
 		else
 			new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
 			session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
 			orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1
+			blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+			window_id="$(_hcom_team_block_window "$orchestrator_block" "$blocks_json")" || return 1
+			if [[ -z "$window_id" ]]; then
+				_hcom_command_error "$command_name" "team session $session_id was left partly built; its tab ID could not be read."
+				return 1
+			fi
 			if ! command rex block rename -s "$session_id" "$orchestrator_block" orchestrator; then
 				_hcom_command_error "$command_name" "team session $session_id was left partly built."
 				return 1
@@ -1718,13 +1752,13 @@ _hcom_team_create_session() {
 		scout_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
 	fi
 	if (( reused_current_session )); then
-		_hcom_team_forget_other_tasks_in_session "$session_id" "$task_id" || return 1
+		_hcom_team_forget_other_tasks_in_session "$session_id" "$window_id" "$task_id" || return 1
 	fi
 	if (( reused_current_session )) && ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
 		print -u2 -- "$command_name: Rex panes could not be resized; the team is starting anyway."
 	fi
 
-	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block")
+	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block" "$window_id")
 }
 
 # Gives a team built in the launcher's tab the same pane sizes as a new session:
@@ -1764,8 +1798,7 @@ _hcom_team_resize_current_session() {
 	command rex api call -s "$session_id" session.resize_pane "$resize_args" >/dev/null
 }
 
-# Finds the tab to build a team in when the launcher's Rex session holds only
-# the launcher's own pane.
+# Finds the launcher's tab when it holds only the launcher's own pane.
 #
 # Sets reply to that tab's window ID, or to an empty string when the launcher
 # should open a new session instead.
@@ -1781,37 +1814,166 @@ _hcom_team_unused_current_window() {
 	local current_block="$2"
 	# Pane listing for this session.
 	local blocks_json
-	# Window containing the launcher pane when it is alone.
+	# Tab holding the launcher pane, kept only when that pane is alone in it.
 	local window_id
 
 	reply=("")
 	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	window_id="$(_hcom_team_block_window "$current_block" "$blocks_json")" || return 1
+	# Without a tab ID there is no tab to reuse, so the launch opens a new session.
+	[[ -n "$window_id" ]] || return 0
+	blocks_json="$(_hcom_team_blocks_in_window "$session_id" "$window_id" "$blocks_json")" || return 1
 	window_id="$(jq -r --arg id "$current_block" 'if (.blocks | length) == 1 and .blocks[0].block_id == $id then .blocks[0].window_id // empty else empty end' <<<"$blocks_json")" || return 1
 	reply=("$window_id")
 }
 
-# Moves other tasks' saved session records for a session to the trash, so
-# `cont` for those tasks no longer reopens a session that now holds this team.
+# Prints the panes in a team's tab, in the same format as `rex block ls`. With no
+# tab ID, it looks for an older team instead: it prints the panes in the tab of
+# that team's orchestrator pane, or the panes in every tab without saved launch
+# commands when no orchestrator pane can be the older team's. It returns 2 when
+# several orchestrator panes could be the older team's, and 1 when Rex cannot be
+# read.
+#
+# @param  {string}  session_id
+#     Rex session containing the tab.
+# @param  {string}  window_id
+#     Team tab, or empty for older sessions without a saved tab.
+# @param  {string}  blocks_json
+#     The session's pane listing, if the caller has already read it.
+_hcom_team_blocks_in_window() {
+	# Rex session containing the tab.
+	local session_id="$1"
+	# Team tab, when known.
+	local window_id="$2"
+	# The session's pane listing, read here when the caller has none.
+	local blocks_json="${3:-}"
+	# Tab of the older team's orchestrator pane, when one can be identified.
+	local older_window_id=""
+	# Tabs with saved launch commands, which belong to newer teams.
+	local -a saved_windows
+	# A folder of saved launch commands, named after its tab.
+	local saved_window
+
+	if [[ -z "$blocks_json" ]]; then
+		blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	fi
+
+	if [[ -n "$window_id" ]]; then
+		jq -c --arg id "$window_id" '.blocks |= map(select(.window_id == $id))' <<<"$blocks_json"
+	else
+		_hcom_team_older_tab "$session_id" "$blocks_json" || return 1
+		if (( reply[2] > 1 )); then
+			return 2
+		fi
+		older_window_id="${reply[1]}"
+		for saved_window in "$(_hcom_team_state_directory "$session_id")"/*(N/); do
+			saved_windows+=("${saved_window:t}")
+		done
+		jq -c --arg older "$older_window_id" '.blocks |= map(select((.window_id == null or (.window_id as $id | ($ARGS.positional | index($id) | not))) and ($older == "" or .window_id == $older)))' --args "${saved_windows[@]}" <<<"$blocks_json"
+	fi
+}
+
+# Reads a task's saved Rex session and tab. Sets reply=(session ID, tab ID); the
+# tab ID is empty for an older record, which holds only the session ID.
+#
+# @param  {string}  task_session_file
+#     File that links a task to its team.
+_hcom_team_read_task_record() {
+	# File that links a task to its team.
+	local task_session_file="$1"
+	# The record's lines: the session ID, then the tab ID when there is one.
+	local -a lines
+
+	lines=("${(@f)$(<"$task_session_file")}")
+	reply=("${lines[1]:-}" "${lines[2]:-}")
+}
+
+# Finds the tab of an older team, whose record has no tab ID. Only orchestrator
+# panes in tabs without a folder of saved launch commands can be that team's,
+# because a newer team saves that folder as soon as its panes start and an older
+# team never does. Sets reply=(tab ID, number of those panes). The tab ID is empty
+# unless exactly one pane qualifies and Rex gave it a tab ID.
+#
+# @param  {string}  session_id
+#     Rex session containing the panes.
+# @param  {string}  blocks_json
+#     Pane listing for the session.
+_hcom_team_older_tab() {
+	# Rex session containing the panes.
+	local session_id="$1"
+	# Pane listing for the session.
+	local blocks_json="$2"
+	# All orchestrator panes in the session.
+	local orchestrator_json
+	# Number of orchestrator panes that could be the older team's. A pane with no
+	# tab ID always counts.
+	local count
+	# Tab of the last pane that could be the older team's.
+	local window_id=""
+	# Tab of a candidate orchestrator pane.
+	local candidate_window_id
+	# Tabs named by orchestrator panes.
+	local candidate_windows
+
+	orchestrator_json="$(jq -c '[.blocks[] | select(.label == "orchestrator")]' <<<"$blocks_json")" || return 1
+	count="$(jq '[.[] | select(.window_id == null)] | length' <<<"$orchestrator_json")" || return 1
+	candidate_windows="$(jq -r '.[] | .window_id // empty' <<<"$orchestrator_json")" || return 1
+
+	# Left unquoted so that an empty list runs the loop no times.
+	for candidate_window_id in ${(f)candidate_windows}; do
+		if [[ ! -d "$(_hcom_team_state_directory "$session_id" "$candidate_window_id")" ]]; then
+			(( count += 1 ))
+			window_id="$candidate_window_id"
+		fi
+	done
+
+	(( count == 1 )) || window_id=""
+	reply=("$window_id" "$count")
+}
+
+# Moves other tasks' saved session records for this team's tab to the trash, so
+# `cont` for those tasks no longer reopens a tab that now holds this team. Keeps
+# an older record whose tab cannot be identified, because it may belong to
+# another team in the session.
 #
 # @param  {string}  session_id
 #     The session that now holds the new team.
+# @param  {string}  window_id
+#     The tab that now holds the new team.
 # @param  {string}  task_id
 #     The task being launched. Its own record is kept; empty for a team without
 #     a task.
 _hcom_team_forget_other_tasks_in_session() {
 	# Session now holding the new team.
 	local session_id="$1"
+	# Tab now holding the new team.
+	local window_id="$2"
 	# The task being launched, whose own record is kept.
-	local task_id="$2"
+	local task_id="$3"
 	# One task's saved session record.
 	local task_session_file
+	# Session ID saved in that record.
+	local saved_session_id
+	# Tab ID saved in that record, or worked out from its session's panes.
+	local saved_window_id
+	# Pane listing used to work out the tab of an older record.
+	local saved_blocks_json
 
-	for task_session_file in "${XDG_STATE_HOME:-$HOME/.local/state}"/hcom-team/tasks/*(N.); do
+	saved_blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	for task_session_file in "$(_hcom_team_task_record_path)"*(N.); do
 		if [[ "${task_session_file:t}" == "$task_id" ]]; then
 			continue
 		fi
 
-		if [[ "$(<"$task_session_file")" == "$session_id" ]]; then
+		_hcom_team_read_task_record "$task_session_file"
+		saved_session_id="${reply[1]}"
+		[[ "$saved_session_id" == "$session_id" ]] || continue
+		saved_window_id="${reply[2]}"
+		if [[ -z "$saved_window_id" && -n "$window_id" ]]; then
+			_hcom_team_older_tab "$session_id" "$saved_blocks_json" || return 1
+			saved_window_id="${reply[1]}"
+		fi
+		if [[ "$saved_window_id" == "$window_id" ]]; then
 			trash "$task_session_file" || return 1
 		fi
 	done
@@ -1882,12 +2044,18 @@ _hcom_team_cleanup_task() {
 	# Task whose worktree was cleaned up.
 	local task_id="$1"
 	# File naming the Rex session saved for the task.
-	local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
+	local task_session_file="$(_hcom_team_task_record_path "$task_id")"
 	[[ -f "$task_session_file" ]] || return 0
 	# Rex session saved for the task.
-	local session_id="$(<"$task_session_file")"
+	_hcom_team_read_task_record "$task_session_file"
+	local session_id="${reply[1]}"
 	[[ -n "$session_id" ]] || return 0
-	# Labelled panes in that session.
+	# Tab saved for the task, absent from older records.
+	local window_id="${reply[2]}"
+	# Whether the record is an older one, with its commands in the session folder.
+	local legacy_record=0
+	[[ -n "$window_id" ]] || legacy_record=1
+	# Labelled panes in that session, then only those in the team's tab.
 	local blocks_json
 	# Teammate role currently being inspected.
 	local role
@@ -1899,17 +2067,35 @@ _hcom_team_cleanup_task() {
 	local sessions_json
 	# Whether the saved Rex session is still open.
 	local session_present
+	# The exit status of the tab lookup, where 2 means several tabs could hold the team.
+	local lookup_status
 
 	sessions_json="$(command rex ls --json)" || return 1
 	session_present="$(jq -r --arg id "$session_id" 'any(.sessions[]; .session_id == $id)' <<<"$sessions_json")" || return 1
 	if [[ "$session_present" != true ]]; then
-		_hcom_team_forget_session "$task_id" "$session_id"
+		_hcom_team_forget_session "$task_id" "$session_id" "$window_id" "$legacy_record"
 		return $?
 	fi
 
-	if ! blocks_json="$(command rex block ls -s "$session_id" --json)"; then
-		print -u2 -- "cleanup: could not inspect Rex session $session_id; its saved state was kept."
+	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	if [[ -z "$window_id" ]]; then
+		_hcom_team_older_tab "$session_id" "$blocks_json" || return 1
+		window_id="${reply[1]}"
+	fi
+	blocks_json="$(_hcom_team_blocks_in_window "$session_id" "$window_id" "$blocks_json")"
+	lookup_status=$?
+	if (( lookup_status )); then
+		if (( lookup_status == 2 )); then
+			print -u2 -- "cleanup: cannot tell which tab holds this task's team in Rex session $session_id; its saved state was kept."
+		else
+			print -u2 -- "cleanup: could not inspect Rex session $session_id; its saved state was kept."
+		fi
 		return 1
+	fi
+	# The saved tab has closed while its session stays open, so no panes need closing.
+	if [[ -n "$window_id" && "$(jq '.blocks | length' <<<"$blocks_json")" == 0 ]]; then
+		_hcom_team_forget_session "$task_id" "$session_id" "$window_id" "$legacy_record"
+		return $?
 	fi
 	for role in implementer reviewer scout; do
 		block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
@@ -1927,31 +2113,61 @@ _hcom_team_cleanup_task() {
 		fi
 	done
 
-	_hcom_team_forget_session "$task_id" "$session_id"
+	_hcom_team_forget_session "$task_id" "$session_id" "$window_id" "$legacy_record"
 }
 
-# Trashes the task's link to a Rex session and the launch commands saved for
-# that session, so the launcher no longer treats it as a team session.
+# Moves the task's session and tab record and that team's saved commands to the
+# trash, so the launcher no longer treats that tab as a team's.
 #
 # @param  {string}  task_id
 #     Task mapped to the session, or empty for a root team.
 # @param  {string}  session_id
 #     Rex session whose saved launch commands should be forgotten.
+# @param  {string}  window_id
+#     Team tab, or empty when the tab is not known. An empty tab also removes the
+#     commands in the session's shared folder.
+# @param  {number}  legacy_record
+#     1 when the task's record is an older one, whose commands are in the
+#     session's shared folder.
 _hcom_team_forget_session() {
 	# Task mapped to the session.
 	local task_id="$1"
 	# Rex session to forget.
 	local session_id="$2"
+	# Tab owned by the task, when known.
+	local window_id="${3:-}"
+	# Whether the commands in the session's shared folder belong to this task.
+	local legacy_record="${4:-0}"
 	# File linking the task to the session.
-	local task_session_file="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
-	# Saved launch commands for the session.
-	local state_directory="$(_hcom_team_state_directory "$session_id")"
+	local task_session_file="$(_hcom_team_task_record_path "$task_id")"
+	# Saved launch commands for the team.
+	local state_directory="$(_hcom_team_state_directory "$session_id" "$window_id")"
 
 	if [[ -n "$task_id" && -f "$task_session_file" ]]; then
 		trash "$task_session_file" || return 1
 	fi
-	if [[ -d "$state_directory" ]]; then
+	if [[ -n "$window_id" && -d "$state_directory" ]]; then
 		trash "$state_directory" || return 1
+	fi
+	if (( legacy_record )) || [[ -z "$window_id" ]]; then
+		# Session folder holding an older team's commands and other teams' tab folders.
+		local session_directory="$(_hcom_team_state_directory "$session_id")"
+		if [[ -d "$session_directory" ]]; then
+			# Other teams' tab folders sit inside this folder, so it stays while any exist.
+			if [[ -n "$(print -r -- "$session_directory"/*(N/))" ]]; then
+				# One saved command belonging to the older team.
+				local role_file
+				for role_file in "$session_directory"/{orchestrator,reviewer,implementer,scout}(N.); do
+					trash "$role_file" || return 1
+				done
+			else
+				trash "$session_directory" || return 1
+			fi
+		fi
+	fi
+	if [[ -d "$(_hcom_team_state_directory "$session_id")" ]]; then
+		# rmdir leaves the folder in place while another team's commands are in it.
+		rmdir "$(_hcom_team_state_directory "$session_id")" 2>/dev/null || true
 	fi
 }
 
@@ -1960,6 +2176,8 @@ _hcom_team_forget_session() {
 #
 # @param  {string}  session_id
 #     Rex session that contains the role's pane.
+# @param  {string}  window_id
+#     Tab containing the role's pane, when known.
 # @param  {string}  role
 #     Role used to name the saved command file.
 # @param  {string}  launch_command
@@ -1967,26 +2185,63 @@ _hcom_team_forget_session() {
 _hcom_team_save_role() {
 	# Rex session that contains the role's pane.
 	local session_id="$1"
+	# Tab containing the role's pane, when known.
+	local window_id="$2"
 	# Role that names the saved command file.
-	local role="$2"
+	local role="$3"
 	# Exact command to replay on reset.
-	local launch_command="$3"
-	# Folder holding this session's saved teammate commands.
-	local state_directory="$(_hcom_team_state_directory "$session_id")"
+	local launch_command="$4"
+	# Folder holding this team's saved teammate commands.
+	local state_directory="$(_hcom_team_state_directory "$session_id" "$window_id")"
 
 	mkdir -p "$state_directory" || return 1
 	print -rn -- "$launch_command" > "$state_directory/$role" || return 1
 }
 
-# Prints the folder that holds a team session's saved launch commands.
+# Prints the folder that holds a team's saved launch commands: one folder per
+# tab, or the session's shared folder for an older team with no tab ID.
 #
 # @param  {string}  session_id
 #     Rex session that the commands belong to.
+# @param  {string}  window_id
+#     Tab containing the team, when known.
 _hcom_team_state_directory() {
 	# Rex session that the commands belong to.
 	local session_id="$1"
+	# Tab containing the team, when known.
+	local window_id="${2:-}"
 
-	print -r -- "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$session_id"
+	if [[ -n "$window_id" ]]; then
+		print -r -- "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$session_id/$window_id"
+	else
+		print -r -- "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/$session_id"
+	fi
+}
+
+# Prints the file linking a task to its saved Rex session and tab.
+#
+# @param  {string}  task_id
+#     Task whose record path is needed.
+_hcom_team_task_record_path() {
+	# Task whose record path is needed.
+	local task_id="${1:-}"
+
+	print -r -- "${XDG_STATE_HOME:-$HOME/.local/state}/hcom-team/tasks/$task_id"
+}
+
+# Prints the tab ID for a pane in a Rex pane listing.
+#
+# @param  {string}  block_id
+#     Pane whose tab is needed.
+# @param  {string}  blocks_json
+#     Rex pane listing for its session.
+_hcom_team_block_window() {
+	# Pane whose tab is needed.
+	local block_id="$1"
+	# Rex pane listing for its session.
+	local blocks_json="$2"
+
+	jq -r --arg id "$block_id" '.blocks[] | select(.block_id == $id) | .window_id // empty' <<<"$blocks_json"
 }
 
 # Types and submits a launch command in an idle role pane.
@@ -2018,20 +2273,28 @@ _hcom_team_type_role() {
 # @param  {string}  session_id
 #     Rex session that contains the team.
 # @param  {string}  blocks_json
-#     Pane listing from rex block ls for that session.
+#     Pane listing for the team's tab.
+# @param  {string}  window_id
+#     Tab containing the team, when known.
 # @param  {string}  role
 #     Teammate role to restart.
 _hcom_team_reset_role() {
 	# Rex session that contains the team.
 	local session_id="$1"
-	# Pane listing for that session.
+	# Pane listing for the team's tab.
 	local blocks_json="$2"
+	# Tab containing the team, when known.
+	local window_id="$3"
 	# Teammate role to restart.
-	local role="$3"
+	local role="$4"
 	# Pane labelled with the role.
 	local block_id
 	# File holding the command that first launched the teammate.
-	local command_file="$(_hcom_team_state_directory "$session_id")/$role"
+	local command_file="$(_hcom_team_state_directory "$session_id" "$window_id")/$role"
+	if [[ -n "$window_id" && ! -d "$(_hcom_team_state_directory "$session_id" "$window_id")" ]]; then
+		# A team with no tab folder is an older team, whose commands are in the session folder.
+		command_file="$(_hcom_team_state_directory "$session_id")/$role"
+	fi
 	# Launch command read from that file.
 	local launch_command
 
@@ -2056,12 +2319,198 @@ _hcom_team_reset_role() {
 	print -r -- "team-reset: restarted $role."
 }
 
+# Chooses the team to reset when team-reset runs in a tab with no team. Uses the
+# only team in the session, and asks the user to pick one by number when there
+# are several. Sets reply to the chosen tab ID. Fails with an error when the
+# session holds no team.
+#
+# @param  {string}  session_id
+#     Rex session containing the teams.
+# @param  {string}  blocks_json
+#     Pane listing for the session.
+_hcom_team_reset_window() {
+	# Rex session containing the teams.
+	local session_id="$1"
+	# Pane listing for the session.
+	local blocks_json="$2"
+	# Tabs that contain a team.
+	local -a team_windows=()
+	# Names shown for the teams.
+	local -a team_names=()
+	# Tab labels returned by Rex.
+	local windows_json
+	# Number chosen by the user.
+	local selection
+	# Index of a team in the displayed list.
+	local index
+
+	_hcom_team_windows_with_teams "$session_id" "$blocks_json" || return 1
+	team_windows=("${reply[@]}")
+
+	if (( ${#team_windows} == 0 )); then
+		_hcom_command_error team-reset "no team in Rex session $session_id."
+		return 1
+	fi
+	if (( ${#team_windows} == 1 )); then
+		reply=("${team_windows[1]}")
+		return 0
+	fi
+
+	windows_json="$(command rex window ls -s "$session_id" --json)" || return 1
+	print -u2 -- 'team-reset: choose a team tab:'
+	for (( index = 1; index <= ${#team_windows}; index++ )); do
+		team_names+=("$(_hcom_team_tab_name "$session_id" "${team_windows[index]}" "$blocks_json" "$windows_json")") || return 1
+		print -u2 -- "  $index. ${team_names[index]}"
+	done
+	if ! _hcom_team_reset_selection "$session_id" "${team_names[@]}"; then
+		return 1
+	fi
+	selection="${reply[1]}"
+	if [[ "$selection" != <-> ]] || (( selection < 1 || selection > ${#team_windows} )); then
+		_hcom_command_error team-reset 'choose a listed team number.'
+		return 1
+	fi
+	reply=("${team_windows[selection]}")
+}
+
+# Lists the tabs in a Rex session that hold a team, including an older team
+# found through its orchestrator pane. Sets reply to their tab IDs.
+#
+# @param  {string}  session_id
+#     Rex session containing the teams.
+# @param  {string}  blocks_json
+#     Pane listing for the session.
+_hcom_team_windows_with_teams() {
+	# Rex session containing the teams.
+	local session_id="$1"
+	# Pane listing for the session.
+	local blocks_json="$2"
+	# Session folder holding saved launch commands.
+	local session_directory="$(_hcom_team_state_directory "$session_id")"
+	# Team tab folders in that session.
+	local team_directory
+	# Tab of the current team folder.
+	local candidate_window
+	# Panes in a candidate team tab.
+	local candidate_blocks
+	# Tabs that contain a team.
+	local -a team_windows=()
+
+	for team_directory in "$session_directory"/*(N/); do
+		candidate_window="${team_directory:t}"
+		candidate_blocks="$(_hcom_team_blocks_in_window "$session_id" "$candidate_window" "$blocks_json")" || return 1
+		if _hcom_team_has_team_panes "$candidate_blocks"; then
+			team_windows+=("$candidate_window")
+		fi
+	done
+
+	# Older teams keep commands in the session folder and have no saved tab folder.
+	if [[ -f "$session_directory/implementer" || -f "$session_directory/reviewer" || -f "$session_directory/scout" ]]; then
+		_hcom_team_older_tab "$session_id" "$blocks_json" || return 1
+		if [[ -n "${reply[1]}" ]]; then
+			team_windows+=("${reply[1]}")
+		fi
+	fi
+
+	reply=("${team_windows[@]}")
+}
+
+# Succeeds when a pane listing includes an orchestrator, implementer, reviewer
+# or scout pane.
+#
+# @param  {string}  blocks_json
+#     Pane listing for a tab.
+_hcom_team_has_team_panes() {
+	# Pane listing for a tab.
+	local blocks_json="$1"
+
+	jq -e 'any(.blocks[]; .label == "orchestrator" or .label == "implementer" or .label == "reviewer" or .label == "scout")' >/dev/null <<<"$blocks_json"
+}
+
+# Prints the name to show for a team's tab: its Rex tab label, otherwise the
+# slug of the task saved for that tab, otherwise "Team".
+#
+# @param  {string}  session_id
+#     Rex session containing the tab.
+# @param  {string}  window_id
+#     Tab whose name is needed.
+# @param  {string}  blocks_json
+#     Pane listing used to locate an older team's tab.
+# @param  {string}  windows_json
+#     Rex tab listing for the session.
+_hcom_team_tab_name() {
+	# Rex session containing the tab.
+	local session_id="$1"
+	# Tab whose name is needed.
+	local window_id="$2"
+	# Pane listing used to locate an older team's tab.
+	local blocks_json="$3"
+	# Rex tab listing for the session.
+	local windows_json="$4"
+	# Name found in Rex or in a saved task.
+	local team_name
+	# Saved task record used when a tab has no label.
+	local task_file
+	# Rex session saved with the task.
+	local saved_session
+	# Rex tab saved with the task.
+	local saved_window
+	# Task details used for the slug fallback.
+	local task_json
+
+	team_name="$(jq -r --arg id "$window_id" '.windows[] | select(.window_id == $id) | .label // empty' <<<"$windows_json")" || return 1
+	if [[ -z "$team_name" ]]; then
+		for task_file in "$(_hcom_team_task_record_path)"*(N.); do
+			_hcom_team_read_task_record "$task_file"
+			saved_session="${reply[1]}"
+			saved_window="${reply[2]}"
+			if [[ "$saved_session" == "$session_id" && -z "$saved_window" ]]; then
+				_hcom_team_older_tab "$session_id" "$blocks_json" || return 1
+				saved_window="${reply[1]}"
+			fi
+			if [[ "$saved_session" == "$session_id" && "$saved_window" == "$window_id" ]]; then
+				task_json="$(command progress task get "${task_file:t}" --json)" || return 1
+				team_name="$(jq -r '.data.slug // empty' <<<"$task_json")" || return 1
+				break
+			fi
+		done
+	fi
+	print -r -- "${team_name:-Team}"
+}
+
+# Asks the user for the number of the team to reset and sets reply to the
+# answer. When input is not a terminal it refuses and names the teams, so a
+# script never resets a team it had to guess.
+#
+# @param  {string}  session_id
+#     Rex session containing the teams.
+# @param  {string}  ...
+#     Names of the teams offered to the user.
+_hcom_team_reset_selection() {
+	# Rex session containing the teams.
+	local session_id="$1"
+	shift
+	# Names of the teams offered to the user.
+	local -a team_names=("$@")
+	# Number entered by the user.
+	local selection
+
+	if [[ ! -t 0 ]]; then
+		_hcom_command_error team-reset "several teams share Rex session $session_id (${(j:, :)team_names}); choose one from a terminal."
+		return 1
+	fi
+	read -r 'selection?Which team? ' || return 1
+	reply=("$selection")
+}
+
 # @desc  Restart one teammate, or all three, in their Rex panes with the same account and checkout
 # @cat   hcom
 #
 # Usage: team-reset scout|implementer|reviewer|all
-# Run it from any pane in the team's Rex session. With all, a teammate that
-# cannot restart does not stop the others; the command then returns non-zero.
+# Run it from any pane in the team's tab. From another tab in the same Rex
+# session, it uses the only team in the session, or lists the teams and asks which
+# one when there are several. With all, a teammate that cannot restart does not
+# stop the others; the command then returns non-zero.
 # Claude Code's shell loads public commands but not the private helpers they
 # call. When those helpers are missing, the command runs itself once in a full
 # interactive zsh.
@@ -2077,6 +2526,8 @@ team-reset() {
 	local result=0
 	# Teammate being restarted when the role is all.
 	local peer
+	# Tab containing the pane that ran team-reset.
+	local window_id=""
 
 	if (( ! $+functions[_hcom_team_reset_role] || ! $+functions[_hcom_command_error] )); then
 		# The marker stops the inner shell from retrying when it lacks the helpers too.
@@ -2100,13 +2551,29 @@ team-reset() {
 	fi
 
 	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
+	window_id="$(_hcom_team_block_window "${REX_BLOCK:-}" "$blocks_json")" || return 1
+	if [[ -n "$window_id" ]]; then
+		# A tab with no team, such as a side tab of plain shells, resets a team
+		# from elsewhere in the session.
+		local current_blocks
+		current_blocks="$(_hcom_team_blocks_in_window "$session_id" "$window_id" "$blocks_json")" || return 1
+		if ! _hcom_team_has_team_panes "$current_blocks"; then
+			_hcom_team_reset_window "$session_id" "$blocks_json" || return 1
+			window_id="${reply[1]}"
+		fi
+	fi
+	if ! blocks_json="$(_hcom_team_blocks_in_window "$session_id" "$window_id" "$blocks_json")"; then
+		_hcom_command_error team-reset "this team's tab cannot be identified in Rex session $session_id."
+		return 1
+	fi
+
 	if [[ "$role" == all ]]; then
 		for peer in implementer reviewer scout; do
-			_hcom_team_reset_role "$session_id" "$blocks_json" "$peer" || result=1
+			_hcom_team_reset_role "$session_id" "$blocks_json" "$window_id" "$peer" || result=1
 		done
 		return "$result"
 	fi
-	_hcom_team_reset_role "$session_id" "$blocks_json" "$role"
+	_hcom_team_reset_role "$session_id" "$blocks_json" "$window_id" "$role"
 }
 
 # Stores the active team scope in the orchestrator pane.
