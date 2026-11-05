@@ -1359,13 +1359,12 @@ _hcom_team_create_panes() {
 	local team_scope_directory="${working_directory:-$PWD}"
 	team_tags="$(_hcom_team_tags "$command_name" "$team_scope_directory" "$team_label")" || return 1
 
-	# Rex session and tab label for this team.
-	local session_label="${HCOM_TEAM_PROJECT_TAG:-${team_scope_directory:t}} · $team_label"
-	if [[ -z "$team_label" ]]; then
-		session_label="${HCOM_TEAM_PROJECT_TAG:-${team_scope_directory:t}}"
-	fi
+	# Repository name used for the Rex session.
+	local repository_name="${HCOM_TEAM_PROJECT_TAG:-${team_scope_directory:t}}"
+	# Short name used for this team's tab.
+	local tab_name="$(_hcom_team_launch_tab_name "$team_label")"
 
-	_hcom_team_create_session "$command_name" "$session_label" "$team_scope_directory" "$previous_session_id" "$task_id" || return 1
+	_hcom_team_create_session "$command_name" "$repository_name" "$tab_name" "$team_scope_directory" "$previous_session_id" "$task_id" || return 1
 	# New Rex session that contains the team's panes.
 	local session_id="${reply[1]}"
 	# Pane where the orchestrator starts.
@@ -1589,9 +1588,10 @@ _hcom_team_clear_peer() {
 #
 # The team's saved tab is reused while it is open and its role panes are idle.
 # Missing role panes are created there. If the saved tab has closed or lost its
-# orchestrator pane, its record and commands are forgotten. A new team uses the
-# launcher's tab when that tab holds only the launcher; otherwise it opens a new
-# session. Once every pane is built in the launcher's tab, other tasks' records
+# orchestrator pane, its record and commands are forgotten. A new team goes where
+# _hcom_team_choose_new_tab decides: the launcher's tab when it is free, otherwise
+# a new tab in the repository session, or a new session when no such session
+# exists. Once every pane is built in the launcher's tab, other tasks' records
 # for that tab are moved to the trash. An open tab that is not reused is left for
 # the human to close.
 #
@@ -1604,10 +1604,12 @@ _hcom_team_clear_peer() {
 #
 # @param  {string}  command_name
 #     Public command shown if a role pane is busy.
-# @param  {string}  session_label
-#     Name shared by the new session and its tab.
+# @param  {string}  repository_name
+#     Name of the repository's Rex session.
+# @param  {string}  tab_name
+#     Short name of the team's tab.
 # @param  {string}  team_scope_directory
-#     Directory opened by the new session.
+#     Directory opened by new panes.
 # @param  {string}  previous_session_id
 #     Stored session ID to reuse when it is still open.
 # @param  {string}  task_id
@@ -1617,20 +1619,20 @@ _hcom_team_clear_peer() {
 _hcom_team_create_session() {
 	# Public command shown in diagnostics.
 	local command_name="$1"
-	# Name for a new session and tab.
-	local session_label="$2"
+	# Repository session name.
+	local repository_name="$2"
+	# Short team tab name.
+	local tab_name="$3"
 	# Directory opened by new panes.
-	local team_scope_directory="$3"
+	local team_scope_directory="$4"
 	# Stored ID of the team's previous session.
-	local previous_session_id="$4"
+	local previous_session_id="$5"
 	# Task that owns the saved session ID.
-	local task_id="${5:-}"
+	local task_id="${6:-}"
 	# Open Rex sessions.
 	local sessions_json
 	# Labelled panes in a reused session.
 	local blocks_json
-	# Response from new session creation.
-	local new_json
 	# Response from a pane split.
 	local split_json
 	# Session to launch the team in.
@@ -1649,16 +1651,16 @@ _hcom_team_create_session() {
 	local block_id
 	# The pane's foreground process.
 	local process_json
-	# Tab to build the team in when the launcher's own session is unused.
-	local current_window_id=""
 	# Whether the team is being built in the launcher's current tab.
-	local reused_current_session=0
+	local reused_launcher_tab=0
 	# Tab owned by the team, or empty for an older session without tab IDs.
 	local window_id=""
 	# Tab saved with the task or found from its older orchestrator pane.
 	local previous_window_id=""
 	# Whether the task's record is an older one, with its commands in the session folder.
 	local previous_legacy_record=0
+	# Chosen session, tab, and any leftover panes in that tab.
+	local -a placement
 	if [[ -n "$previous_session_id" && -n "$task_id" && -f "$(_hcom_team_task_record_path "$task_id")" ]]; then
 		_hcom_team_read_task_record "$(_hcom_team_task_record_path "$task_id")"
 		previous_window_id="${reply[2]}"
@@ -1702,33 +1704,16 @@ _hcom_team_create_session() {
 		implementer_block=""
 		reviewer_block=""
 		scout_block=""
-		# Build the team in the launcher's own tab when that tab is unused, with or without a task.
-		if [[ -n "${REX_BLOCK:-}" ]] && jq -e --arg id "${REX_SESSION:-}" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
-			_hcom_team_unused_current_window "${REX_SESSION}" "${REX_BLOCK}" || return $?
-			current_window_id="${reply[1]}"
-		fi
-		if [[ -n "$current_window_id" ]]; then
-			_hcom_team_prepare_current_session "$command_name" "$session_label" "${REX_SESSION}" "${REX_BLOCK}" "$current_window_id" || return 1
-			session_id="${REX_SESSION}"
-			orchestrator_block="${REX_BLOCK}"
-			window_id="$current_window_id"
-			reused_current_session=1
-		else
-			new_json="$(command rex new "$session_label" -c "$team_scope_directory" --window "$session_label" --json)" || return 1
-			session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
-			orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1
-			blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
-			window_id="$(_hcom_team_block_window "$orchestrator_block" "$blocks_json")" || return 1
-			if [[ -z "$window_id" ]]; then
-				_hcom_command_error "$command_name" "team session $session_id was left partly built; its tab ID could not be read."
-				return 1
-			fi
-			if ! command rex block rename -s "$session_id" "$orchestrator_block" orchestrator; then
-				_hcom_command_error "$command_name" "team session $session_id was left partly built."
-				return 1
-			fi
-		fi
+		_hcom_team_choose_new_tab "$repository_name" "$sessions_json" || return 1
+		placement=("${reply[@]}")
+		_hcom_team_open_chosen_tab "$command_name" "$repository_name" "$tab_name" "$team_scope_directory" "${placement[@]}" || return 1
+		session_id="${reply[1]}"
+		window_id="${reply[2]}"
+		orchestrator_block="${reply[3]}"
+		reused_launcher_tab="${reply[4]}"
 	fi
+
+	_hcom_team_apply_names "$command_name" "$repository_name" "$tab_name" "$session_id" "$window_id" "$sessions_json" || return 1
 
 	if [[ -z "$implementer_block" ]]; then
 		if ! split_json="$(command rex split -s "$session_id" -b "$orchestrator_block" --split=right --ratio 33 --label implementer --focus=false --json)"; then
@@ -1751,10 +1736,10 @@ _hcom_team_create_session() {
 		fi
 		scout_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
 	fi
-	if (( reused_current_session )); then
+	if (( reused_launcher_tab )); then
 		_hcom_team_forget_other_tasks_in_session "$session_id" "$window_id" "$task_id" || return 1
 	fi
-	if (( reused_current_session )) && ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
+	if (( reused_launcher_tab )) && ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
 		print -u2 -- "$command_name: Rex panes could not be resized; the team is starting anyway."
 	fi
 
@@ -1796,35 +1781,6 @@ _hcom_team_resize_current_session() {
 	command rex api call -s "$session_id" session.resize_pane "$resize_args" >/dev/null || return 1
 	resize_args="$(jq -nc --arg before "$reviewer_block" --arg after "$scout_block" '{direction:"vertical",before_block_id:$before,after_block_id:$after,ratio:0.5}')" || return 1
 	command rex api call -s "$session_id" session.resize_pane "$resize_args" >/dev/null
-}
-
-# Finds the launcher's tab when it holds only the launcher's own pane.
-#
-# Sets reply to that tab's window ID, or to an empty string when the launcher
-# should open a new session instead.
-#
-# @param  {string}  session_id
-#     Current Rex session.
-# @param  {string}  current_block
-#     Pane running the launcher.
-_hcom_team_unused_current_window() {
-	# Current Rex session.
-	local session_id="$1"
-	# Pane running the launcher.
-	local current_block="$2"
-	# Pane listing for this session.
-	local blocks_json
-	# Tab holding the launcher pane, kept only when that pane is alone in it.
-	local window_id
-
-	reply=("")
-	blocks_json="$(command rex block ls -s "$session_id" --json)" || return 1
-	window_id="$(_hcom_team_block_window "$current_block" "$blocks_json")" || return 1
-	# Without a tab ID there is no tab to reuse, so the launch opens a new session.
-	[[ -n "$window_id" ]] || return 0
-	blocks_json="$(_hcom_team_blocks_in_window "$session_id" "$window_id" "$blocks_json")" || return 1
-	window_id="$(jq -r --arg id "$current_block" 'if (.blocks | length) == 1 and .blocks[0].block_id == $id then .blocks[0].window_id // empty else empty end' <<<"$blocks_json")" || return 1
-	reply=("$window_id")
 }
 
 # Prints the panes in a team's tab, in the same format as `rex block ls`. With no
@@ -1977,39 +1933,6 @@ _hcom_team_forget_other_tasks_in_session() {
 			trash "$task_session_file" || return 1
 		fi
 	done
-}
-
-# Names the launcher's Rex session and tab after the team and labels the
-# launcher's pane as the orchestrator.
-#
-# @param  {string}  command_name
-#     Public command shown if Rex cannot rename a resource.
-# @param  {string}  session_label
-#     Label for the session and tab.
-# @param  {string}  session_id
-#     Current Rex session.
-# @param  {string}  current_block
-#     Pane running the launcher.
-# @param  {string}  window_id
-#     Tab containing the launcher pane.
-_hcom_team_prepare_current_session() {
-	# Public command shown in diagnostics.
-	local command_name="$1"
-	# Label for the session and tab.
-	local session_label="$2"
-	# Current Rex session.
-	local session_id="$3"
-	# Pane running the launcher.
-	local current_block="$4"
-	# Tab containing the launcher pane.
-	local window_id="$5"
-
-	if ! command rex session rename "$session_id" "$session_label" ||
-		! command rex window rename -s "$session_id" "$window_id" "$session_label" ||
-		! command rex block rename -s "$session_id" "$current_block" orchestrator; then
-		_hcom_command_error "$command_name" "team session $session_id was left partly built."
-		return 1
-	fi
 }
 
 # Prints the ID of the first pane labelled with a role, or nothing when no pane has that label.

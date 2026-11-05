@@ -209,7 +209,9 @@ case "$1" in
 		;;
 	new) print -r -- "{\"session_id\":\"${HCOM_FIXTURE_REX_NEW_SESSION_ID:-session:fixture}\",\"initial_windows\":[{\"block_ids\":[\"block:orchestrator\"]}]}" ;;
 	window)
-		if [[ "$2" == ls ]]; then
+		if [[ "$2" == new ]]; then
+			print -r -- '{"window_id":"window:new","block_ids":["block:new"]}'
+		elif [[ "$2" == ls ]]; then
 			if [[ -n "${HCOM_FIXTURE_REX_WINDOWS:-}" ]]; then
 				print -r -- "$HCOM_FIXTURE_REX_WINDOWS"
 			else
@@ -296,6 +298,7 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 
 source "$repo_root/aliases.hcom-core.zsh"
 source "$repo_root/aliases.hcom-workflow.zsh"
+source "$repo_root/aliases.hcom-team-placement.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
 source "$repo_root/aliases.progress.zsh"
 functions -c _hcom_team_create_panes _hcom_team_create_panes_real
@@ -1311,7 +1314,7 @@ for role in reviewer implementer scout; do
 done
 [[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/orchestrator" ]] || fail 'new-session orchestrator prompt was saved on disk'
 [[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task -c '*'--window Fixture · fixture-task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'new Rex session was resized'
 for role in implementer reviewer scout; do
 	# The command typed into this role's pane.
@@ -1339,7 +1342,7 @@ export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id
 long_prompt="$(printf '%01500d' 0)"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex "$long_prompt" 1 codex tsk_A_B || fail 'unused current Rex session reuse'
 [[ "${reply[2]}" == fixture-origin-session ]] || fail 'current Rex session ID was not returned'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture · fixture-task'*'window rename -s fixture-origin-session window:origin Fixture · fixture-task'*'block rename -s fixture-origin-session block:origin orchestrator'*'split -s fixture-origin-session -b block:origin --split=right'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s fixture-origin-session -b block:origin'* ]] || fail 'unused current session was not relabelled and split'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block rename -s fixture-origin-session block:origin orchestrator'*'session rename fixture-origin-session Fixture'*'window rename -s fixture-origin-session window:origin Fixture task'*'split -s fixture-origin-session -b block:origin --split=right'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s fixture-origin-session -b block:origin'* ]] || fail 'unused current session was not relabelled and split'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'split -s fixture-origin-session -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'api call -s fixture-origin-session session.resize_pane {"direction":"horizontal","before_block_id":"block:origin","after_block_id":"block:implementer","ratio":0.67}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:implementer","after_block_id":"block:reviewer","ratio":0.33}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:reviewer","after_block_id":"block:scout","ratio":0.5}'* ]] || fail 'reused Rex session did not get the new-session pane proportions'
 [[ "$(grep -c 'session.resize_pane' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'reused Rex session resized an unexpected number of borders'
 orchestrator_send="$(grep '^send -s fixture-origin-session -b block:origin ' "$HCOM_FIXTURE_REX_CALLS")"
@@ -1351,19 +1354,19 @@ assert_no_role_title "$(<"$saved_orchestrator_command")" 'saved orchestrator com
 # A team without a task also builds in an unused current tab and resizes its panes to match a new session's layout.
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'bare team current Rex session reuse'
-[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'*'window rename -s fixture-origin-session window:origin Fixture'*'split -s fixture-origin-session -b block:origin --split=right'*'api call -s fixture-origin-session session.resize_pane'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'bare team did not reuse and resize the unused tab'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'*'window rename -s fixture-origin-session window:origin Team'*'split -s fixture-origin-session -b block:origin --split=right'*'api call -s fixture-origin-session session.resize_pane'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'bare team did not reuse and resize the unused tab'
 
 # A team without a task opens a new session when the current tab has two panes.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'bare team busy tab fallback'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'bare team reused or resized a busy tab'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Team --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'bare team reused or resized a busy tab'
 
 # A launcher pane without a tab ID opens a new session even when older teams are ambiguous.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","label":"shell"},{"block_id":"block:older-a","label":"orchestrator"},{"block_id":"block:older-b","label":"orchestrator"}]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'launcher without a tab ID'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'launcher without a tab ID did not open a new session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Team --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'launcher without a tab ID did not open a new session'
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
 
 # A resize failure warns and still starts all four roles in the reused tab.
@@ -1382,14 +1385,83 @@ export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-ses
 export HCOM_FIXTURE_REX_PROCESS=rex
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'plain tab reuse while Rex reports its own process'
-[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s fixture-origin-session -b block:origin'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'Rex process report blocked plain tab reuse'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s fixture-origin-session -b block:origin'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'Rex process report blocked plain tab reuse'
 unset HCOM_FIXTURE_REX_PROCESS
 
 # More than one pane keeps the existing new-session path.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'multi-pane current session fallback'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'multi-pane session was reused'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'multi-pane session was reused'
+
+# Another tab's pane prevents the launcher's session from being renamed.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:other","label":"other"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'other tab in current session fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'session with another tab was renamed'
+
+# A named repository session gets a new tab when the launcher's tab is busy.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"},{"session_id":"session:repo","label":"Fixture"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'repository session new tab'
+[[ "${reply[2]}" == session:repo && "${reply[3]}" == window:new && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s session:repo Fixture task -c '*'--focus=false --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename'* ]] || fail 'repository session was not reused with a new tab'
+
+# A plain free tab yields to a repository session elsewhere.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'repository session preferred to plain tab'
+[[ "${reply[2]}" == session:repo && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s session:repo Fixture task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* ]] || fail 'plain tab displaced the repository session'
+
+# The launcher's named session wins when more than one has the repository name.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:first","label":"Fixture"},{"session_id":"fixture-origin-session","label":"Fixture"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'launcher repository session choice'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s fixture-origin-session Fixture task'* ]] || fail 'launcher repository session did not win'
+
+# Without a launcher session, the first named repository session wins.
+unset REX_SESSION REX_BLOCK
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'first repository session choice'
+[[ "${reply[2]}" == session:first && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s session:first Fixture task'* ]] || fail 'first repository session did not win'
+export REX_SESSION=fixture-origin-session REX_BLOCK=block:origin
+
+# A stopped team's idle role panes are closed before new role panes are created.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Fixture"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"orchestrator"},{"block_id":"block:old-implementer","window_id":"window:origin","label":"implementer"},{"block_id":"block:old-reviewer","window_id":"window:origin","label":"reviewer"},{"block_id":"block:old-scout","window_id":"window:origin","label":"scout"}]}'
+print -r -- $'fixture-origin-session\nwindow:origin' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_stopped"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'idle stopped tab reuse'
+placement_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"
+[[ "${reply[2]}" == fixture-origin-session && "${reply[3]}" == window:origin && "$placement_calls" == *'block close block:old-implementer -s fixture-origin-session'*'block close block:old-reviewer -s fixture-origin-session'*'block close block:old-scout -s fixture-origin-session'*'split -s fixture-origin-session -b block:origin --split=right --ratio 33 --label implementer'*'split -s fixture-origin-session -b block:implementer --split=below --ratio 67 --label reviewer'*'split -s fixture-origin-session -b block:reviewer --split=below --ratio 50 --label scout'* && "$placement_calls" != *'window new'* ]] || fail 'stopped tab did not finish with one pane per role'
+[[ "$(print -r -- "$placement_calls" | grep -c '^block close ')" == 3 && "$(print -r -- "$placement_calls" | grep -c '^split ')" == 3 ]] || fail 'stopped tab kept an old role pane or created an extra pane'
+
+# A failed close stops the launch before the new role panes are split.
+print -r -- $'fixture-origin-session\nwindow:origin' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_stopped"
+export HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK=block:old-implementer
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture assert_command_error 'team:codex: stopped team pane block:old-implementer could not be closed; no new panes launched.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'split '* ]] || fail 'a failed pane close still created new role panes'
+unset HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK
+
+# An idle unlabelled shell in the saved tab sends the team to a new tab.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"orchestrator"},{"block_id":"block:other-shell","window_id":"window:origin","label":"shell"}]}'
+print -r -- $'fixture-origin-session\nwindow:origin' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_stopped"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'unlabelled shell tab fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s fixture-origin-session Fixture task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:other-shell'* ]] || fail 'unlabelled shell was taken as an old team pane'
+
+# A running role pane also sends the team to a new tab.
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"orchestrator"},{"block_id":"block:old-implementer","window_id":"window:origin","label":"implementer"}]}'
+print -r -- $'fixture-origin-session\nwindow:origin' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_stopped"
+export HCOM_FIXTURE_REX_PROCESS=claude
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B || fail 'busy leftover tab fallback'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s fixture-origin-session Fixture task'* ]] || fail 'running pane did not force a new tab'
+unset HCOM_FIXTURE_REX_PROCESS
+trash "$XDG_STATE_HOME/hcom-team/tasks/tsk_stopped" >/dev/null
+
+[[ "$(_hcom_team_launch_tab_name quick-review-source-notes-and-tests-extra)" == 'Review source notes and tests' && "$(_hcom_team_launch_tab_name fixture-TASK)" == 'Fixture task' && "$(_hcom_team_launch_tab_name '')" == Team ]] || fail 'team tab name derivation'
 
 unset REX_BLOCK HCOM_FIXTURE_REX_SESSIONS HCOM_FIXTURE_REX_BLOCKS
 
@@ -1496,7 +1568,7 @@ export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
 print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'closed Rex session replacement'
-[[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:fixture"* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* ]] || fail 'closed session ID or commands were not discarded'
+[[ "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/session:fixture"* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'* ]] || fail 'closed session ID or commands were not discarded'
 
 # A task whose saved session has closed is built in the current plain pane.
 export REX_BLOCK=block:origin
@@ -1505,7 +1577,7 @@ export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id
 print -r -- session:fixture > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'closed saved session current-pane reuse'
-[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* ]] || fail 'closed saved session prevented current-pane reuse'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* && "$(<"$fixture_dir/trashed")" == *"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"* ]] || fail 'closed saved session prevented current-pane reuse'
 unset REX_BLOCK HCOM_FIXTURE_REX_BLOCKS
 
 # A task can reuse its own saved session after its old orchestrator pane closes.
@@ -1518,8 +1590,23 @@ fixture_create_panes_definition="${functions[_hcom_team_create_panes]}"
 functions[_hcom_team_create_panes]="${functions[_hcom_team_create_panes_real]}"
 _hcom_launch_team team:codex orchestrator:codex reviewer:codex implementer scout continue --task tsk_A_B --yes || fail 'saved current Rex session reuse'
 functions[_hcom_team_create_panes]="$fixture_create_panes_definition"
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'session rename fixture-origin-session Agents · continue-parallel-task-teams'*'window rename -s fixture-origin-session window:origin Agents · continue-parallel-task-teams'*'block rename -s fixture-origin-session block:origin orchestrator'*'split -s fixture-origin-session -b block:origin --split=right'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'saved current session was not reused as the team session'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block ls -s fixture-origin-session --json'*'block rename -s fixture-origin-session block:origin orchestrator'*'session rename fixture-origin-session Agents'*'window rename -s fixture-origin-session window:origin Continue parallel task teams'*'split -s fixture-origin-session -b block:origin --split=right'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'saved current session was not reused as the team session'
 [[ "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == $'fixture-origin-session\nwindow:origin' ]] || fail 'task was not saved to its reused tab'
+
+# Continuing in an older named session keeps its tab and restores both names.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Fixture · older task"}]}'
+export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:orchestrator","window_id":"window:older","label":"orchestrator"},{"block_id":"block:implementer","window_id":"window:older","label":"implementer"},{"block_id":"block:reviewer","window_id":"window:older","label":"reviewer"},{"block_id":"block:scout","window_id":"window:older","label":"scout"}]}'
+print -r -- $'fixture-origin-session\nwindow:older' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_older_fixture"
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task fixture-origin-session 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_older_fixture || fail 'older session name restoration'
+[[ "${reply[2]}" == fixture-origin-session && "${reply[3]}" == window:older && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'*'window rename -s fixture-origin-session window:older Fixture task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'window new'* ]] || fail 'older session was not renamed in place'
+
+# A repository session elsewhere leaves the older session name alone.
+export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Fixture · older task"},{"session_id":"session:repo","label":"Fixture"}]}'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task fixture-origin-session 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_older_fixture || fail 'older session name taken'
+[[ "${reply[2]}" == fixture-origin-session && "${reply[3]}" == window:older && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window rename -s fixture-origin-session window:older Fixture task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'window new'* ]] || fail 'older session name was changed despite a repository session'
+trash "$XDG_STATE_HOME/hcom-team/tasks/tsk_older_fixture" >/dev/null
 unset REX_BLOCK HCOM_FIXTURE_REX_BLOCKS
 
 # An open session without an orchestrator pane is replaced after every old role is checked.
@@ -1680,7 +1767,7 @@ cleanup tsk_legacy >/dev/null || fail 'cleanup of an older team whose tab closed
 print -r -- session:shared > "$XDG_STATE_HOME/hcom-team/tasks/tsk_legacy"
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:shared 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_legacy || fail 'relaunch of an older team whose tab closed'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s session:shared -b block:b-'* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b" && "$(<"$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout")" == team:b-scout ]] || fail 'older team relaunch adopted the remaining team'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s session:shared -b block:b-'* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_team_b" && "$(<"$XDG_STATE_HOME/hcom-team/session:shared/window:b/scout")" == team:b-scout ]] || fail 'older team relaunch adopted the remaining team'
 
 # An older team's cleanup leaves a newer team's idle panes when the newer team's orchestrator pane has closed.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:b-implementer","window_id":"window:b","label":"implementer"},{"block_id":"block:b-reviewer","window_id":"window:b","label":"reviewer"},{"block_id":"block:b-scout","window_id":"window:b","label":"scout"}]}'
@@ -1698,7 +1785,7 @@ printf 'session:shared\nwindow:gone\n' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_cl
 mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:gone"
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:shared 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_closed_tab || fail 'relaunch after a saved tab closed'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture · fixture-task'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab" && ! -e "$XDG_STATE_HOME/hcom-team/session:shared/window:gone" ]] || fail 'closed saved tab blocked relaunch or kept its state'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab" && ! -e "$XDG_STATE_HOME/hcom-team/session:shared/window:gone" ]] || fail 'closed saved tab blocked relaunch or kept its state'
 printf 'session:shared\nwindow:gone\n' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_closed_tab"
 mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:gone"
 : > "$HCOM_FIXTURE_REX_CALLS"
@@ -1788,11 +1875,11 @@ unset HCOM_FIXTURE_CLEANUP_FAIL
 unfunction trash
 unset HCOM_FIXTURE_REX_SESSIONS
 
-# Root teams create a new session even when another session has the same label.
+# Root teams use the repository session when one is already open.
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:old-root","label":"Fixture"}]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'root Rex session creation'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'root team reused or closed another session'
+[[ "${reply[2]}" == session:old-root && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s session:old-root Team -c '*'--focus=false --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'root team did not reuse the repository session'
 unset HCOM_FIXTURE_REX_SESSIONS
 
 mkdir -p "$XDG_STATE_HOME/hcom-team/fixture-origin-session"

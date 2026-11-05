@@ -186,6 +186,7 @@ Reports:
 | `aliases.doctor.zsh`       | The `zsh:doctor` health check.                                                                                                |
 | `aliases.hcom-core.zsh`    | Shared HCOM launch helpers, role prompts and tag resolution.                                                                  |
 | `aliases.hcom-team.zsh`    | Rex team layout and configured HCOM role launchers.                                                                           |
+| `aliases.hcom-team-placement.zsh` | Rex team session placement and tab names.                                                                        |
 | `aliases.hcom-learn.zsh`   | Source-learning learner and Scout launchers.                                                                                  |
 | `aliases.hcom-plan.zsh`    | HCOM plan-review launchers and planning-peer prompts.                                                                         |
 | `aliases.hcom-session.zsh` | HCOM agent resolution and stopped-agent session commands.                                                                     |
@@ -214,7 +215,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 ## Commands
 
-Run `team` or `cont` from inside Rex to open a team in its own Rex session. The orchestrator takes the left two thirds, with the implementer, reviewer and scout stacked on the right. Starting the same task's team again from any shell reuses its open session when every role pane is at a shell prompt. A team without a task opens a new session each time and refuses if its role tags are already live. When the orchestrator exits, the other three agents stop and all four panes stay open at shell prompts. After changing these shell functions, open a new Rex tab so it loads the new versions.
+Run `team` or `cont` from inside Rex to put each team in a tab of the repository's Rex session. The session uses the repository name, and each tab uses a short task name or `Team` when there is no task. The orchestrator takes the left two thirds, with the implementer, reviewer and scout stacked on the right. Starting the same task's team again from any shell reuses its open tab when every role pane is at a shell prompt. A team without a task follows the same tab placement and refuses if its role tags are already live. When the orchestrator exits, the other three agents stop and all four panes stay open at shell prompts. After changing these shell functions, open a new Rex tab so it loads the new versions.
 <!-- commands:start -->
 
 ### agent
