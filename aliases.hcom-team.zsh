@@ -1,5 +1,10 @@
 # hcom team layout and lifecycle commands.
 
+# The text at the start of a saved teammate file's first line. The rest of
+# that line names the teammate's agent, how its account was chosen and the
+# account it last started on. A file without it holds only a command to replay.
+typeset -g _HCOM_TEAM_ROLE_HEADER='# hcom-team-role-v2'
+
 # Returns the exact role tags for a team scope.
 #
 # @param  {string}  command_name
@@ -721,7 +726,10 @@ _hcom_launch_team() {
 	local -a claude_accounts codex_accounts  # Per-provider heavier and lighter account, then the exhausted flag, from the quota allocator.
 	local claude_allocation codex_allocation  # Space-separated heavier account, lighter account, and exhausted flag.
 	local -a failed_providers  # Providers whose probe failed, so their pair is the default-account fallback rather than a measurement.
+	# Whether the launching shell selected the accounts or left them for allocation.
+	local allocation_mode=forced
 	if [[ -z "${CLAUDE_CONFIG_DIR:-}" && -z "${CODEX_HOME:-}" ]]; then
+		allocation_mode=auto
 		case "$team_provider" in
 			mixed)
 				if ! claude_allocation="$(_hcom_quota_allocate "$command_name" claude)"; then
@@ -879,7 +887,7 @@ _hcom_launch_team() {
 	# A non-zero return reports a tag or Rex launch failure.
 	# Accounts and providers were paired to roles above; the orchestrator's own
 	# pair is passed separately below.
-	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_session_id" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$orchestrator_launcher" "$initial_prompt" "$orchestrator_account" "$orchestrator_provider" "$requested_task_id" || return $?
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_session_id" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$orchestrator_launcher" "$initial_prompt" "$orchestrator_account" "$orchestrator_provider" "$requested_task_id" "$allocation_mode" || return $?
 	# Rex session ID returned for the new team.
 	local team_session_id="${reply[2]}"
 	# Tab holding the new team, or empty when Rex gave no tab ID.
@@ -1353,6 +1361,8 @@ _hcom_select_in_progress_task() {
 # @param  {string}  task_id
 #     The task the team works on, or empty for a team without one. It is
 #     stored so a later launch for the same task can find this session.
+# @param  {string}  allocation_mode
+#     Whether the launcher selected accounts by usage or kept the shell's account.
 _hcom_team_create_panes() {
 	# Public command responsible for the pane launch.
 	local command_name="$1"
@@ -1391,6 +1401,8 @@ _hcom_team_create_panes() {
 	local orchestrator_provider="${16:-claude}"
 	# Task the team works on, or empty.
 	local task_id="${17:-}"
+	# Whether the launcher chose the accounts by usage (auto) or kept the shell's (forced).
+	local allocation_mode="${18:-auto}"
 
 	# The team's directory, quoted for each typed role command.
 	local working_directory_suffix=" ${(qq)${working_directory:-$PWD}}"
@@ -1456,10 +1468,20 @@ _hcom_team_create_panes() {
 		_hcom_command_error "$command_name" "team session $session_id was left partly built."
 		return 1
 	fi
+	# The commands saved for team-reset. An auto-allocated team saves them without
+	# the account prefix, because team-reset chooses the account again.
+	local reviewer_saved_command="$reviewer_command"
+	local implementer_saved_command="$implementer_command"
+	local scout_saved_command="$scout_command"
+	if [[ "$allocation_mode" == auto ]]; then
+		reviewer_saved_command="${team_env}$reviewer_launcher$working_directory_suffix"
+		implementer_saved_command="${team_env}$implementer_launcher$working_directory_suffix"
+		scout_saved_command="${team_env}$scout_launcher$working_directory_suffix"
+	fi
 	if ! {
-		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_command" &&
-		_hcom_team_save_role "$session_id" "$window_id" implementer "$implementer_command" &&
-		_hcom_team_save_role "$session_id" "$window_id" scout "$scout_command" &&
+		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_saved_command" "$reviewer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$reviewer_provider" "$reviewer_account")" &&
+		_hcom_team_save_role "$session_id" "$window_id" implementer "$implementer_saved_command" "$implementer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$implementer_provider" "$implementer_account")" &&
+		_hcom_team_save_role "$session_id" "$window_id" scout "$scout_saved_command" "$scout_provider" "$allocation_mode" "$(_hcom_team_launch_account "$scout_provider" "$scout_account")" &&
 		_hcom_team_type_role "$session_id" "$reviewer_block" "$reviewer_command" &&
 		_hcom_team_type_role "$session_id" "$implementer_block" "$implementer_command" &&
 		_hcom_team_type_role "$session_id" "$scout_block" "$scout_command" &&
@@ -1472,14 +1494,41 @@ _hcom_team_create_panes() {
 	reply=("$team_tags" "$session_id" "$window_id")
 }
 
+# Prints the account to name in a role's saved header: the allocated account, or
+# for a forced launch the account the launching shell selected.
+#
+# @param  {string}  provider
+#     Agent whose config directory may identify account 2.
+# @param  {string}  account
+#     Account selected by allocation, or empty for a forced launch.
+_hcom_team_launch_account() {
+	# Agent whose config directory may identify account 2.
+	local provider="$1"
+	# Account chosen by allocation, when present.
+	local account="$2"
+
+	if [[ -n "$account" ]]; then
+		print -r -- "$account"
+	elif [[ "${HCOM_ACCOUNT:-}" == 1 || "${HCOM_ACCOUNT:-}" == 2 ]]; then
+		print -r -- "$HCOM_ACCOUNT"
+	elif [[ "$provider" == claude && "${CLAUDE_CONFIG_DIR:-}" == "$HOME/.claude-2" ]] ||
+		[[ "$provider" == codex && "${CODEX_HOME:-}" == "$HOME/.codex-2" ]]; then
+		print -r -- 2
+	else
+		print -r -- default
+	fi
+}
+
 # Prints the account settings to type before a role's launch command.
 #
 # Rex panes start fresh shells that don't inherit this shell's exported
 # environment, so an active account override has to be typed with the command.
 #
 # @param  {string}  account
-#     The role's account number. Account 2 selects that provider's second
-#     config directory; any other value keeps the calling shell's override.
+#     The role's account. Account 2 selects that provider's second config
+#     directory. An empty account keeps the calling shell's override, which is
+#     how forced launches keep their account. Any other value sets only
+#     HCOM_ACCOUNT.
 # @param  {string}  provider
 #     The role's provider, claude or codex.
 _hcom_team_role_environment() {
@@ -1499,7 +1548,11 @@ _hcom_team_role_environment() {
 			print -rn -- "CODEX_HOME=${(q)account_directory} HCOM_ACCOUNT=2 "
 		fi
 	else
-		print -rn -- "$(_hcom_account_environment)HCOM_ACCOUNT=${account:-default} "
+		if [[ -n "$account" ]]; then
+			print -rn -- "HCOM_ACCOUNT=$account "
+		else
+			print -rn -- "$(_hcom_account_environment)HCOM_ACCOUNT=${HCOM_ACCOUNT:-default} "
+		fi
 	fi
 }
 
@@ -2162,8 +2215,10 @@ _hcom_team_forget_session() {
 	fi
 }
 
-# Saves a role's launch command so its pane can run it now or replay it after
-# a reset.
+# Saves what a reset needs to start a role again. The orchestrator's file holds
+# its launch command. A teammate's file starts with a header line naming its
+# agent, how its account was chosen and the account it last started on. The
+# command follows on the next line.
 #
 # @param  {string}  session_id
 #     Rex session that contains the role's pane.
@@ -2171,8 +2226,16 @@ _hcom_team_forget_session() {
 #     Tab containing the role's pane, when known.
 # @param  {string}  role
 #     Role used to name the saved command file.
-# @param  {string}  launch_command
-#     Exact command to run in the role's pane.
+# @param  {string}  saved_command
+#     Exact command to save. The caller removes the account prefix for auto allocation.
+# @param  {string}  provider
+#     Teammate's agent, or empty for the orchestrator, whose file is run with
+#     source and so stays a plain command.
+# @param  {string}  allocation_mode
+#     Whether the account was chosen by usage (auto) or forced by the launching
+#     shell (forced).
+# @param  {string}  account
+#     The account the teammate is starting on: default, 1 or 2.
 _hcom_team_save_role() {
 	# Rex session that contains the role's pane.
 	local session_id="$1"
@@ -2180,13 +2243,23 @@ _hcom_team_save_role() {
 	local window_id="$2"
 	# Role that names the saved command file.
 	local role="$3"
-	# Exact command to replay on reset.
-	local launch_command="$4"
+	# Exact command to keep for a later reset.
+	local saved_command="$4"
+	# Teammate's agent, or empty for the orchestrator.
+	local provider="${5:-}"
+	# Whether the account was chosen by usage or forced by the launching shell.
+	local allocation_mode="${6:-}"
+	# The account the teammate is starting on.
+	local account="${7:-default}"
 	# Folder holding this team's saved teammate commands.
 	local state_directory="$(_hcom_team_state_directory "$session_id" "$window_id")"
 
 	mkdir -p "$state_directory" || return 1
-	print -rn -- "$launch_command" > "$state_directory/$role" || return 1
+	if [[ -n "$provider" ]]; then
+		print -rn -- "$_HCOM_TEAM_ROLE_HEADER $provider $allocation_mode $account"$'\n'"$saved_command" > "$state_directory/$role" || return 1
+	else
+		print -rn -- "$saved_command" > "$state_directory/$role" || return 1
+	fi
 }
 
 # Prints the folder that holds a team's saved launch commands: one folder per
@@ -2255,11 +2328,14 @@ _hcom_team_type_role() {
 	command rex send-key -s "$session_id" -b "$block_id" enter
 }
 
-# Stops one teammate and starts it again in the same Rex pane with the command it was first launched with.
+# Stops one teammate and starts it again in the same Rex pane. An auto-allocated
+# teammate keeps its saved account while that account has at least 5% usage
+# left, and otherwise moves to the agent's other account, which becomes its saved
+# account. A forced account or an older saved command is replayed as saved.
 #
-# Refuses without touching the pane when no pane has the role's label or no
-# launch command was saved for it, and does not type the command when the
-# agent is still running after the stop keys.
+# Refuses without touching the pane when no pane has the role's label, no launch
+# command was saved for it, or both of its agent's accounts are under 5%. Does
+# not type the command when the agent is still running after the stop keys.
 #
 # @param  {string}  session_id
 #     Rex session that contains the team.
@@ -2280,14 +2356,25 @@ _hcom_team_reset_role() {
 	local role="$4"
 	# Pane labelled with the role.
 	local block_id
-	# File holding the command that first launched the teammate.
+	# File holding the teammate's saved launch details.
 	local command_file="$(_hcom_team_state_directory "$session_id" "$window_id")/$role"
+	# The tab whose folder holds the saved file, empty when an older team's session folder holds it.
+	local saved_window_id="$window_id"
 	if [[ -n "$window_id" && ! -d "$(_hcom_team_state_directory "$session_id" "$window_id")" ]]; then
 		# A team with no tab folder is an older team, whose commands are in the session folder.
 		command_file="$(_hcom_team_state_directory "$session_id")/$role"
+		saved_window_id=""
 	fi
-	# Launch command read from that file.
+	# Command to type in the pane, with the account chosen for this reset.
 	local launch_command
+	# The text of the role's saved file.
+	local saved_contents
+	# The account chosen for this reset and the account named in the saved file.
+	local reset_account saved_account
+	# The command without its account prefix, written back to the saved file after a switch.
+	local saved_command
+	# Agent named in the saved header.
+	local saved_provider
 
 	block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 	if [[ -z "$block_id" ]]; then
@@ -2300,14 +2387,162 @@ _hcom_team_reset_role() {
 		return 1
 	fi
 
-	launch_command="$(<"$command_file")"
+	saved_contents="$(<"$command_file")"
+	_hcom_team_reset_command "$saved_contents" "$role" "$session_id" || return 1
+	launch_command="${reply[1]}"
+	reset_account="${reply[2]:-}"
+	saved_command="${reply[3]:-}"
+	saved_provider="${reply[4]:-}"
+	saved_account="${reply[5]:-}"
 	if ! _hcom_team_stop_peers "$session_id" "$block_id"; then
 		_hcom_command_error team-reset "$role was not restarted."
 		return 1
 	fi
 
 	_hcom_team_type_role "$session_id" "$block_id" "$launch_command" || return 1
-	print -r -- "team-reset: restarted $role."
+	if [[ -n "$reset_account" && "$reset_account" != "$saved_account" ]]; then
+		print -r -- "team-reset: restarted $role on $(_hcom_team_account_label "$reset_account")."
+		if ! _hcom_team_save_role "$session_id" "$saved_window_id" "$role" "$saved_command" "$saved_provider" auto "$reset_account"; then
+			_hcom_command_error team-reset "could not save $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks $(_hcom_team_account_label "$saved_account") first."
+			return 1
+		fi
+	else
+		print -r -- "team-reset: restarted $role."
+	fi
+}
+
+# Prints the name of an account for a reset message.
+#
+# @param  {string}  account
+#     The account named in the saved command or chosen for this reset.
+_hcom_team_account_label() {
+	# Account to name in a reset message.
+	local account="$1"
+
+	if [[ "$account" == default ]]; then
+		print -r -- 'the default account'
+	else
+		print -r -- "account $account"
+	fi
+}
+
+# Sets reply to the command to type for a reset. For an auto-allocated teammate,
+# reply also holds the account chosen for this reset, the command without its
+# account prefix, the agent and the account named in the saved file. An older
+# command or a forced account gives only the command, as saved. Fails with an
+# error when the saved details are invalid or both accounts are too low.
+#
+# @param  {string}  saved_contents
+#     The text of the role's saved file.
+# @param  {string}  role
+#     Teammate role whose command is being prepared.
+# @param  {string}  session_id
+#     Rex session named in a refusal message.
+_hcom_team_reset_command() {
+	# Exact saved role file contents.
+	local saved_contents="$1"
+	# Teammate role being restarted.
+	local role="$2"
+	# Rex session named in a refusal message.
+	local session_id="$3"
+	# Header and command from a role file with account details.
+	local saved_header saved_command
+	# The agent, how the account was chosen and the account named in the saved file.
+	local saved_provider allocation_mode saved_account
+	# The header line split into words: the comment mark, the format name, the agent, the account source and the account.
+	local -a metadata
+
+	if [[ "$saved_contents" != "$_HCOM_TEAM_ROLE_HEADER "* ]]; then
+		reply=("$saved_contents")
+		return 0
+	fi
+
+	saved_header="${saved_contents%%$'\n'*}"
+	saved_command="${saved_contents#*$'\n'}"
+	metadata=(${=saved_header})
+	saved_provider="${metadata[3]:-}"
+	allocation_mode="${metadata[4]:-}"
+	saved_account="${metadata[5]:-}"
+	if [[ "$saved_contents" != *$'\n'* || -z "$saved_command" ]] ||
+		[[ "$saved_provider" != claude && "$saved_provider" != codex ]] ||
+		[[ "$allocation_mode" != auto && "$allocation_mode" != forced ]] ||
+		[[ "$saved_account" != default && "$saved_account" != 1 && "$saved_account" != 2 ]]; then
+		_hcom_command_error team-reset "invalid saved launch command for $role in Rex session $session_id."
+		return 1
+	fi
+
+	if [[ "$allocation_mode" == forced ]]; then
+		reply=("$saved_command")
+		return 0
+	fi
+
+	# The account chosen for this reset.
+	local reset_account
+	reset_account="$(_hcom_team_reset_account "$saved_provider" "$saved_account" "$role" "$session_id")" || return 1
+	reply=("$(_hcom_team_role_environment "$reset_account" "$saved_provider")$saved_command" "$reset_account" "$saved_command" "$saved_provider" "$saved_account")
+}
+
+# Prints the account a teammate should restart on: its saved account while that
+# account has at least 5% usage left, otherwise the agent's other account. Fails
+# with an error when both accounts are under 5%.
+#
+# @param  {string}  provider
+#     The teammate's agent, claude or codex.
+# @param  {string}  saved_account
+#     The account named in the teammate's saved file.
+# @param  {string}  role
+#     The teammate role named in a refusal message.
+# @param  {string}  session_id
+#     The Rex session named in a refusal message.
+_hcom_team_reset_account() {
+	# The teammate's agent.
+	local provider="$1"
+	# The account named in the saved file.
+	local saved_account="$2"
+	# The account to restart on, which stays the saved one unless it is too low.
+	local reset_account="$saved_account"
+	# The teammate role named in a refusal message.
+	local role="$3"
+	# The Rex session named in a refusal message.
+	local session_id="$4"
+	# The usage check's output, one line per account.
+	local quota_output
+	# The usage check's output split into those lines.
+	local -a quota_lines
+	# The positions of the saved account and the agent's other account in those lines.
+	local -i saved_index other_index
+	# The percentage each account can give the teammate, and one clock reading for both.
+	local saved_usable other_usable current_time
+
+	if ! quota_output="$(_hcom_quota_probe "$provider" 2>/dev/null)"; then
+		# A failed usage check says nothing about the account, so it never blocks a restart or moves the teammate.
+		print -r -- "team-reset: could not check $provider usage; kept account $saved_account." >&2
+		print -r -- "$saved_account"
+		return 0
+	fi
+	quota_lines=("${(@f)quota_output}")
+	current_time="$(_hcom_quota_now)"
+	saved_index=1
+	other_index=2
+	if [[ "$saved_account" == 2 ]]; then
+		saved_index=2
+		other_index=1
+	fi
+	saved_usable="$(_hcom_quota_usable "${quota_lines[saved_index]}" "$current_time")"
+	if (( saved_usable < 5 )); then
+		other_usable="$(_hcom_quota_usable "${quota_lines[other_index]}" "$current_time")"
+		if (( other_usable < 5 )); then
+			_hcom_command_error team-reset "$provider has under 5% usage left on both accounts; $role was not stopped."
+			return 1
+		fi
+		if [[ "$saved_account" == 2 ]]; then
+			reset_account=default
+		else
+			reset_account=2
+		fi
+	fi
+
+	print -r -- "$reset_account"
 }
 
 # Chooses the team to reset when team-reset runs in a tab with no team. Uses the
@@ -2494,7 +2729,7 @@ _hcom_team_reset_selection() {
 	reply=("$selection")
 }
 
-# @desc  Restart one teammate, or all three, in their Rex panes with the same account and checkout
+# @desc  Restart one teammate, or all three, in their Rex panes in the same checkout, switching accounts only when usage runs low
 # @cat   hcom
 #
 # Usage: team-reset scout|implementer|reviewer|all
@@ -2726,7 +2961,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]"
+		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]"
 		return 1
 	fi
 
@@ -2766,7 +3001,7 @@ _hcom_parse_team_args() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
+# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
@@ -2778,7 +3013,7 @@ team() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
+# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
@@ -2790,7 +3025,7 @@ team:codex() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
+# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #

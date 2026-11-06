@@ -153,16 +153,7 @@ _hcom_quota_allocate() {
 
 	for account_index in {1..2}; do
 		read -rA quota_values <<< "${quota_lines[account_index]}"
-		# An account with under 5% of its week left cannot take a role until the week resets.
-		# With more left, a week that resets within one session window refills before the
-		# session quota runs out, so only the session quota limits the account.
-		if (( quota_values[4] < 5 )); then
-			usable_remaining+=(0)
-		elif (( quota_values[5] - current_time <= quota_values[3] )); then
-			usable_remaining+=("${quota_values[1]}")
-		else
-			usable_remaining+=("$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))")
-		fi
+		usable_remaining+=("$(_hcom_quota_usable "${quota_lines[account_index]}" "$current_time")")
 		weekly_remaining+=("${quota_values[4]}")
 		weekly_reset+=("${quota_values[5]}")
 		weekly_window+=("${quota_values[6]}")
@@ -235,6 +226,34 @@ _hcom_quota_allocate() {
 	provider_exhausted=$(( usable_remaining[1] < 5 && usable_remaining[2] < 5 ))
 
 	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
+}
+
+# Prints the percentage of usage one account can give a role. That is 0 when
+# under 5% of its week is left, even if the week resets soon. It is the session
+# percentage when the week resets within one session window, because the weekly
+# quota refills before the session quota runs out. Otherwise it is the lower of
+# the session and weekly percentages.
+#
+# @param  {string}  quota_line
+#     The account's probe line: the session's remaining percentage, reset time
+#     and window length, then the same three values for the week.
+# @param  {number}  current_time
+#     Unix time used to compare the weekly reset with the session window.
+_hcom_quota_usable() {
+	# The account's six probe values.
+	local -a quota_values
+	# The clock reading shared with the account's other quota comparisons.
+	local -i current_time="$2"
+
+	read -rA quota_values <<< "$1"
+
+	if (( quota_values[4] < 5 )); then
+		print -r -- 0
+	elif (( quota_values[5] - current_time <= quota_values[3] )); then
+		print -r -- "${quota_values[1]}"
+	else
+		print -r -- "$(( quota_values[1] < quota_values[4] ? quota_values[1] : quota_values[4] ))"
+	fi
 }
 
 # Prints the current Unix time. Tests replace this function to fix the clock.
