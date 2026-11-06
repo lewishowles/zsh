@@ -343,6 +343,67 @@ _hcom_team_continuation_prompt() {
 	esac
 }
 
+# Prints the current handoffs and checkout status for a continuing team.
+# A read that fails prints a "Missing" line, so the team cannot mistake it for
+# an empty handoff or a clean checkout.
+#
+# @param  {string}  working_directory
+#     Checkout where the team's roles will run.
+# @param  {string}  selected_task_id
+#     Task whose handoff to include, or empty when no task was selected.
+_hcom_team_startup_facts() {
+	local working_directory="$1"  # Checkout used for all three reads.
+	local selected_task_id="${2:-}"  # Task selected for this launch, if any.
+	local git_changes  # Short Git status for the selected checkout.
+
+	if [[ -n "$selected_task_id" ]]; then
+		print -r -- "Task handoff for ${selected_task_id}:"
+		_hcom_team_print_handoff "$working_directory" task "$selected_task_id"
+		print -r -- ''
+	fi
+
+	print -r -- 'Project handoff:'
+	_hcom_team_print_handoff "$working_directory" project
+	print -r -- ''
+
+	print -r -- "Git status for ${working_directory}:"
+	if git_changes="$(git -C "$working_directory" status --short 2>/dev/null)"; then
+		if [[ -n "$git_changes" ]]; then
+			print -r -- "$git_changes"
+		else
+			print -r -- 'Clean checkout (no changes).'
+		fi
+	else
+		print -r -- 'Missing: Git status could not be read.'
+	fi
+}
+
+# Prints one handoff as JSON, or a "Missing" line when it cannot be read.
+#
+# @param  {string}  working_directory
+#     Checkout whose handoff to read.
+# @param  {string}  kind
+#     Which handoff to read: task or project.
+# @param  {string}  task_id
+#     Task to read when kind is task.
+_hcom_team_print_handoff() {
+	local working_directory="$1"  # Checkout containing the handoff.
+	local kind="$2"  # Handoff kind used for the command and missing-data line.
+	local task_id="${3:-}"  # Selected task for a task handoff.
+	local handoff  # Full handoff response.
+	local -a task_args  # Task selector, empty for the project handoff.
+
+	if [[ "$kind" == task ]]; then
+		task_args=(--task "$task_id")
+	fi
+	if handoff="$(cd "$working_directory" && progress context get "${task_args[@]}" --json 2>/dev/null)" \
+		&& jq -e '.ok == true' >/dev/null 2>&1 <<<"$handoff"; then
+		print -r -- "$handoff"
+	else
+		print -r -- "Missing: the $kind handoff could not be read."
+	fi
+}
+
 # Refuses a named task in the original checkout when a live root team or
 # another in-progress task's team is already using it.
 #
@@ -643,7 +704,10 @@ _hcom_launch_team() {
 	# prompt, so the orchestrator receives only the human's launch note.
 	if [[ -n "$launch_mode" && "${quick_task_created:-0}" != 1 ]]; then
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
+		local startup_facts  # Current handoffs and status for the checkout the team will use.
 		continuation_prompt="$(_hcom_team_continuation_prompt "$command_name" "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$selected_task_id" "$team_scope_directory")" || return 1
+		startup_facts="$(_hcom_team_startup_facts "${working_directory:-$team_scope_directory}" "$selected_task_id")"
+		continuation_prompt="${continuation_prompt}"$'\n\n'"${startup_facts}"
 
 		if [[ -n "$initial_prompt" ]]; then
 			initial_prompt="${continuation_prompt}"$'\n\n'"Note from the human:"$'\n'"${initial_prompt}"
@@ -1382,18 +1446,15 @@ _hcom_team_create_panes() {
 	# It changes to the team checkout first, because a reused pane is still in
 	# the folder the launcher ran from.
 	local orchestrator_command="cd -- ${(qq)team_scope_directory} && ${orchestrator_env}${team_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
-	# Line typed into the orchestrator pane. A reused pane is still running the
-	# launcher, and macOS holds only about 1,024 bytes of typed input until it
-	# finishes, so that pane gets a short line that runs the saved command.
-	local orchestrator_typed_command="$orchestrator_command"
-	if [[ "$session_id" == "${REX_SESSION:-}" && "$orchestrator_block" == "${REX_BLOCK:-}" ]]; then
-		# Saved orchestrator command file that the short typed line runs.
-		local saved_orchestrator_command="$(_hcom_team_state_directory "$session_id" "$window_id")/orchestrator"
-		if ! _hcom_team_save_role "$session_id" "$window_id" orchestrator "$orchestrator_command"; then
-			_hcom_command_error "$command_name" "team session $session_id was left partly built."
-			return 1
-		fi
-		orchestrator_typed_command="source ${(qq)saved_orchestrator_command}"
+	# File holding the full orchestrator command, which includes the launch prompt.
+	local saved_orchestrator_command="$(_hcom_team_state_directory "$session_id" "$window_id")/orchestrator"
+	# Line typed into the orchestrator pane. It stays short because macOS may
+	# leave a long typed command unsubmitted even when Rex reports that it sent
+	# the keys.
+	local orchestrator_typed_command="source ${(qq)saved_orchestrator_command}"
+	if ! _hcom_team_save_role "$session_id" "$window_id" orchestrator "$orchestrator_command"; then
+		_hcom_command_error "$command_name" "team session $session_id was left partly built."
+		return 1
 	fi
 	if ! {
 		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_command" &&

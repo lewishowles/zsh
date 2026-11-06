@@ -104,6 +104,11 @@ if [[ "$1" == task && "$2" == list && "$3" == --status && "$4" == in-progress &&
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; then
 	print -r -- "$4" >> "$HCOM_FIXTURE_CONTEXT_CALLS"
+	[[ "${HCOM_FIXTURE_TASK_CONTEXT_FAIL:-0}" == 1 ]] && exit 1
+	if [[ -n "${HCOM_FIXTURE_HANDOFF_FILE:-}" ]]; then
+		cat "$HCOM_FIXTURE_HANDOFF_FILE"
+		exit 0
+	fi
 	if [[ "${HCOM_FIXTURE_HAS_HANDOFF:-0}" == 1 ]]; then
 		if [[ "${HCOM_FIXTURE_LONG_NEXT_STEP:-0}" == 1 ]]; then
 			print -r -- '{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"Read the saved handoff carefully and resume the selected task with enough detail to wrap this single step under its label while keeping every displayed line within the terminal width."}}'
@@ -113,6 +118,11 @@ if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; the
 	else
 		print -r -- '{"ok":true,"data":null}'
 	fi
+	exit 0
+fi
+if [[ "$1" == context && "$2" == get && "$3" == --json ]]; then
+	[[ "${HCOM_FIXTURE_PROJECT_CONTEXT_FAIL:-0}" == 1 ]] && exit 1
+	print -r -- '{"ok":true,"data":{"standing_context":"Project handoff line one\nProject handoff line two"}}'
 	exit 0
 fi
 if [[ "$1" == next && "$2" == --json ]]; then
@@ -183,6 +193,7 @@ if [[ "$1" == -C && "$3" == rev-parse && "$4" == --path-format=absolute && "$5" 
 fi
 [[ "$1" == -C && "$3" == status && ( "$4" == --short || "$4" == --porcelain ) ]] || exit 1
 print -r -- "$2 $4" >> "$HCOM_FIXTURE_GIT_CALLS"
+[[ "${HCOM_FIXTURE_GIT_STATUS_FAIL:-0}" == 1 ]] && exit 1
 if [[ "${HCOM_FIXTURE_GIT_DIRTY:-0}" == 1 ]]; then
 	print -r -- ' M fixture-file'
 fi
@@ -766,7 +777,7 @@ stopped_team_tags=''
 export HCOM_FIXTURE_HAS_HANDOFF=1
 : > "$HCOM_FIXTURE_CONTEXT_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
-[[ ! -s "$HCOM_FIXTURE_CONTEXT_CALLS" && "$launched_orchestrator_prompt" != *'progress context get --task tsk_A_B --json'* ]] || fail 'ready task launch read a leftover handoff'
+[[ "$(<"$HCOM_FIXTURE_CONTEXT_CALLS")" == tsk_A_B && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'ready task launch did not include its saved handoff'
 unset HCOM_FIXTURE_HAS_HANDOFF
 [[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_task_id" == tsk_A_B && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == $'session:new\nwindow:new' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'task launch replaced another team or lost its stored tab'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
@@ -913,6 +924,9 @@ prior_pane_calls="$pane_calls"
 cont tsk_a_B --yes || fail 'public cont task ID did not launch'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_a_B && "$launched_team_tags" == *'-another-task-orchestrator|'* ]] || fail 'public cont task ID selected the wrong task or team label'
 [[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'public cont task ID lost the selected task handoff'
+[[ "$launched_orchestrator_prompt" == *$'Task handoff for tsk_a_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'public cont task ID lost the full task handoff'
+[[ "$launched_orchestrator_prompt" == *$'Project handoff:\n{"ok":true,"data":{"standing_context":"Project handoff line one\\nProject handoff line two"}}'* ]] || fail 'public cont task ID lost the full project handoff'
+[[ "$launched_orchestrator_prompt" == *"Git status for $fixture_dir/tsk_a_B:"$'\nClean checkout (no changes).'* ]] || fail 'public cont task ID missed its checkout status'
 cont tsk_a_B </dev/null &> "$fixture_dir/cont-task-output" || fail 'public cont task ID without --yes did not launch'
 [[ "$(<"$fixture_dir/cont-task-output")" != *'Start this task?'* ]] || fail 'public cont task ID without --yes showed a confirmation'
 # A blocked task can resume only when a saved handoff exists.
@@ -936,6 +950,7 @@ pbpaste() { print -rn -- 'Copied handoff messages'; }
 handoff tsk_a_B || fail 'named handoff with a checkout did not launch'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named handoff ignored its recorded checkout'
 [[ "$launched_orchestrator_prompt" == *'The handover is for task tsk_a_B.'* ]] || fail 'named handoff did not name its task'
+[[ "$launched_orchestrator_prompt" == *'Task handoff for tsk_a_B:'* && "$launched_orchestrator_prompt" == *'Project handoff:'* && "$launched_orchestrator_prompt" == *"Git status for $fixture_dir/tsk_a_B:"* ]] || fail 'named handover missed its startup facts'
 mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B.old"
 
 # A started task without a recorded checkout must stay in its original checkout.
@@ -986,7 +1001,21 @@ unset HCOM_FIXTURE_SEVERAL_TASKS
 HCOM_FIXTURE_NEXT_STATUS=ready
 export HCOM_FIXTURE_NO_ACTIVE_TASKS=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue without an in-progress task'
-[[ "$launched_orchestrator_prompt" == "$plain_ready_prompt" ]] || fail 'plain continue without an in-progress task changed the ready prompt'
+[[ "$launched_orchestrator_prompt" == "$plain_ready_prompt"* && "$launched_orchestrator_prompt" != *'Task handoff for'* && "$launched_orchestrator_prompt" == *'Project handoff:'* && "$launched_orchestrator_prompt" == *"Git status for $PWD:"* ]] || fail 'plain continue without a selected task missed its startup facts'
+
+# A handoff or status that cannot be read is named in the prompt instead of left out.
+export HCOM_FIXTURE_PROJECT_CONTEXT_FAIL=1
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue with unreadable startup facts'
+[[ "$launched_orchestrator_prompt" == *'Missing: the project handoff could not be read.'* ]] || fail 'plain continue hid the failed project handoff'
+unset HCOM_FIXTURE_PROJECT_CONTEXT_FAIL
+
+# Give tsk_A_B its recorded checkout back for the named continue, then hide it again.
+mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B"
+export HCOM_FIXTURE_TASK_CONTEXT_FAIL=1 HCOM_FIXTURE_GIT_STATUS_FAIL=1
+_hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named continue with unreadable startup facts'
+[[ "$launched_orchestrator_prompt" == *'Missing: the task handoff could not be read.'* && "$launched_orchestrator_prompt" == *'Missing: Git status could not be read.'* && "$launched_orchestrator_prompt" != *'Clean checkout (no changes).'* ]] || fail 'named continue hid failed startup reads'
+unset HCOM_FIXTURE_TASK_CONTEXT_FAIL HCOM_FIXTURE_GIT_STATUS_FAIL
+mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B.old"
 unset HCOM_FIXTURE_NO_ACTIVE_TASKS
 prior_pane_calls="$pane_calls"
 export HCOM_FIXTURE_WORKTREE_ERROR=git-binding-failed
@@ -1312,7 +1341,7 @@ for role in reviewer implementer scout; do
 	role_command="$(<"$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/$role")"
 	assert_no_role_title "$role_command" "$role reset command still sets or suppresses a title"
 done
-[[ ! -e "$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/orchestrator" ]] || fail 'new-session orchestrator prompt was saved on disk'
+[[ -s "$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/orchestrator" ]] || fail 'new-session orchestrator command was not saved on disk'
 [[ "$(grep -c '^send-key .* enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'Rex did not submit all four role commands'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'new Fixture -c '*'--window Fixture task --json'*'split -s session:fixture -b block:orchestrator --split=right --ratio 33 --label implementer --focus=false --json'*'split -s session:fixture -b block:implementer --split=below --ratio 67 --label reviewer --focus=false --json'*'split -s session:fixture -b block:reviewer --split=below --ratio 50 --label scout --focus=false --json'*'focus -s session:fixture block:orchestrator' ]] || fail 'Rex pane layout or focus changed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'new Rex session was resized'
@@ -1323,16 +1352,40 @@ for role in implementer reviewer scout; do
 done
 orchestrator_send="$(grep '^send -s session:fixture -b block:orchestrator ' "$HCOM_FIXTURE_REX_CALLS")"
 assert_no_role_title "$orchestrator_send" 'orchestrator pane still sets or suppresses a title'
-# Exact directory at the end of the typed orchestrator command.
+# Exact directory in the saved orchestrator command.
 checkout_path="$fixture_dir/project"
-# Exact first prompt at the end of that command.
+# Exact first prompt in the saved orchestrator command.
 prompt_text='Continue fixture task.'
 # Directory and prompt as the shell sees them.
 expected_suffix=" ${(qq)checkout_path} ${(qq)prompt_text}"
-# One typed role command.
+# File that the short typed line runs.
+saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/session:fixture/window:fixture/orchestrator"
+[[ "$orchestrator_send" == "send -s session:fixture -b block:orchestrator source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 ]] || fail 'new pane received a long orchestrator command'
+[[ "$(<"$saved_orchestrator_command")" == *"$expected_suffix" ]] || fail 'saved orchestrator command lost its quoted checkout or prompt'
+[[ "$(<"$saved_orchestrator_command")" == *'HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '* ]] || fail 'saved orchestrator command lost its team scope'
+assert_no_role_title "$(<"$saved_orchestrator_command")" 'saved orchestrator command still sets or suppresses a title'
+
+# A handoff with shell punctuation and a long line survives the saved command.
+# Handoff text that the shell would change if the quoting were wrong.
+harsh_text=$'Apostrophe '\'' backtick ` dollar $HOME substitution $(date) double "quote" slash \\n bang !!\nsecond line\n'
+harsh_text+="$(printf '%02100d' 0)"
+# That text in the JSON form that progress prints.
+harsh_handoff="$(jq -n --arg next_step "$harsh_text" '{ok:true,data:{next_step:$next_step}}')"
+print -rn -- "$harsh_handoff" > "$fixture_dir/harsh-handoff.json"
+export HCOM_FIXTURE_HANDOFF_FILE="$fixture_dir/harsh-handoff.json"
+# Startup facts holding that handoff, used as the launch prompt.
+harsh_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B)"
+unset HCOM_FIXTURE_HANDOFF_FILE
+[[ "$harsh_prompt" == *"$harsh_handoff"* ]] || fail 'startup facts changed the harsh handoff'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex "$harsh_prompt" 1 codex tsk_A_B || fail 'long handoff pane creation'
 orchestrator_send="$(grep '^send -s session:fixture -b block:orchestrator ' "$HCOM_FIXTURE_REX_CALLS")"
-[[ "$orchestrator_send" == *"$expected_suffix" ]] || fail 'orchestrator command lost its quoted checkout or prompt'
-[[ "$orchestrator_send" == *'HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '* ]] || fail 'orchestrator command lost its team scope'
+[[ "$orchestrator_send" == "send -s session:fixture -b block:orchestrator source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 ]] || fail 'long handoff produced a long typed command'
+(
+	_hcom_team_run_orchestrator() { print -rn -- "${@: -1}" > "$fixture_dir/replayed-handoff"; }
+	source "$saved_orchestrator_command"
+) || fail 'saved orchestrator command did not run'
+[[ "$(<"$fixture_dir/replayed-handoff")" == "$harsh_prompt" ]] || fail 'sourcing the saved command changed the harsh handoff'
 
 # A lone current pane becomes the orchestrator pane for a task team.
 export REX_BLOCK=block:origin
