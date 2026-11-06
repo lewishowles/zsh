@@ -155,6 +155,15 @@ function _docs_write() {
 	new_block=$(
 		_alias_parse --public | awk -F'\t' '
 			BEGIN { prev_cat = "" }
+			# Returns the text with each pipe escaped, so it displays as a pipe
+			# and does not start a new table column.
+			#
+			# @param  {string}  text
+			#     The cell text to escape.
+			function escape_cell(text) {
+				gsub(/\|/, "\\|", text)
+				return text
+			}
 			{
 				if ($1 != prev_cat) {
 					if (prev_cat != "") printf "\n"
@@ -163,7 +172,7 @@ function _docs_write() {
 				}
 				parameters = $5
 				sub(/^[^[:space:]]+[[:space:]]*/, "", parameters)
-				printf "| `%s` | %s | %s |\n", $2, parameters, $3
+				printf "| `%s` | %s | %s |\n", escape_cell($2), escape_cell(parameters), escape_cell($3)
 			}
 		'
 	)
