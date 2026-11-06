@@ -917,13 +917,13 @@ print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_a_B"
 export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'named in-progress task with a handoff'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'named in-progress task ignored its recorded checkout'
-[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'named in-progress task did not use the resume prompt'
+[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_a_B from the task handoff in this prompt. Do not select a new task.'* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'named in-progress task did not use the resume prompt'
 # The public cont command launches the task it is given, under that task's team label.
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 prior_pane_calls="$pane_calls"
 cont tsk_a_B --yes || fail 'public cont task ID did not launch'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_a_B && "$launched_team_tags" == *'-another-task-orchestrator|'* ]] || fail 'public cont task ID selected the wrong task or team label'
-[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'public cont task ID lost the selected task handoff'
+[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_a_B from the task handoff in this prompt. Do not select a new task.'* ]] || fail 'public cont task ID lost the resume instruction'
 [[ "$launched_orchestrator_prompt" == *$'Task handoff for tsk_a_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'public cont task ID lost the full task handoff'
 [[ "$launched_orchestrator_prompt" == *$'Project handoff:\n{"ok":true,"data":{"standing_context":"Project handoff line one\\nProject handoff line two"}}'* ]] || fail 'public cont task ID lost the full project handoff'
 [[ "$launched_orchestrator_prompt" == *"Git status for $fixture_dir/tsk_a_B:"$'\nClean checkout (no changes).'* ]] || fail 'public cont task ID missed its checkout status'
@@ -933,7 +933,7 @@ cont tsk_a_B </dev/null &> "$fixture_dir/cont-task-output" || fail 'public cont 
 print -r -- "$fixture_dir/tsk_a_B" > "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_blocked"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_blocked --yes || fail 'blocked task with a handoff did not resume'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'blocked task ignored its recorded checkout'
-[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_blocked --json'* ]] || fail 'blocked task did not use the resume prompt'
+[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_blocked from the task handoff in this prompt. Do not select a new task.'* ]] || fail 'blocked task did not use the resume prompt'
 unset HCOM_FIXTURE_HAS_HANDOFF
 prior_pane_calls="$pane_calls"
 assert_command_error 'team:codex: blocked task tsk_blocked has no saved handoff to resume.' _hcom_launch_team team:codex unused unused unused unused continue --task tsk_blocked --yes
@@ -942,7 +942,7 @@ export HCOM_FIXTURE_HAS_HANDOFF=1
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue with a sole in-progress task and handoff'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_a_B" ]] || fail 'plain continue ignored the recorded checkout'
-[[ "$launched_orchestrator_prompt" == *'progress context get --task tsk_a_B --json'* ]] || fail 'plain continue did not use the resume prompt'
+[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_a_B from the task handoff in this prompt. Do not select a new task.'* ]] || fail 'plain continue did not use the resume prompt'
 unset HCOM_FIXTURE_ONLY_TASK_ID HCOM_FIXTURE_HAS_HANDOFF
 
 # A named handoff uses the task checkout when Progress records one.
@@ -1002,6 +1002,14 @@ HCOM_FIXTURE_NEXT_STATUS=ready
 export HCOM_FIXTURE_NO_ACTIVE_TASKS=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue without an in-progress task'
 [[ "$launched_orchestrator_prompt" == "$plain_ready_prompt"* && "$launched_orchestrator_prompt" != *'Task handoff for'* && "$launched_orchestrator_prompt" == *'Project handoff:'* && "$launched_orchestrator_prompt" == *"Git status for $PWD:"* ]] || fail 'plain continue without a selected task missed its startup facts'
+
+# A blocked next task resumes from the handoff even when no task is in progress.
+HCOM_FIXTURE_NEXT_STATUS=blocked
+export HCOM_FIXTURE_HAS_HANDOFF=1
+_hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue with a blocked next task and handoff'
+[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_A_B from the task handoff in this prompt. Do not select a new task.'* && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'plain continue with a blocked next task omitted its task handoff'
+unset HCOM_FIXTURE_HAS_HANDOFF
+HCOM_FIXTURE_NEXT_STATUS=ready
 
 # A handoff or status that cannot be read is named in the prompt instead of left out.
 export HCOM_FIXTURE_PROJECT_CONTEXT_FAIL=1

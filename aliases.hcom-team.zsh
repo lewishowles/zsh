@@ -282,7 +282,7 @@ _hcom_team_continuation_prompt() {
 
 	case "$launch_mode" in
 		resume)
-			print -r -- "Retrieve the full handoff with \`progress context get --task ${resume_task_id} --json\`, then resume the interrupted work on that task from that handoff. Do not select a new task."
+			print -r -- "Resume the interrupted work on task ${resume_task_id} from the task handoff in this prompt. Do not select a new task."
 			;;
 		continue)
 			if [[ -n "$selected_task_id" ]]; then
@@ -706,7 +706,7 @@ _hcom_launch_team() {
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
 		local startup_facts  # Current handoffs and status for the checkout the team will use.
 		continuation_prompt="$(_hcom_team_continuation_prompt "$command_name" "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$selected_task_id" "$team_scope_directory")" || return 1
-		startup_facts="$(_hcom_team_startup_facts "${working_directory:-$team_scope_directory}" "$selected_task_id")"
+		startup_facts="$(_hcom_team_startup_facts "${working_directory:-$team_scope_directory}" "${selected_task_id:-$resume_task_id}")"
 		continuation_prompt="${continuation_prompt}"$'\n\n'"${startup_facts}"
 
 		if [[ -n "$initial_prompt" ]]; then
