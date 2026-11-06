@@ -451,18 +451,18 @@ _hcom_refuse_original_checkout_clashes() {
 
 # Starts a complete hcom team with the requested orchestrator and reviewer.
 #
-# Creates this layout in a Rex session named after the task, with the
+# Creates this layout in a Rex tab named after the task, with the
 # orchestrator in the left two thirds:
 #
 #   orchestrator | implementer
 #                | reviewer
 #                | scout
 #
-# Starting a task's team again reuses that task's Rex session while it is
-# open, even from another shell. A team without a task opens a new session and
-# refuses only when its role tags are already live. When the orchestrator exits,
-# the three teammates stop, its active scope is cleared, and all four panes
-# stay open at a shell prompt.
+# Starting a task's team again reuses that task's Rex tab while it is open,
+# even from another shell. A team without a task follows the same tab placement
+# and refuses only when its role tags are already live. When the orchestrator
+# exits, the three teammates stop, its active scope is cleared, and all four
+# panes stay open at a shell prompt.
 #
 # A team label with no mode and no task finds or creates the label's quick task
 # and launches the team for that task instead.
@@ -1651,10 +1651,11 @@ _hcom_team_clear_peer() {
 # Missing role panes are created there. If the saved tab has closed or lost its
 # orchestrator pane, its record and commands are forgotten. A new team goes where
 # _hcom_team_choose_new_tab decides: the launcher's tab when it is free, otherwise
-# a new tab in the repository session, or a new session when no such session
-# exists. Once every pane is built in the launcher's tab, other tasks' records
-# for that tab are moved to the trash. An open tab that is not reused is left for
-# the human to close.
+# a new tab in the repository session, or a new tab in the current session when
+# no repository session exists. It never opens a new Rex session. Once every
+# pane is built in the launcher's tab, other tasks' records for that tab are
+# moved to the trash. An open tab that is not reused is left for the human to
+# close.
 #
 # An older record has no tab ID, so its tab is found from the session's
 # orchestrator pane. The launch stops when several orchestrator panes are in
@@ -1756,18 +1757,24 @@ _hcom_team_create_session() {
 				scout) scout_block="$block_id" ;;
 			esac
 		done
+
+		# Older records hold no tab ID, so only a known tab is brought to the front.
+		if [[ -n "$orchestrator_block" && -n "$window_id" ]] && ! command rex window focus "$window_id" -s "$session_id"; then
+			_hcom_command_error "$command_name" "saved task tab $window_id could not be focused; no panes launched."
+			return 1
+		fi
 	fi
 	if [[ -z "$orchestrator_block" ]]; then
 		if [[ -n "$previous_session_id" ]]; then
 			_hcom_team_forget_session "$task_id" "$previous_session_id" "$previous_window_id" "$previous_legacy_record" || return 1
 		fi
-		# Panes found in the earlier session stay there; the new session gets its own.
+		# Panes found in the earlier tab stay there; the new tab gets its own.
 		implementer_block=""
 		reviewer_block=""
 		scout_block=""
 		_hcom_team_choose_new_tab "$repository_name" "$sessions_json" || return 1
 		placement=("${reply[@]}")
-		_hcom_team_open_chosen_tab "$command_name" "$repository_name" "$tab_name" "$team_scope_directory" "${placement[@]}" || return 1
+		_hcom_team_open_chosen_tab "$command_name" "$tab_name" "$team_scope_directory" "${placement[@]}" || return 1
 		session_id="${reply[1]}"
 		window_id="${reply[2]}"
 		orchestrator_block="${reply[3]}"
@@ -1807,7 +1814,7 @@ _hcom_team_create_session() {
 	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block" "$window_id")
 }
 
-# Gives a team built in the launcher's tab the same pane sizes as a new session:
+# Gives a team built in the launcher's tab the same pane sizes as a new tab:
 # two thirds of the width for the orchestrator and three equal panes on the
 # right. Rex ignores the split ratio in a tab that is already on screen, so the
 # borders are moved once all four panes exist.

@@ -1,9 +1,9 @@
 # Chooses Rex sessions and tabs for HCOM teams and restores their names.
 
-# Chooses the launcher's reusable tab or an existing repository session.
+# Chooses the launcher's reusable tab or an existing Rex session.
 # Sets reply=(session ID, reusable tab ID, leftover role pane IDs). The session
-# ID is empty when a new session is needed, and the tab ID is empty when a new
-# tab is needed.
+# ID is the repository's session when one exists, otherwise the launcher's
+# session. The tab ID is empty when a new tab is needed.
 #
 # @param  {string}  repository_name
 #     Name of the repository session.
@@ -20,10 +20,6 @@ _hcom_team_choose_new_tab() {
 	local -a leftover_blocks
 	# Session with the repository name, preferring the launcher's session.
 	local named_session=""
-	# Pane listing for the launcher's session.
-	local blocks_json
-	# Number of panes in the launcher's session.
-	local block_count
 
 	if [[ -n "${REX_BLOCK:-}" ]] && jq -e --arg id "${REX_SESSION:-}" '.sessions[] | select(.session_id == $id)' >/dev/null <<<"$sessions_json"; then
 		_hcom_team_unused_current_window "$REX_SESSION" "$REX_BLOCK" || return 1
@@ -41,20 +37,10 @@ _hcom_team_choose_new_tab() {
 		current_window_id=""
 	fi
 
-	# A session with another name can be renamed only when the launcher is its sole pane.
-	if [[ -n "$current_window_id" && "$named_session" != "$REX_SESSION" ]]; then
-		blocks_json="$(command rex block ls -s "$REX_SESSION" --json)" || return 1
-		block_count="$(jq -er '.blocks | length' <<<"$blocks_json")" || return 1
-
-		if [[ "$block_count" != 1 ]]; then
-			current_window_id=""
-		fi
-	fi
-
 	if [[ -n "$current_window_id" ]]; then
 		reply=("$REX_SESSION" "$current_window_id" "${leftover_blocks[@]}")
 	else
-		reply=("$named_session" "")
+		reply=("${named_session:-${REX_SESSION:-}}" "")
 	fi
 }
 
@@ -150,20 +136,18 @@ _hcom_team_named_session_id() {
 	jq -r --arg name "$repository_name" --arg preferred_id "$preferred_id" '([.sessions[] | select(.label == $name and .session_id == $preferred_id) | .session_id][0] // [.sessions[] | select(.label == $name) | .session_id][0]) // empty' <<<"$sessions_json"
 }
 
-# Gets the chosen tab ready: closes a reused tab's leftover panes, or opens the
-# new tab or session, then labels the first pane as orchestrator.
+# Gets the chosen tab ready: closes a reused tab's leftover panes, or opens a
+# new tab, then labels the first pane as orchestrator.
 # Sets reply=(session ID, tab ID, orchestrator pane, reused launcher tab).
 #
 # @param  {string}  command_name
 #     Public command used in errors.
-# @param  {string}  repository_name
-#     Name given to a new session.
 # @param  {string}  tab_name
 #     Name given to a new tab.
 # @param  {string}  team_scope_directory
-#     Directory opened by a new session or tab.
+#     Directory opened by a new tab.
 # @param  {string}  session_id
-#     Chosen session, or empty to open a new one.
+#     Chosen existing session.
 # @param  {string}  window_id
 #     The launcher's tab when it is being reused, or empty to open a new tab.
 # @param  {string}  ...
@@ -171,22 +155,20 @@ _hcom_team_named_session_id() {
 _hcom_team_open_chosen_tab() {
 	# Public command used in errors.
 	local command_name="$1"
-	# Name given to a new session.
-	local repository_name="$2"
 	# Name given to a new tab.
-	local tab_name="$3"
-	# Directory opened by a new session or tab.
-	local team_scope_directory="$4"
-	# Chosen session, or empty to open a new one.
-	local session_id="$5"
+	local tab_name="$2"
+	# Directory opened by a new tab.
+	local team_scope_directory="$3"
+	# Chosen existing session.
+	local session_id="$4"
 	# The launcher's tab when it is being reused, or empty to open a new tab.
-	local window_id="$6"
-	shift 6
+	local window_id="$5"
+	shift 5
 	# Leftover role panes to close in the reused tab.
 	local -a leftover_blocks=("$@")
 	# Leftover pane being closed.
 	local block_id
-	# Response from Rex when it opens a tab or session.
+	# Response from Rex when it opens a tab.
 	local new_json
 	# First pane of the team's tab.
 	local orchestrator_block=""
@@ -203,15 +185,10 @@ _hcom_team_open_chosen_tab() {
 
 		orchestrator_block="$REX_BLOCK"
 		reused_launcher_tab=1
-	elif [[ -n "$session_id" ]]; then
+	else
 		new_json="$(command rex window new -s "$session_id" "$tab_name" -c "$team_scope_directory" --focus=false --json)" || return 1
 		window_id="$(jq -er '.window_id' <<<"$new_json")" || return 1
 		orchestrator_block="$(jq -er '.block_ids[0]' <<<"$new_json")" || return 1
-	else
-		new_json="$(command rex new "$repository_name" -c "$team_scope_directory" --window "$tab_name" --json)" || return 1
-		session_id="$(jq -er '.session_id' <<<"$new_json")" || return 1
-		orchestrator_block="$(jq -er '.initial_windows[0].block_ids[0]' <<<"$new_json")" || return 1
-		window_id="$(_hcom_team_block_window "$orchestrator_block" "$(command rex block ls -s "$session_id" --json)")" || return 1
 	fi
 
 	if [[ -z "$window_id" ]]; then
@@ -227,8 +204,8 @@ _hcom_team_open_chosen_tab() {
 	reply=("$session_id" "$window_id" "$orchestrator_block" "$reused_launcher_tab")
 }
 
-# Names the session after the repository, unless another session already has that
-# name, and names the team's tab.
+# Names the team's tab, and names the session after the repository when the
+# team's pane is the only one in it and no other session already has that name.
 #
 # @param  {string}  command_name
 #     Public command used in errors.
@@ -255,15 +232,21 @@ _hcom_team_apply_names() {
 	local window_id="$5"
 	# Rex session listing from before the launch.
 	local sessions_json="$6"
-	# Current name of the team's session, empty for a session opened by this launch.
+	# Current name of the team's session.
 	local current_name
+	# Number of panes in the session before the team is split.
+	local block_count
 
 	current_name="$(jq -r --arg id "$session_id" '[.sessions[] | select(.session_id == $id) | .label][0] // empty' <<<"$sessions_json")" || return 1
 
-	if [[ -n "$current_name" && "$current_name" != "$repository_name" ]] && ! jq -e --arg id "$session_id" --arg name "$repository_name" '.sessions[] | select(.session_id != $id and .label == $name)' >/dev/null <<<"$sessions_json"; then
-		if ! command rex session rename "$session_id" "$repository_name"; then
-			_hcom_command_error "$command_name" "team session $session_id was left partly built."
-			return 1
+	if [[ "$current_name" != "$repository_name" ]] && ! jq -e --arg id "$session_id" --arg name "$repository_name" '.sessions[] | select(.session_id != $id and .label == $name)' >/dev/null <<<"$sessions_json"; then
+		block_count="$(command rex block ls -s "$session_id" --json | jq -er '.blocks | length')" || return 1
+
+		if (( block_count == 1 )); then
+			if ! command rex session rename "$session_id" "$repository_name"; then
+				_hcom_command_error "$command_name" "team session $session_id was left partly built."
+				return 1
+			fi
 		fi
 	fi
 

@@ -215,7 +215,7 @@ The pre-commit hook regenerates the command table automatically before each comm
 
 ## Commands
 
-Run `team` or `cont` from inside Rex to put each team in a tab of the repository's Rex session. The session uses the repository name, and each tab uses a short task name or `Team` when there is no task. The orchestrator takes the left two thirds, with the implementer, reviewer and scout stacked on the right. Starting the same task's team again from any shell reuses its open tab when every role pane is at a shell prompt. A team without a task follows the same tab placement and refuses if its role tags are already live. When the orchestrator exits, the other three agents stop and all four panes stay open at shell prompts. After changing these shell functions, open a new Rex tab so it loads the new versions.
+Run `team` or `cont` from inside Rex to put each team in a tab of an existing Rex session. A free launcher tab is used unless another session has the repository's name. Otherwise, a new tab opens in the repository session when one exists, or in the current session. A session is named after the repository only when the team's pane is the only one in it. Each team tab uses a short task name or `Team` when there is no task. The orchestrator takes the left two thirds, with the implementer, reviewer and scout stacked on the right. Continuing the same task focuses its saved tab when every role pane is at a shell prompt. A team without a task follows the same tab placement and refuses if its role tags are already live. When the orchestrator exits, the other three agents stop and all four panes stay open at shell prompts. After changing these shell functions, open a new Rex tab so it loads the new versions.
 <!-- commands:start -->
 
 ### agent
