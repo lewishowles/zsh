@@ -1968,14 +1968,22 @@ unset HCOM_FIXTURE_REX_SESSIONS
 # Forced teams save the account selected by the launching shell.
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:old-root","label":"Fixture"}]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
-CODEX_HOME="$HOME/.codex-2" HCOM_ACCOUNT=2 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' '' '' '' codex codex codex orchestrator:codex '' '' codex '' forced || fail 'forced Rex team session creation'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/scout")" == '# hcom-team-role-v2 codex forced 2'$'\n'* ]] || fail 'forced launch did not save its account'
+CLAUDE_CONFIG_DIR="$HOME/.claude-2" HCOM_ACCOUNT=2 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:claude reviewer implementer:claude scout:claude "$fixture_dir/project" '' '' '' '' '' claude claude claude orchestrator:claude '' '' claude '' forced || fail 'forced Rex team session creation'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/scout")" == '# hcom-team-role-v2 claude forced 2'$'\n'*'scout:claude '*$'\n'*'scout '* ]] || fail 'Claude team did not save its account and both scout commands'
 
 # Root teams use the repository session when one is already open.
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'root Rex session creation'
 [[ "${reply[2]}" == session:old-root && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s session:old-root Team -c '*'--focus=false --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session kill'* ]] || fail 'root team did not reuse the repository session'
+reviewer_saved="$(<"$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/reviewer")"
+implementer_saved="$(<"$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/implementer")"
+scout_saved="$(<"$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/scout")"
+[[ "$reviewer_saved" == *$'\n'*'reviewer:codex '*$'\n'*'reviewer '* ]] || fail 'Codex team did not save both reviewer commands'
+[[ "$implementer_saved" == *$'\n'*'implementer '*$'\n'*'implementer:claude '* ]] || fail 'Codex team did not save both implementer commands'
+[[ "$scout_saved" == *$'\n'*'scout '*$'\n'*'scout:claude '* ]] || fail 'Codex team did not save both scout commands'
 unset HCOM_FIXTURE_REX_SESSIONS
+
+[[ "$(_hcom_team_other_launcher reviewer claude)" == reviewer:codex && "$(_hcom_team_other_launcher reviewer codex)" == reviewer && "$(_hcom_team_other_launcher implementer claude)" == implementer && "$(_hcom_team_other_launcher implementer codex)" == implementer:claude && "$(_hcom_team_other_launcher scout claude)" == scout && "$(_hcom_team_other_launcher scout codex)" == scout:claude ]] || fail 'alternate launchers do not cover every teammate agent pair'
 
 mkdir -p "$XDG_STATE_HOME/hcom-team/fixture-origin-session"
 # Reset quotas are mocked so these checks never inspect a real account.
@@ -1988,6 +1996,12 @@ functions -c _hcom_quota_probe _hcom_quota_probe_before_reset
 _hcom_quota_probe() {
 	print -r -- "$1" >> "$fixture_dir/reset-quota-calls"
 	[[ "${HCOM_FIXTURE_RESET_PROBE_FAIL:-0}" != 1 ]] || return 1
+	[[ "${HCOM_FIXTURE_RESET_FAIL_PROVIDER:-}" != "$1" ]] || return 1
+	if [[ "$1" == claude && -n "${HCOM_FIXTURE_RESET_CLAUDE_DEFAULT:-}" ]]; then
+		print -r -- "$HCOM_FIXTURE_RESET_CLAUDE_DEFAULT"
+		print -r -- "$HCOM_FIXTURE_RESET_CLAUDE_SECOND"
+		return 0
+	fi
 	print -r -- "${HCOM_FIXTURE_RESET_DEFAULT:-90 9999999999 18000 90 9999999999 604800}"
 	print -r -- "${HCOM_FIXTURE_RESET_SECOND:-90 9999999999 18000 90 9999999999 604800}"
 }
@@ -2076,7 +2090,7 @@ team-reset reviewer >/dev/null || fail 'Claude reviewer reset failed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:reviewer CLAUDE_CONFIG_DIR='*'/.claude-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved reviewer /saved/checkout'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/reviewer")" == '# hcom-team-role-v2 claude auto 2'$'\n'* ]] || fail 'Claude reviewer did not switch accounts'
 unset HCOM_FIXTURE_RESET_DEFAULT
 
-_hcom_team_save_role fixture-origin-session '' scout 'CODEX_HOME=/forced/account HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' codex forced 2 || fail 'forced-account reset command save'
+_hcom_team_save_role fixture-origin-session '' scout 'CODEX_HOME=/forced/account HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' codex forced 2 'HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout' || fail 'forced-account reset command save'
 : > "$HCOM_FIXTURE_REX_CALLS"
 : > "$fixture_dir/reset-quota-calls"
 team-reset scout >/dev/null || fail 'forced-account scout reset failed'
@@ -2089,14 +2103,58 @@ HCOM_FIXTURE_RESET_SECOND='90 9999999999 18000 4 9999999999 604800'
 if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'reset stopped a teammate when both accounts were exhausted'
 fi
-[[ "$(<"$fixture_dir/reset-error")" == *'under 5% usage left on both accounts'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key -s fixture-origin-session -b block:scout ctrl+c'* ]] || fail 'exhausted reset touched the running teammate'
+[[ "$(<"$fixture_dir/reset-error")" == *'under 5% usage left on both accounts'*'Restart the team'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key -s fixture-origin-session -b block:scout ctrl+c'* ]] || fail 'exhausted reset touched the running teammate'
+
+# A new team can move its scout to the other agent's account with more usage left.
+_hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' codex auto default 'HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout' || fail 'cross-agent scout save'
+HCOM_FIXTURE_RESET_CLAUDE_DEFAULT='40 9999999999 18000 40 9999999999 604800'
+HCOM_FIXTURE_RESET_CLAUDE_SECOND='70 9999999999 18000 70 9999999999 604800'
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout > "$fixture_dir/reset-output" || fail 'cross-agent scout reset'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on Claude, account 2.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'CLAUDE_CONFIG_DIR='*'/.claude-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 claude auto 2'$'\n''HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout'$'\n''HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' ]] || fail 'cross-agent reset did not use Claude and save both commands'
+
+# The saved agent is checked first on the next reset, even if the old agent recovers.
+unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SECOND
+: > "$fixture_dir/reset-quota-calls"
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout >/dev/null || fail 'reset after cross-agent move'
+[[ "$(<"$fixture_dir/reset-quota-calls")" == claude && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'scout:claude /saved/checkout'* ]] || fail 'reset returned to the old agent before the new agent ran out'
+
+# All four spent accounts leave the running pane untouched.
+HCOM_FIXTURE_RESET_DEFAULT='4 9999999999 18000 90 9999999999 604800'
+HCOM_FIXTURE_RESET_SECOND='90 9999999999 18000 4 9999999999 604800'
+HCOM_FIXTURE_RESET_CLAUDE_DEFAULT="$HCOM_FIXTURE_RESET_DEFAULT"
+HCOM_FIXTURE_RESET_CLAUDE_SECOND="$HCOM_FIXTURE_RESET_SECOND"
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'reset moved a teammate with all four accounts spent'
+fi
+[[ "$(<"$fixture_dir/reset-error")" == *'all four accounts'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key -s fixture-origin-session -b block:scout ctrl+c'* ]] || fail 'all-account refusal touched the running scout'
+
+# Unreadable usage on the other agent chooses its first account and warns.
+_hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scout /saved/checkout' codex auto default 'HCOM_TEAM_LABEL=saved scout:claude /saved/checkout' || fail 'unreadable-other-agent fixture'
+HCOM_FIXTURE_RESET_FAIL_PROVIDER=claude
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'unreadable-other-agent reset'
+[[ "$(<"$fixture_dir/reset-error")" == *"could not check Claude usage; moving scout to that agent's default account."* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on Claude, the default account.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved scout:claude /saved/checkout'* ]] || fail 'unreadable-other-agent fallback did not move and warn'
+unset HCOM_FIXTURE_RESET_FAIL_PROVIDER HCOM_FIXTURE_RESET_CLAUDE_DEFAULT HCOM_FIXTURE_RESET_CLAUDE_SECOND
+
+# A Claude-only teammate can move to Codex when Claude's accounts are spent.
+_hcom_team_save_role fixture-origin-session '' reviewer 'HCOM_TEAM_LABEL=saved reviewer /saved/checkout' claude auto default 'HCOM_TEAM_LABEL=saved reviewer:codex /saved/checkout' || fail 'Claude-only reviewer fixture'
+HCOM_FIXTURE_RESET_CLAUDE_DEFAULT="$HCOM_FIXTURE_RESET_DEFAULT"
+HCOM_FIXTURE_RESET_CLAUDE_SECOND="$HCOM_FIXTURE_RESET_SECOND"
+unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SECOND
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset reviewer > "$fixture_dir/reset-output" || fail 'Claude-only reviewer reset'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted reviewer on Codex, the default account.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved reviewer:codex /saved/checkout'* ]] || fail 'Claude-only reviewer did not move to Codex'
+unset HCOM_FIXTURE_RESET_CLAUDE_DEFAULT HCOM_FIXTURE_RESET_CLAUDE_SECOND
 
 unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SECOND
 _hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scout /saved/checkout' codex auto 2 || fail 'probe-failure reset command save'
 HCOM_FIXTURE_RESET_PROBE_FAIL=1
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'quota-probe fallback reset failed'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout CODEX_HOME='*'/.codex-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved scout /saved/checkout'* && "$(<"$fixture_dir/reset-error")" == 'team-reset: could not check codex usage; kept account 2.' ]] || fail 'quota-probe failure did not warn and keep the saved account'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout CODEX_HOME='*'/.codex-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved scout /saved/checkout'* && "$(<"$fixture_dir/reset-error")" == 'team-reset: could not check Codex usage; kept account 2.' ]] || fail 'quota-probe failure did not warn and keep the saved account'
 unset HCOM_FIXTURE_RESET_PROBE_FAIL
 
 # A header with no command is rejected before the running teammate is stopped.

@@ -1478,10 +1478,18 @@ _hcom_team_create_panes() {
 		implementer_saved_command="${team_env}$implementer_launcher$working_directory_suffix"
 		scout_saved_command="${team_env}$scout_launcher$working_directory_suffix"
 	fi
+	# The commands below are saved now because a reset runs in another shell, whose
+	# team label and project tag may belong to a different team.
+	# The reviewer's command on the other agent.
+	local reviewer_other_command="${team_env}$(_hcom_team_other_launcher reviewer "$reviewer_provider")$working_directory_suffix"
+	# The implementer's command on the other agent.
+	local implementer_other_command="${team_env}$(_hcom_team_other_launcher implementer "$implementer_provider")$working_directory_suffix"
+	# The scout's command on the other agent.
+	local scout_other_command="${team_env}$(_hcom_team_other_launcher scout "$scout_provider")$working_directory_suffix"
 	if ! {
-		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_saved_command" "$reviewer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$reviewer_provider" "$reviewer_account")" &&
-		_hcom_team_save_role "$session_id" "$window_id" implementer "$implementer_saved_command" "$implementer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$implementer_provider" "$implementer_account")" &&
-		_hcom_team_save_role "$session_id" "$window_id" scout "$scout_saved_command" "$scout_provider" "$allocation_mode" "$(_hcom_team_launch_account "$scout_provider" "$scout_account")" &&
+		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_saved_command" "$reviewer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$reviewer_provider" "$reviewer_account")" "$reviewer_other_command" &&
+		_hcom_team_save_role "$session_id" "$window_id" implementer "$implementer_saved_command" "$implementer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$implementer_provider" "$implementer_account")" "$implementer_other_command" &&
+		_hcom_team_save_role "$session_id" "$window_id" scout "$scout_saved_command" "$scout_provider" "$allocation_mode" "$(_hcom_team_launch_account "$scout_provider" "$scout_account")" "$scout_other_command" &&
 		_hcom_team_type_role "$session_id" "$reviewer_block" "$reviewer_command" &&
 		_hcom_team_type_role "$session_id" "$implementer_block" "$implementer_command" &&
 		_hcom_team_type_role "$session_id" "$scout_block" "$scout_command" &&
@@ -1516,6 +1524,35 @@ _hcom_team_launch_account() {
 		print -r -- 2
 	else
 		print -r -- default
+	fi
+}
+
+# Prints the command that starts a teammate role on the other agent. The plain
+# reviewer command runs Claude, and the plain implementer and scout commands run
+# Codex, so a suffix is only needed to go against those defaults.
+#
+# @param  {string}  role
+#     The teammate role whose launcher is wanted.
+# @param  {string}  provider
+#     The agent that the role's saved command runs.
+_hcom_team_other_launcher() {
+	# The teammate role whose launcher is wanted.
+	local role="$1"
+	# The agent that the role's saved command runs.
+	local provider="$2"
+
+	if [[ "$provider" == claude ]]; then
+		if [[ "$role" == reviewer ]]; then
+			print -r -- 'reviewer:codex'
+		else
+			print -r -- "$role"
+		fi
+	else
+		if [[ "$role" == reviewer ]]; then
+			print -r -- reviewer
+		else
+			print -r -- "${role}:claude"
+		fi
 	fi
 }
 
@@ -2218,7 +2255,8 @@ _hcom_team_forget_session() {
 # Saves what a reset needs to start a role again. The orchestrator's file holds
 # its launch command. A teammate's file starts with a header line naming its
 # agent, how its account was chosen and the account it last started on. The
-# command follows on the next line.
+# command for that agent follows on the next line, then the command for the other
+# agent on the line after, when one was saved.
 #
 # @param  {string}  session_id
 #     Rex session that contains the role's pane.
@@ -2236,6 +2274,8 @@ _hcom_team_forget_session() {
 #     shell (forced).
 # @param  {string}  account
 #     The account the teammate is starting on: default, 1 or 2.
+# @param  {string}  other_command
+#     The same role's command for the other agent, without an account prefix.
 _hcom_team_save_role() {
 	# Rex session that contains the role's pane.
 	local session_id="$1"
@@ -2251,12 +2291,17 @@ _hcom_team_save_role() {
 	local allocation_mode="${6:-}"
 	# The account the teammate is starting on.
 	local account="${7:-default}"
+	# Command that launches this teammate on the other agent.
+	local other_command="${8:-}"
 	# Folder holding this team's saved teammate commands.
 	local state_directory="$(_hcom_team_state_directory "$session_id" "$window_id")"
 
 	mkdir -p "$state_directory" || return 1
 	if [[ -n "$provider" ]]; then
 		print -rn -- "$_HCOM_TEAM_ROLE_HEADER $provider $allocation_mode $account"$'\n'"$saved_command" > "$state_directory/$role" || return 1
+		if [[ -n "$other_command" ]]; then
+			print -rn -- $'\n'"$other_command" >> "$state_directory/$role" || return 1
+		fi
 	else
 		print -rn -- "$saved_command" > "$state_directory/$role" || return 1
 	fi
@@ -2330,11 +2375,11 @@ _hcom_team_type_role() {
 
 # Stops one teammate and starts it again in the same Rex pane. An auto-allocated
 # teammate keeps its saved account while that account has at least 5% usage
-# left, and otherwise moves to the agent's other account, which becomes its saved
-# account. A forced account or an older saved command is replayed as saved.
+# left. It uses the other account when needed, then the other agent when both
+# accounts are spent. A forced account or an older saved command is replayed as saved.
 #
 # Refuses without touching the pane when no pane has the role's label, no launch
-# command was saved for it, or both of its agent's accounts are under 5%. Does
+# command was saved for it, or no saved agent has an account with 5% left. Does
 # not type the command when the agent is still running after the stop keys.
 #
 # @param  {string}  session_id
@@ -2373,8 +2418,8 @@ _hcom_team_reset_role() {
 	local reset_account saved_account
 	# The command without its account prefix, written back to the saved file after a switch.
 	local saved_command
-	# Agent named in the saved header.
-	local saved_provider
+	# The agent named in the saved file, the agent chosen for this reset, and the command for the agent not chosen.
+	local saved_provider reset_provider other_command
 
 	block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 	if [[ -z "$block_id" ]]; then
@@ -2394,16 +2439,26 @@ _hcom_team_reset_role() {
 	saved_command="${reply[3]:-}"
 	saved_provider="${reply[4]:-}"
 	saved_account="${reply[5]:-}"
+	reset_provider="${reply[6]:-}"
+	other_command="${reply[7]:-}"
 	if ! _hcom_team_stop_peers "$session_id" "$block_id"; then
 		_hcom_command_error team-reset "$role was not restarted."
 		return 1
 	fi
 
 	_hcom_team_type_role "$session_id" "$block_id" "$launch_command" || return 1
-	if [[ -n "$reset_account" && "$reset_account" != "$saved_account" ]]; then
-		print -r -- "team-reset: restarted $role on $(_hcom_team_account_label "$reset_account")."
-		if ! _hcom_team_save_role "$session_id" "$saved_window_id" "$role" "$saved_command" "$saved_provider" auto "$reset_account"; then
-			_hcom_command_error team-reset "could not save $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks $(_hcom_team_account_label "$saved_account") first."
+	if [[ -n "$reset_account" && ( "$reset_account" != "$saved_account" || "$reset_provider" != "$saved_provider" ) ]]; then
+		if [[ "$reset_provider" != "$saved_provider" ]]; then
+			print -r -- "team-reset: restarted $role on ${(C)reset_provider}, $(_hcom_team_account_label "$reset_account")."
+		else
+			print -r -- "team-reset: restarted $role on $(_hcom_team_account_label "$reset_account")."
+		fi
+		if ! _hcom_team_save_role "$session_id" "$saved_window_id" "$role" "$saved_command" "$reset_provider" auto "$reset_account" "$other_command"; then
+			if [[ "$reset_provider" != "$saved_provider" ]]; then
+				_hcom_command_error team-reset "could not save ${(C)reset_provider} $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks ${(C)saved_provider} $(_hcom_team_account_label "$saved_account") first."
+			else
+				_hcom_command_error team-reset "could not save $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks $(_hcom_team_account_label "$saved_account") first."
+			fi
 			return 1
 		fi
 	else
@@ -2427,10 +2482,11 @@ _hcom_team_account_label() {
 }
 
 # Sets reply to the command to type for a reset. For an auto-allocated teammate,
-# reply also holds the account chosen for this reset, the command without its
-# account prefix, the agent and the account named in the saved file. An older
-# command or a forced account gives only the command, as saved. Fails with an
-# error when the saved details are invalid or both accounts are too low.
+# reply also holds the account chosen for this reset, the chosen agent's command
+# without its account prefix, the agent and the account named in the saved file,
+# the chosen agent, and the command for the agent not chosen. An older command or
+# a forced account gives only the command, as saved. Fails with an error when the
+# saved details are invalid or every account the teammate can use is too low.
 #
 # @param  {string}  saved_contents
 #     The text of the role's saved file.
@@ -2445,8 +2501,8 @@ _hcom_team_reset_command() {
 	local role="$2"
 	# Rex session named in a refusal message.
 	local session_id="$3"
-	# Header and command from a role file with account details.
-	local saved_header saved_command
+	# Header and commands from a role file with account details.
+	local saved_header saved_command other_command
 	# The agent, how the account was chosen and the account named in the saved file.
 	local saved_provider allocation_mode saved_account
 	# The header line split into words: the comment mark, the format name, the agent, the account source and the account.
@@ -2459,11 +2515,15 @@ _hcom_team_reset_command() {
 
 	saved_header="${saved_contents%%$'\n'*}"
 	saved_command="${saved_contents#*$'\n'}"
+	if [[ "$saved_command" == *$'\n'* ]]; then
+		other_command="${saved_command#*$'\n'}"
+		saved_command="${saved_command%%$'\n'*}"
+	fi
 	metadata=(${=saved_header})
 	saved_provider="${metadata[3]:-}"
 	allocation_mode="${metadata[4]:-}"
 	saved_account="${metadata[5]:-}"
-	if [[ "$saved_contents" != *$'\n'* || -z "$saved_command" ]] ||
+	if [[ "$saved_contents" != *$'\n'* || -z "$saved_command" || "$other_command" == *$'\n'* ]] ||
 		[[ "$saved_provider" != claude && "$saved_provider" != codex ]] ||
 		[[ "$allocation_mode" != auto && "$allocation_mode" != forced ]] ||
 		[[ "$saved_account" != default && "$saved_account" != 1 && "$saved_account" != 2 ]]; then
@@ -2476,15 +2536,25 @@ _hcom_team_reset_command() {
 		return 0
 	fi
 
-	# The account chosen for this reset.
-	local reset_account
-	reset_account="$(_hcom_team_reset_account "$saved_provider" "$saved_account" "$role" "$session_id")" || return 1
-	reply=("$(_hcom_team_role_environment "$reset_account" "$saved_provider")$saved_command" "$reset_account" "$saved_command" "$saved_provider" "$saved_account")
+	# The agent and account chosen before the pane is stopped.
+	local reset_provider reset_account
+	_hcom_team_reset_account "$saved_provider" "$saved_account" "$role" "$other_command" || return 1
+	reset_provider="${reply[1]}"
+	reset_account="${reply[2]}"
+	if [[ "$reset_provider" != "$saved_provider" ]]; then
+		# Keep both commands so a later reset can return when this agent runs out.
+		local former_command="$saved_command"
+		saved_command="$other_command"
+		other_command="$former_command"
+	fi
+	reply=("$(_hcom_team_role_environment "$reset_account" "$reset_provider")$saved_command" "$reset_account" "$saved_command" "$saved_provider" "$saved_account" "$reset_provider" "$other_command")
 }
 
-# Prints the account a teammate should restart on: its saved account while that
-# account has at least 5% usage left, otherwise the agent's other account. Fails
-# with an error when both accounts are under 5%.
+# Sets reply to the agent and account a teammate should restart on.
+# It keeps the saved account while that has at least 5% usage left, then tries the
+# agent's other account, then the other agent. Fails with an error when no account
+# the teammate can use has 5% left, or both of its agent's accounts are under 5%
+# and no command was saved for the other agent.
 #
 # @param  {string}  provider
 #     The teammate's agent, claude or codex.
@@ -2492,8 +2562,8 @@ _hcom_team_reset_command() {
 #     The account named in the teammate's saved file.
 # @param  {string}  role
 #     The teammate role named in a refusal message.
-# @param  {string}  session_id
-#     The Rex session named in a refusal message.
+# @param  {string}  other_command
+#     Saved command for the other agent, empty for an older running team.
 _hcom_team_reset_account() {
 	# The teammate's agent.
 	local provider="$1"
@@ -2503,37 +2573,34 @@ _hcom_team_reset_account() {
 	local reset_account="$saved_account"
 	# The teammate role named in a refusal message.
 	local role="$3"
-	# The Rex session named in a refusal message.
-	local session_id="$4"
-	# The usage check's output, one line per account.
-	local quota_output
-	# The usage check's output split into those lines.
-	local -a quota_lines
-	# The positions of the saved account and the agent's other account in those lines.
-	local -i saved_index other_index
-	# The percentage each account can give the teammate, and one clock reading for both.
-	local saved_usable other_usable current_time
+	# The other agent's saved command, if this team was launched with one.
+	local other_command="$4"
+	# The percentage each account can give the teammate.
+	local default_usable second_usable saved_usable other_usable
 
-	if ! quota_output="$(_hcom_quota_probe "$provider" 2>/dev/null)"; then
+	if ! _hcom_team_reset_usage "$provider"; then
 		# A failed usage check says nothing about the account, so it never blocks a restart or moves the teammate.
-		print -r -- "team-reset: could not check $provider usage; kept account $saved_account." >&2
-		print -r -- "$saved_account"
+		print -r -- "team-reset: could not check ${(C)provider} usage; kept account $saved_account." >&2
+		reply=("$provider" "$saved_account")
 		return 0
 	fi
-	quota_lines=("${(@f)quota_output}")
-	current_time="$(_hcom_quota_now)"
-	saved_index=1
-	other_index=2
+	default_usable="${reply[1]}"
+	second_usable="${reply[2]}"
+	saved_usable="$default_usable"
+	other_usable="$second_usable"
 	if [[ "$saved_account" == 2 ]]; then
-		saved_index=2
-		other_index=1
+		saved_usable="$second_usable"
+		other_usable="$default_usable"
 	fi
-	saved_usable="$(_hcom_quota_usable "${quota_lines[saved_index]}" "$current_time")"
 	if (( saved_usable < 5 )); then
-		other_usable="$(_hcom_quota_usable "${quota_lines[other_index]}" "$current_time")"
 		if (( other_usable < 5 )); then
-			_hcom_command_error team-reset "$provider has under 5% usage left on both accounts; $role was not stopped."
-			return 1
+			if [[ -z "$other_command" ]]; then
+				_hcom_command_error team-reset "${(C)provider} has under 5% usage left on both accounts; $role was not stopped. Restart the team to enable switching agents."
+				return 1
+			fi
+
+			_hcom_team_reset_other_agent "$provider" "$role"
+			return
 		fi
 		if [[ "$saved_account" == 2 ]]; then
 			reset_account=default
@@ -2542,7 +2609,71 @@ _hcom_team_reset_account() {
 		fi
 	fi
 
-	print -r -- "$reset_account"
+	reply=("$provider" "$reset_account")
+}
+
+# Sets reply to the other agent and its account with the most usage left for a
+# teammate whose own agent has run out. The default account wins a tie.
+# Fails with an error when both of the other agent's accounts are under 5% too.
+#
+# @param  {string}  provider
+#     The agent that has run out, claude or codex.
+# @param  {string}  role
+#     The teammate role named in messages.
+_hcom_team_reset_other_agent() {
+	# The agent that has run out.
+	local provider="$1"
+	# The teammate role named in messages.
+	local role="$2"
+	# The agent to move the teammate to.
+	local other_provider=claude
+	# The percentage each of the other agent's accounts can give the teammate.
+	local default_usable second_usable
+
+	if [[ "$provider" == claude ]]; then
+		other_provider=codex
+	fi
+
+	if ! _hcom_team_reset_usage "$other_provider"; then
+		# The teammate's own accounts are known to be empty, so an unknown account is still the better bet.
+		print -r -- "team-reset: could not check ${(C)other_provider} usage; moving $role to that agent's default account." >&2
+		reply=("$other_provider" default)
+		return 0
+	fi
+
+	default_usable="${reply[1]}"
+	second_usable="${reply[2]}"
+	if (( default_usable < 5 && second_usable < 5 )); then
+		_hcom_command_error team-reset "Claude and Codex have under 5% usage left on all four accounts; $role was not stopped."
+		return 1
+	fi
+
+	if (( second_usable > default_usable )); then
+		reply=("$other_provider" 2)
+	else
+		reply=("$other_provider" default)
+	fi
+}
+
+# Sets reply to the usable percentages for an agent's default and second accounts.
+# Fails when the agent's usage cannot be read.
+#
+# @param  {string}  provider
+#     The agent whose two accounts are being checked.
+_hcom_team_reset_usage() {
+	# The agent whose two accounts are being checked.
+	local provider="$1"
+	# The usage check's output, one line per account.
+	local quota_output
+	# The usage check's output split into those lines.
+	local -a quota_lines
+	# One clock reading for both accounts.
+	local current_time
+
+	quota_output="$(_hcom_quota_probe "$provider" 2>/dev/null)" || return 1
+	quota_lines=("${(@f)quota_output}")
+	current_time="$(_hcom_quota_now)"
+	reply=("$(_hcom_quota_usable "${quota_lines[1]}" "$current_time")" "$(_hcom_quota_usable "${quota_lines[2]}" "$current_time")")
 }
 
 # Chooses the team to reset when team-reset runs in a tab with no team. Uses the
@@ -2729,7 +2860,7 @@ _hcom_team_reset_selection() {
 	reply=("$selection")
 }
 
-# @desc  Restart one teammate, or all three, in their Rex panes in the same checkout, switching accounts only when usage runs low
+# @desc  Restart teammates in their Rex panes, switching accounts or agents when usage runs low
 # @cat   hcom
 #
 # Usage: team-reset scout|implementer|reviewer|all
