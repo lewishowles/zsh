@@ -1113,20 +1113,6 @@ claude --fixture-claude || fail 'Claude solo fixture launch failed'
 expected_solo_calls="$(printf '%s\n' 'codex codex' "codex $HOME/.codex-2 --fixture-codex" 'claude claude' "claude $HOME/.claude-2 --permission-mode auto --fixture-claude")"  # Quota requests and stubbed tool launches in order.
 [[ "$(<"$HCOM_FIXTURE_SOLO_CALLS")" == "$expected_solo_calls" ]] || fail 'solo launchers lost the quota provider or second account'
 
-# Records the paired Scout pane command without opening Ghostty.
-#
-# @param  {string}  layout_script
-#     Layout requested by the learner launcher.
-# @param  {string}  launch_command
-#     Command the learner would type into the Scout pane.
-# @param  {string}  origin_terminal_id
-#     Ghostty pane that ran the learner command.
-_hcom_workflow_launch_layout() {
-	learner_pane_calls=$((learner_pane_calls + 1))
-	learner_scout_command="$2"
-	learner_origin_terminal_id="$3"
-}
-
 # Records the learner role and team label without starting an agent.
 #
 # @param  {string}  role
@@ -1138,36 +1124,35 @@ _hcom_launch_configured_role() {
 	learner_team_label="$HCOM_TEAM_LABEL"
 }
 
-learner_pane_calls=0  # Number of Scout panes requested by learner launches.
-learner_scout_command=""  # Most recent command typed into the Scout pane.
-learner_origin_terminal_id=""  # Launching pane ID most recently passed to the learner layout.
 launched_learner_role=""  # Most recent learner role sent to the launch boundary.
 learner_team_label=""  # Most recent learner team label sent to the launch boundary.
 learner_repository_tag="$(_hcom_scoped_tag learn:codex "$PWD")"  # Repository tag shared by fixture learners.
+export REX_BLOCK=block:learner  # Rex pane the fixture learners run in.
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+: > "$HCOM_FIXTURE_REX_CALLS"
 
 for provider in claude codex; do
 	learn:$provider --team blue fixture-source fixture-context || fail "labelled $provider learner did not launch"
-	[[ "$learner_team_label" == "learn-$provider-blue" && "$learner_scout_command" == *"HCOM_TEAM_LABEL=learn-$provider-blue scout "* ]] || fail "labelled $provider learner and Scout use different labels"
+	[[ "$learner_team_label" == "learn-$provider-blue" && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"HCOM_TEAM_LABEL=learn-$provider-blue scout "* ]] || fail "labelled $provider learner and Scout use different labels"
 	[[ "$launched_learner_role" == "learner-$provider" ]] || fail "labelled $provider launcher selected the wrong role"
-	[[ "$learner_origin_terminal_id" == 'fixture-origin-pane' ]] || fail "labelled $provider learner did not pass the origin pane ID as argument 3"
 
 	learn:$provider fixture-source || fail "unlabelled $provider learner did not launch"
-	[[ "$learner_team_label" == "learn-$provider" && "$learner_scout_command" == *"HCOM_TEAM_LABEL=learn-$provider scout "* ]] || fail "unlabelled $provider learner tags changed"
-	[[ "$learner_origin_terminal_id" == 'fixture-origin-pane' ]] || fail "unlabelled $provider learner did not pass the origin pane ID as argument 3"
+	[[ "$learner_team_label" == "learn-$provider" && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"HCOM_TEAM_LABEL=learn-$provider scout "* ]] || fail "unlabelled $provider learner tags changed"
 done
+[[ "$(grep -c '^split -s fixture-origin-session -b block:learner --split=right --ratio 50 --label scout --focus=false -c .* --json$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'learners did not split their own Rex pane for each Scout'
+[[ "$(grep -c '^send -s fixture-origin-session -b block:scout .* scout ' "$HCOM_FIXTURE_REX_CALLS")" == 4 && "$(grep -c '^send-key -s fixture-origin-session -b block:scout enter$' "$HCOM_FIXTURE_REX_CALLS")" == 4 ]] || fail 'learners did not start every Scout in its Rex pane'
 
 print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
-prior_learner_pane_calls="$learner_pane_calls"  # Pane count before duplicate and input errors.
+prior_learner_pane_calls="$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")"  # Pane count before duplicate and input errors.
 assert_command_error "learn:codex: peer already holds ${learner_repository_tag}-learn-codex-orchestrator. Switch to that agent, or stop it with \"hcom kill peer\" and run learn:codex again. Rerun with --team <label> to start another learner team." learn:codex fixture-source
-[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'unlabelled duplicate opened a Scout pane'
+[[ "$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")" == "$prior_learner_pane_calls" ]] || fail 'unlabelled duplicate opened a Scout pane'
 
 print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-blue-scout\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 assert_command_error "learn:codex: peer already holds ${learner_repository_tag}-learn-codex-blue-scout. Switch to that agent, or stop it with \"hcom kill peer\" and run learn:codex again. Choose a different --team label to start another learner team." learn:codex --team blue fixture-source
-[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'labelled duplicate opened a Scout pane'
+[[ "$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")" == "$prior_learner_pane_calls" ]] || fail 'labelled duplicate opened a Scout pane'
 print -r -- "[{\"tag\":\"${learner_repository_tag}-learn-codex-blue-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 assert_command_error "learn:codex: peer already holds ${learner_repository_tag}-learn-codex-blue-orchestrator. Switch to that agent, or stop it with \"hcom kill peer\" and run learn:codex again. Choose a different --team label to start another learner team." learn:codex --team blue fixture-source
-[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'labelled learner duplicate opened a Scout pane'
+[[ "$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")" == "$prior_learner_pane_calls" ]] || fail 'labelled learner duplicate opened a Scout pane'
 
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 assert_command_error $'learn:codex: invalid team label: Bad_Label\nlearn:codex: use lowercase letters, numbers, and internal hyphens.\nlearn:codex: usage: learn:codex [--team <label>] <source> [context]' learn:codex --team Bad_Label fixture-source
@@ -1176,7 +1161,27 @@ if learn:codex --team blue 2>"$error_file"; then
 	fail 'learner accepted a label without source material'
 fi
 [[ "$(<"$error_file")" == 'learn:codex: usage: learn:codex [--team <label>] <source> [context]' ]] || fail 'missing learner source omitted usage'
-[[ "$learner_pane_calls" == "$prior_learner_pane_calls" ]] || fail 'invalid learner arguments opened a Scout pane'
+[[ "$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")" == "$prior_learner_pane_calls" ]] || fail 'invalid learner arguments opened a Scout pane'
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'learn:codex: each Rex layout pane needs five arguments.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'invalid Rex layout opened a pane'
+
+launched_learner_role=not-launched
+export HCOM_FIXTURE_REX_SPLIT_FAIL=1
+assert_command_error 'learn:codex: could not set up the scout pane in Rex.' learn:codex fixture-source
+[[ "$launched_learner_role" == not-launched ]] || fail 'failed Scout pane started the learner'
+[[ "$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")" == 1 && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s '* ]] || fail 'failed Scout split sent a command or retried'
+unset HCOM_FIXTURE_REX_SPLIT_FAIL
+
+unset REX_SESSION
+: > "$HCOM_FIXTURE_REX_CALLS"
+assert_command_error 'learn:codex: open Rex to start a learner.' learn:codex fixture-source
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'learner touched Rex outside a Rex session'
+export REX_SESSION=fixture-origin-session
+unset REX_BLOCK
+assert_command_error 'learn:codex: open Rex to start a learner.' learn:codex fixture-source
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'learner touched Rex without a calling pane'
 
 source "$repo_root/aliases.hcom-plan.zsh"
 
@@ -2221,6 +2226,7 @@ team-reset scout >/dev/null || fail 'scout reset failed'
 mkdir -p "$fixture_dir/zdotdir"
 cat > "$fixture_dir/zdotdir/.zshrc" <<'STUB'
 source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-core.zsh"
+source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-workflow.zsh"
 source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"
 STUB
 : > "$HCOM_FIXTURE_REX_CALLS"

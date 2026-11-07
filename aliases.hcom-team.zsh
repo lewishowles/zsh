@@ -1491,10 +1491,10 @@ _hcom_team_create_panes() {
 		_hcom_team_save_role "$session_id" "$window_id" reviewer "$reviewer_saved_command" "$reviewer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$reviewer_provider" "$reviewer_account")" "$reviewer_other_command" &&
 		_hcom_team_save_role "$session_id" "$window_id" implementer "$implementer_saved_command" "$implementer_provider" "$allocation_mode" "$(_hcom_team_launch_account "$implementer_provider" "$implementer_account")" "$implementer_other_command" &&
 		_hcom_team_save_role "$session_id" "$window_id" scout "$scout_saved_command" "$scout_provider" "$allocation_mode" "$(_hcom_team_launch_account "$scout_provider" "$scout_account")" "$scout_other_command" &&
-		_hcom_team_type_role "$session_id" "$reviewer_block" "$reviewer_command" &&
-		_hcom_team_type_role "$session_id" "$implementer_block" "$implementer_command" &&
-		_hcom_team_type_role "$session_id" "$scout_block" "$scout_command" &&
-		_hcom_team_type_role "$session_id" "$orchestrator_block" "$orchestrator_typed_command" &&
+		_hcom_workflow_type_rex_command "$session_id" "$reviewer_block" "$reviewer_command" &&
+		_hcom_workflow_type_rex_command "$session_id" "$implementer_block" "$implementer_command" &&
+		_hcom_workflow_type_rex_command "$session_id" "$scout_block" "$scout_command" &&
+		_hcom_workflow_type_rex_command "$session_id" "$orchestrator_block" "$orchestrator_typed_command" &&
 		command rex focus -s "$session_id" "$orchestrator_block"
 	}; then
 		_hcom_command_error "$command_name" "team session $session_id was left partly built."
@@ -2394,26 +2394,6 @@ _hcom_team_block_window() {
 	jq -r --arg id "$block_id" '.blocks[] | select(.block_id == $id) | .window_id // empty' <<<"$blocks_json"
 }
 
-# Types and submits a launch command in an idle role pane.
-#
-# @param  {string}  session_id
-#     Rex session that contains the role's pane.
-# @param  {string}  block_id
-#     Pane that receives the launch command.
-# @param  {string}  launch_command
-#     Exact command to type and submit.
-_hcom_team_type_role() {
-	# Rex session that contains the pane.
-	local session_id="$1"
-	# Pane that receives the command.
-	local block_id="$2"
-	# Command typed into the pane.
-	local launch_command="$3"
-
-	command rex send -s "$session_id" -b "$block_id" "$launch_command" || return 1
-	command rex send-key -s "$session_id" -b "$block_id" enter
-}
-
 # Stops one teammate and starts it again in the same Rex pane. An auto-allocated
 # teammate keeps its saved account while that account has at least 5% usage
 # left. It uses the other account when needed, then the other agent when both
@@ -2487,7 +2467,7 @@ _hcom_team_reset_role() {
 		return 1
 	fi
 
-	_hcom_team_type_role "$session_id" "$block_id" "$launch_command" || return 1
+	_hcom_workflow_type_rex_command "$session_id" "$block_id" "$launch_command" || return 1
 	if [[ -n "$reset_account" && ( "$reset_account" != "$saved_account" || "$reset_provider" != "$saved_provider" ) ]]; then
 		if [[ "$reset_provider" != "$saved_provider" ]]; then
 			print -r -- "team-reset: restarted $role on ${(C)reset_provider}, $(_hcom_team_account_label "$reset_account")."
