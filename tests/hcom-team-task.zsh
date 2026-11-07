@@ -273,6 +273,10 @@ case "$1" in
 			*'--label plan-codex'*) print -r -- '{"block_ids":["block:plan-codex"]}' ;;
 			*'--label plan-scout-claude'*) print -r -- '{"block_ids":["block:plan-scout-claude"]}' ;;
 			*'--label plan-scout-codex'*) print -r -- '{"block_ids":["block:plan-scout-codex"]}' ;;
+			*'--label insights-consolidator'*) print -r -- '{"block_ids":["block:insights-consolidator"]}' ;;
+			*'--label insights-codex'*) print -r -- '{"block_ids":["block:insights-codex"]}' ;;
+			*'--label insights-scout-claude'*) print -r -- '{"block_ids":["block:insights-scout-claude"]}' ;;
+			*'--label insights-scout-codex'*) print -r -- '{"block_ids":["block:insights-scout-codex"]}' ;;
 		esac
 		;;
 	api)
@@ -315,14 +319,6 @@ functions -c _hcom_team_create_panes _hcom_team_create_panes_real
 source "$repo_root/aliases.hcom-roles.zsh"
 source "$repo_root/aliases.hcom-learn.zsh"
 source "$repo_root/aliases.hcom-session.zsh"
-
-# Supplies a pane ID for the learner and planning launch fixtures.
-#
-# @param  {string}  command_name
-#     Public command requesting the pane ID.
-_hcom_focused_ghostty_terminal_id() {
-	print -r -- 'fixture-origin-pane'
-}
 
 # Shows preview text without relying on the installed colour helper.
 #
@@ -1277,6 +1273,41 @@ export REX_SESSION=fixture-origin-session
 unset REX_BLOCK
 assert_command_error 'plan: open Rex to start a planning review.' plan fixture-task
 [[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'plan touched Rex without a calling pane'
+
+source "$repo_root/aliases.hcom-insights-review.zsh"
+
+export REX_BLOCK=block:insights-caller  # Calling Rex pane for the insights layout.
+insights_report_path="$fixture_dir/insights report.md"  # Readable report whose name checks shell quoting.
+print -r -- 'Insights report' > "$insights_report_path"
+quoted_insights_report_path="${(q)insights_report_path}"  # Report path expected in typed commands.
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+CLAUDE_CONFIG_DIR="$HOME/.claude-2" insights "$insights_report_path" || fail 'insights review did not launch'
+insights_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"  # Rex calls recorded by the insights launch.
+[[ "$insights_calls" == *'split -s fixture-origin-session -b block:insights-caller --split=right --ratio 33 --label insights-consolidator'*'split -s fixture-origin-session -b block:insights-caller --split=right --ratio 50 --label insights-codex'*'split -s fixture-origin-session -b block:insights-caller --split=below --ratio 40 --label insights-scout-claude'*'split -s fixture-origin-session -b block:insights-codex --split=below --ratio 40 --label insights-scout-codex'* ]] || fail 'insights opened the wrong Rex layout or split order'
+[[ "$insights_calls" == *"send -s fixture-origin-session -b block:insights-consolidator CLAUDE_CONFIG_DIR="*"/.claude-2 HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:consolidate $quoted_insights_report_path"*"send -s fixture-origin-session -b block:insights-codex CLAUDE_CONFIG_DIR="*"/.claude-2 HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:codex $quoted_insights_report_path"*'send -s fixture-origin-session -b block:insights-scout-claude CLAUDE_CONFIG_DIR='*'/.claude-2 HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude scout'*'send -s fixture-origin-session -b block:insights-scout-codex CLAUDE_CONFIG_DIR='*'/.claude-2 HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex scout'* ]] || fail 'insights pane commands lost the report, Claude config, workflow flag or team label'
+[[ "$(print -r -- "$insights_calls" | grep -F -c -- "-c $PWD --json")" == 4 ]] || fail 'insights panes did not open in the launch directory'
+[[ "$(print -r -- "$insights_calls" | grep -c '^split ')" == 4 && "$(print -r -- "$insights_calls" | grep -c '^send -s ')" == 4 && "$(print -r -- "$insights_calls" | grep -c '^send-key -s .* enter$')" == 4 && "$insights_calls" != *'send -s '*' cd '* ]] || fail 'insights did not start four new panes without changing directory'
+[[ "${plan_peer_team_labels[-1]}" == insights-claude ]] || fail 'insights did not launch the Claude reviewer in the caller pane'
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+if insights 2>"$error_file"; then
+	fail 'insights accepted a missing report path'
+fi
+[[ "$(<"$error_file")" == 'insights: usage: insights <report-path>' ]] || fail 'missing insights report path omitted usage'
+if insights missing-report.md 2>"$error_file"; then
+	fail 'insights accepted an unreadable report file'
+fi
+[[ "$(<"$error_file")" == 'insights: report file is missing or unreadable: missing-report.md' ]] || fail 'unreadable insights report file changed its error'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'invalid insights report or arguments touched Rex'
+
+unset REX_SESSION
+assert_command_error 'insights: open Rex to start an insights review.' insights "$insights_report_path"
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'insights touched Rex outside a Rex session'
+export REX_SESSION=fixture-origin-session
+unset REX_BLOCK
+assert_command_error 'insights: open Rex to start an insights review.' insights "$insights_report_path"
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'insights touched Rex without a calling pane'
 
 # Invalid close-out arguments and a missing quick task leave the team untouched.
 _hcom_clear_team_scope
@@ -2297,4 +2328,4 @@ fi
 [[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:reviewer did not return to a shell prompt.'* && "$(<"$fixture_dir/reset-output")" == *'restarted implementer.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:reviewer '* ]] || fail 'all-peer reset typed into a busy pane or stopped early'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 
-print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, Rex pane creation, and team reset'
+print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, insights layout and refusals, Rex pane creation, and team reset'

@@ -282,7 +282,7 @@ Run `team` or `cont` from inside Rex to put each team in a tab of an existing Re
 | `hs` |  | Start the Scout hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `implementer` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `implementer:claude` |  | Start the Claude Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `insights` | <report-path> | Start the complete hcom insights review of a given report file in five Ghostty panes |
+| `insights` | <report-path> | Start the complete hcom insights review of a given report file in five Rex panes |
 | `insights:claude` | <report-path> | Start a Claude insights-review peer review of a given report file |
 | `insights:codex` | <report-path> | Start a Codex insights-review peer review of a given report file |
 | `insights:consolidate` | <report-path> | Start a Claude agent that combines both insights reviews of a given report file |

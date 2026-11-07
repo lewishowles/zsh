@@ -2,12 +2,12 @@
 
 # Insights-review launchers
 
-# @desc  Start the complete hcom insights review of a given report file in five Ghostty panes
+# @desc  Start the complete hcom insights review of a given report file in five Rex panes
 # @cat   hcom
 # @needs agent-quota
 # Usage: insights <report-path>
 #
-# Creates this layout in the current Ghostty tab:
+# Splits the calling Rex pane into this layout:
 #
 #   reviewer-claude  | reviewer-codex  | consolidator
 #   scout-claude     | scout-codex     | consolidator
@@ -32,36 +32,29 @@ insights() {
 		return 1
 	fi
 
-	local origin_terminal_id  # Ghostty pane that ran this command, so the layout opens beside it after a tab change.
-	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id insights)" || return 1
+	if [[ -z "${REX_SESSION:-}" || -z "${REX_BLOCK:-}" ]]; then
+		_hcom_command_error insights 'open Rex to start an insights review.'
+		return 1
+	fi
 
 	local quoted_report_path="${(q)report_path}"  # Shell-quoted report path for the typed launch command.
 
-	# Ghostty panes start fresh shells without this shell's exported env, and
-	# can open in another project's folder if the human switches tabs while
-	# they open. Each typed command therefore changes into the launch folder
-	# and carries any active account override. Changing folder also lets a
-	# relative report path find the report.
+	# New panes open in the launch folder, so a relative report path still
+	# finds the report. Each command carries any active account override into
+	# the new shell.
 	local account_env
 	account_env="$(_hcom_account_environment)"
 
-	local reviewer_codex_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
-	local scout_claude_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude scout"  # Command for the Claude scout pane.
-	local scout_codex_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex scout"  # Command for the Codex scout pane.
-	local consolidator_command="cd ${(q)PWD} && ${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:consolidate ${quoted_report_path}"  # Command for the consolidator pane.
+	local reviewer_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:codex ${quoted_report_path}"  # Command for the Codex reviewer pane.
+	local scout_claude_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-claude scout"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 HCOM_TEAM_LABEL=insights-codex scout"  # Command for the Codex scout pane.
+	local consolidator_command="${account_env}HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:consolidate ${quoted_report_path}"  # Command for the consolidator pane.
 
-	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-insights-review.applescript" \
-		"$reviewer_codex_command" \
-		"$scout_claude_command" \
-		"$scout_codex_command" \
-		"$consolidator_command" \
-		"$origin_terminal_id"
-
-	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
-
-	if (( osascript_exit_code != 0 )); then
-		return "$osascript_exit_code"
-	fi
+	_hcom_workflow_launch_rex_layout insights "$PWD" \
+		0 right 33 insights-consolidator "$consolidator_command" \
+		0 right 50 insights-codex "$reviewer_codex_command" \
+		0 below 40 insights-scout-claude "$scout_claude_command" \
+		2 below 40 insights-scout-codex "$scout_codex_command" || return 1
 
 	HCOM_INSIGHTS_REVIEW_WORKFLOW=1 insights:claude "$report_path"
 }
