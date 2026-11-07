@@ -63,19 +63,19 @@ alias hs="scout"
 # Role configuration fields: tool|tag|model|role_file|thinking.
 # role_file may list several files, separated by commas with no spaces.
 typeset -A HCOM_ROLE_CONFIG=(
-	orchestrator "claude|orchestrator|opus|orchestrator.md|medium"
-	implementer "codex|implementer|gpt-6-sol|implementer.md|medium"
-	reviewer "claude|reviewer|opus|reviewer.md|medium"
-	scout "codex|scout|gpt-6-luna|scout.md|medium"
+	orchestrator "claude|orchestrator|opus|team.md,orchestrator.md|medium"
+	implementer "codex|implementer|gpt-6-sol|team.md,implementer.md|medium"
+	reviewer "claude|reviewer|opus|team.md,reviewer.md|medium"
+	scout "codex|scout|gpt-6-luna|team.md,scout.md|medium"
 
-	orchestrator-codex "codex|orchestrator|gpt-6-astra|orchestrator.md|medium"
-	reviewer-codex "codex|reviewer|gpt-6-astra|reviewer.md|medium"
+	orchestrator-codex "codex|orchestrator|gpt-6-astra|team.md,orchestrator.md|medium"
+	reviewer-codex "codex|reviewer|gpt-6-astra|team.md,reviewer.md|medium"
 
-	implementer-claude "claude|implementer|sonnet|implementer.md|medium"
-	scout-claude "claude|scout|haiku|scout.md|medium"
+	implementer-claude "claude|implementer|sonnet|team.md,implementer.md|medium"
+	scout-claude "claude|scout|haiku|team.md,scout.md|medium"
 
-	learner-claude "claude|orchestrator|opus|orchestrator.md,learner.md|medium"
-	learner-codex "codex|orchestrator|gpt-6-astra|orchestrator.md,learner.md|medium"
+	learner-claude "claude|orchestrator|opus|team.md,orchestrator.md,learner.md|medium"
+	learner-codex "codex|orchestrator|gpt-6-astra|team.md,orchestrator.md,learner.md|medium"
 )
 
 # Launches a role using its shared hcom configuration. With --task, or when the

@@ -108,6 +108,7 @@ function insights:claude() {
 		--tool claude \
 		--tag orchestrator \
 		--model opus \
+		--role-file team.md \
 		--role-file orchestrator.md \
 		--role-file insights-review-peer.md \
 		--thinking high \
@@ -147,6 +148,7 @@ function insights:codex() {
 		--tool codex \
 		--tag orchestrator \
 		--model gpt-6-astra \
+		--role-file team.md \
 		--role-file orchestrator.md \
 		--role-file insights-review-peer.md \
 		--thinking high \
@@ -188,6 +190,7 @@ function insights:consolidate() {
 		--tool claude \
 		--tag reviewer \
 		--model opus \
+		--role-file team.md \
 		--role-file insights-consolidator.md \
 		--thinking high \
 		--working-dir "$PWD" \

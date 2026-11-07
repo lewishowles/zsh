@@ -124,6 +124,7 @@ function plan:claude() {
 		--tool claude \
 		--tag orchestrator \
 		--model opus \
+		--role-file team.md \
 		--role-file orchestrator.md \
 		--role-file planning-peer.md \
 		--thinking high \
@@ -163,6 +164,7 @@ function plan:codex() {
 		--tool codex \
 		--tag orchestrator \
 		--model gpt-6-astra \
+		--role-file team.md \
 		--role-file orchestrator.md \
 		--role-file planning-peer.md \
 		--thinking high \
