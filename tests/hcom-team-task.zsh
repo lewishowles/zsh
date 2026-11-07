@@ -191,6 +191,14 @@ if [[ "$1" == -C && "$3" == rev-parse && "$4" == --path-format=absolute && "$5" 
 	print -r -- "${HCOM_FIXTURE_GIT_COMMON_DIR:-$HCOM_FIXTURE_MAIN_CHECKOUT/.git}"
 	exit 0
 fi
+if [[ "$1" == -C && "$3" == rev-parse && "$4" == --show-toplevel ]]; then
+	if [[ "$2" == "$HCOM_FIXTURE_MAIN_CHECKOUT" || "$2" == "$HCOM_FIXTURE_MAIN_CHECKOUT/"* ]]; then
+		print -r -- "$HCOM_FIXTURE_MAIN_CHECKOUT"
+	else
+		print -r -- "$2"
+	fi
+	exit 0
+fi
 [[ "$1" == -C && "$3" == status && ( "$4" == --short || "$4" == --porcelain ) ]] || exit 1
 print -r -- "$2 $4" >> "$HCOM_FIXTURE_GIT_CALLS"
 [[ "${HCOM_FIXTURE_GIT_STATUS_FAIL:-0}" == 1 ]] && exit 1
@@ -1365,7 +1373,7 @@ expected_suffix=" ${(qq)checkout_path} ${(qq)prompt_text}"
 # File that the short typed line runs.
 saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/orchestrator"
 [[ "$orchestrator_send" == "send -s fixture-origin-session -b block:new source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 ]] || fail 'new pane received a long orchestrator command'
-[[ "$(<"$saved_orchestrator_command")" == *"$expected_suffix" ]] || fail 'saved orchestrator command lost its quoted checkout or prompt'
+[[ "$(<"$saved_orchestrator_command")" == *"$expected_suffix; _hcom_team_return_to_main_checkout ${(qq)checkout_path}; }" ]] || fail 'saved orchestrator command lost its quoted checkout or prompt'
 [[ "$(<"$saved_orchestrator_command")" == *'HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture '* ]] || fail 'saved orchestrator command lost its team scope'
 assert_no_role_title "$(<"$saved_orchestrator_command")" 'saved orchestrator command still sets or suppresses a title'
 
@@ -1405,8 +1413,44 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 orchestrator_send="$(grep '^send -s fixture-origin-session -b block:origin ' "$HCOM_FIXTURE_REX_CALLS")"
 saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:origin/orchestrator"
 [[ "$orchestrator_send" == "send -s fixture-origin-session -b block:origin source ${(qq)saved_orchestrator_command}" && "${#orchestrator_send}" -lt 1024 && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'reused pane received a long orchestrator command'
-[[ "$(<"$saved_orchestrator_command")" == *" ${(qq)long_prompt}" && "$(<"$saved_orchestrator_command")" == "cd -- ${(qq)checkout_path} && "* ]] || fail 'saved orchestrator command lost the checkout or prompt'
+[[ "$(<"$saved_orchestrator_command")" == *" ${(qq)long_prompt}; _hcom_team_return_to_main_checkout ${(qq)checkout_path}; }" && "$(<"$saved_orchestrator_command")" == "cd -- ${(qq)checkout_path} && "* ]] || fail 'saved orchestrator command lost the checkout or prompt'
 assert_no_role_title "$(<"$saved_orchestrator_command")" 'saved orchestrator command still sets or suppresses a title'
+
+# A worktree team's pane ends in the main checkout after the team shuts down, even when the Orchestrator exits with an error.
+(
+	orchestrator:codex() { return 1; }
+	source "$saved_orchestrator_command"
+	[[ -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'worktree pane kept the team scope'
+	[[ "$PWD" == "$HCOM_FIXTURE_MAIN_CHECKOUT" ]] || fail 'worktree pane did not return to the main checkout after the role failed'
+	(( ! ${+main_checkout} && ! ${+checkout_root} )) || fail 'returning to the main checkout left a variable set in the pane shell'
+) || fail 'worktree pane command did not finish'
+
+# The pane still returns when the team could not shut down cleanly.
+(
+	_hcom_team_run_orchestrator() { return 1; }
+	source "$saved_orchestrator_command"
+	[[ "$PWD" == "$HCOM_FIXTURE_MAIN_CHECKOUT" ]] || fail 'worktree pane stayed in the worktree after a failed shutdown'
+) || fail 'failed shutdown pane command did not finish'
+
+# A taskless team in a main-checkout subfolder leaves that pane in the subfolder.
+mkdir -p "$HCOM_FIXTURE_MAIN_CHECKOUT/subfolder"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$HCOM_FIXTURE_MAIN_CHECKOUT/subfolder" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'main checkout pane creation'
+saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/orchestrator"
+(
+	orchestrator:codex() { return 0; }
+	source "$saved_orchestrator_command"
+	[[ -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'main checkout pane kept the team scope'
+	[[ "$PWD" == "$HCOM_FIXTURE_MAIN_CHECKOUT/subfolder" ]] || fail 'main checkout pane left its starting subfolder'
+) || fail 'main checkout pane command did not finish'
+
+# A team without a task still returns from a linked worktree.
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$checkout_path" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'taskless worktree pane creation'
+saved_orchestrator_command="$XDG_STATE_HOME/hcom-team/${reply[2]}/${reply[3]}/orchestrator"
+(
+	orchestrator:codex() { return 0; }
+	source "$saved_orchestrator_command"
+	[[ "$PWD" == "$HCOM_FIXTURE_MAIN_CHECKOUT" ]] || fail 'taskless worktree pane did not return to the main checkout'
+) || fail 'taskless worktree pane command did not finish'
 
 # An unnamed session takes the repository name when the launcher is its sole pane.
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":""}]}'

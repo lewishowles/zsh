@@ -49,7 +49,7 @@ _hcom_read_task_team() {
 	local task_id="$3"  # Exact task ID used to find the Progress record.
 	local task_json  # Selected task and its project record from Progress.
 	local task_slug task_status  # The validated task slug and its status.
-	local common_git_directory checkout_directory checkout_tag  # Main checkout used to name the team.
+	local checkout_directory checkout_tag  # Main checkout used to name the team.
 
 	if ! task_json="$(cd "$working_directory" && progress task get "$task_id" --json 2>/dev/null)" || ! jq -e --arg task_id "$task_id" '.ok == true and .data.id == $task_id and (.data.slug | type == "string")' >/dev/null 2>&1 <<<"$task_json"; then
 		_hcom_command_error "$command_name" 'could not read task ' "$task_id" ' in ' "$working_directory" '.'
@@ -63,11 +63,10 @@ _hcom_read_task_team() {
 		return 1
 	fi
 
-	if ! common_git_directory="$(git -C "$working_directory" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || [[ "${common_git_directory:t}" != .git ]]; then
+	if ! checkout_directory="$(_hcom_team_main_checkout "$working_directory")"; then
 		_hcom_command_error "$command_name" 'could not find the main checkout for ' "$working_directory" '.'
 		return 1
 	fi
-	checkout_directory="${common_git_directory:h}"
 	# Ignore a tag inherited from a running task team, so the tag comes from this checkout's folder.
 	checkout_tag="$(HCOM_TEAM_PROJECT_TAG="" _hcom_scoped_tag "$command_name" "$checkout_directory")" || return 1
 
@@ -1456,8 +1455,10 @@ _hcom_team_create_panes() {
 	# Orchestrator command. It runs through a wrapper that stores the team
 	# scope in the orchestrator's shell and stops the teammates when it exits.
 	# It changes to the team checkout first, because a reused pane is still in
-	# the folder the launcher ran from.
-	local orchestrator_command="cd -- ${(qq)team_scope_directory} && ${orchestrator_env}${team_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}"
+	# the folder the launcher ran from. Once the team has shut down, the pane
+	# moves to the main checkout when the team ran in a linked worktree, so the
+	# next task can start there.
+	local orchestrator_command="cd -- ${(qq)team_scope_directory} && { ${orchestrator_env}${team_env}_hcom_team_run_orchestrator ${(qq)session_id} ${(qq)implementer_block} ${(qq)reviewer_block} ${(qq)scout_block} ${(qq)team_tags} ${(qq)team_label} ${(qq)task_id} ${(qq)orchestrator_launcher}$working_directory_suffix ${(qq)initial_prompt}; _hcom_team_return_to_main_checkout ${(qq)team_scope_directory}; }"
 	# File holding the full orchestrator command, which includes the launch prompt.
 	local saved_orchestrator_command="$(_hcom_team_state_directory "$session_id" "$window_id")/orchestrator"
 	# Line typed into the orchestrator pane. It stays short because macOS may
@@ -1554,6 +1555,46 @@ _hcom_team_other_launcher() {
 			print -r -- "${role}:claude"
 		fi
 	fi
+}
+
+# Moves the shell to the main checkout when its team ran in a linked worktree,
+# and leaves it where it is otherwise.
+#
+# @param  {string}  team_directory
+#     Folder where the team ran.
+_hcom_team_return_to_main_checkout() {
+	# Folder where the team ran.
+	local team_directory="$1"
+	# Main checkout of the repository the team ran in.
+	local main_checkout
+	# Root of the checkout where the team ran, which differs from the main
+	# checkout only in a linked worktree.
+	local checkout_root
+
+	main_checkout="$(_hcom_team_main_checkout "$team_directory")" || return 0
+	checkout_root="$(git -C "$team_directory" rev-parse --show-toplevel 2>/dev/null)" || return 0
+
+	if [[ "$checkout_root" != "$main_checkout" ]]; then
+		cd -- "$main_checkout"
+	fi
+}
+
+# Prints the main checkout of the repository that holds a folder, whether the
+# folder is in that checkout or in one of its linked worktrees.
+# Returns 1 when the folder is not in a normal Git checkout.
+#
+# @param  {string}  working_directory
+#     Folder to look up.
+_hcom_team_main_checkout() {
+	# Folder to look up.
+	local working_directory="$1"
+	# Git directory shared by the repository's worktrees.
+	local common_directory
+
+	common_directory="$(git -C "$working_directory" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || return 1
+	[[ "${common_directory:t}" == .git ]] || return 1
+
+	print -r -- "${common_directory:h}"
 }
 
 # Prints the account settings to type before a role's launch command.
