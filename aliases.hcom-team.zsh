@@ -2638,8 +2638,7 @@ _hcom_parse_team_args() {
 	local initial_prompt=""  # The human's note, used as the first prompt or appended to a mode's instruction.
 	# Whether --message or an internal relaunch supplied the note.
 	local message_set=0
-	# Whether --clipboard supplied the note.
-	local clipboard_set=0
+	local clipboard_note=""  # Clipboard text from --clipboard, added after any --message text.
 	local task_id=""  # The --task identifier of the task this team continues.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
@@ -2680,17 +2679,16 @@ _hcom_parse_team_args() {
 					return 1
 				fi
 
-				if ! initial_prompt="$(pbpaste)"; then
+				if ! clipboard_note="$(pbpaste)"; then
 					_hcom_command_error "$command_name" 'could not read the clipboard.'
 					return 1
 				fi
 
-				if [[ -z "${initial_prompt//[[:space:]]/}" ]]; then
+				if [[ -z "${clipboard_note//[[:space:]]/}" ]]; then
 					_hcom_command_error "$command_name" 'clipboard is empty.'
 					return 1
 				fi
 
-				clipboard_set=1
 				shift
 				;;
 			--team)
@@ -2728,7 +2726,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]"
+		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]"
 		return 1
 	fi
 
@@ -2736,9 +2734,14 @@ _hcom_parse_team_args() {
 		_hcom_validate_team_label "$team_label" "$command_name" || return 1
 	fi
 
-	if (( clipboard_set && message_set )); then
-		_hcom_command_error "$command_name" '' '--clipboard' ' and ' '--message' ' cannot be used together.'
-		return 1
+	# With both --message and --clipboard, the message comes first and the
+	# clipboard text follows it after a blank line.
+	if [[ -n "$clipboard_note" ]]; then
+		if (( message_set )); then
+			initial_prompt+=$'\n\n'"$clipboard_note"
+		else
+			initial_prompt="$clipboard_note"
+		fi
 	fi
 
 	if [[ -n "$task_id" && -n "$team_label" ]]; then
@@ -2763,7 +2766,7 @@ _hcom_parse_team_args() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
+# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
@@ -2775,7 +2778,7 @@ team() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
+# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
@@ -2787,7 +2790,7 @@ team:codex() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
+# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
