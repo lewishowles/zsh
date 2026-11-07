@@ -3092,7 +3092,7 @@ _hcom_parse_team_args() {
 	done
 
 	if [[ $# -gt 0 ]]; then
-		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]"
+		_hcom_command_error "$command_name" 'usage: ' "$command_name [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]"
 		return 1
 	fi
 
@@ -3132,7 +3132,7 @@ _hcom_parse_team_args() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
+# Usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
@@ -3144,7 +3144,7 @@ team() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
+# Usage: team:codex [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #
@@ -3156,7 +3156,7 @@ team:codex() {
 # @cat   hcom
 # @needs agent-quota
 #
-# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]
+# Usage: team:claude [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]
 # Without a mode, --team <label> creates or reuses a quick task.
 # If the Orchestrator's window closes before the team stops, find the teammates with hcom list and stop each with hcom kill <name>.
 #

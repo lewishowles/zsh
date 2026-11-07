@@ -400,7 +400,7 @@ assert_command_error 'team: invalid team label: Bad_Label'$'\n''team: use lowerc
 assert_command_error 'team: --task requires a task ID.' _hcom_parse_team_args team continue --task
 assert_command_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
 assert_command_error 'team: unknown option: --keep-agents' _hcom_parse_team_args team --keep-agents
-assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text> | --clipboard] [--team <label>] [--yes]' _hcom_parse_team_args team extra
+assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]' _hcom_parse_team_args team extra
 assert_command_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team continue --task tsk_A_B --team other
 assert_command_error 'team: --task only works with continue, handover, or handoff.' _hcom_parse_team_args team --task tsk_A_B
 # Clipboard contents are supplied by this fixture, never by the user's clipboard.
@@ -411,7 +411,8 @@ assert_command_error 'team: clipboard is empty.' _hcom_parse_team_args team --cl
 fixture_clipboard=$'--quoted "text" `literal` $VALUE\nsecond line'
 _hcom_parse_team_args team --clipboard || fail 'clipboard note did not parse'
 [[ "${reply[4]}" == "$fixture_clipboard" ]] || fail 'clipboard note changed during parsing'
-assert_command_error 'team: --clipboard and --message cannot be used together.' _hcom_parse_team_args team --clipboard --message 'another note'
+_hcom_parse_team_args team --clipboard --message 'another note' || fail 'combined message and clipboard note did not parse'
+[[ "${reply[4]}" == 'another note'$'\n\n'"$fixture_clipboard" ]] || fail 'combined message and clipboard note changed during parsing'
 assert_command_error 'team: --clipboard cannot be used with handoff or handover.' _hcom_parse_team_args team handoff --clipboard
 unfunction pbpaste
 assert_command_error "team: working directory not found: $fixture_dir/missing" _hcom_parse_team_args team --dir "$fixture_dir/missing"
@@ -1329,9 +1330,9 @@ assert_command_error 'team:done: task completed, but checkout cleanup is pending
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"}]}'
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex || fail 'Rex team tab creation'
 [[ "${reply[2]}" == 'fixture-origin-session' && "${reply[3]}" == 'window:new' ]] || fail 'Rex tab session and ID were not returned'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/reviewer")" == '# hcom-team-role-v2 codex auto 2'$'\n'*'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture reviewer:codex'* ]] || fail 'reviewer reset command lost its agent, account or team scope'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/implementer")" == '# hcom-team-role-v2 codex auto 1'$'\n'*'HCOM_ACCOUNT=1 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture implementer'* ]] || fail 'implementer reset command lost its agent, account or team scope'
-[[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/scout")" == '# hcom-team-role-v2 codex auto 2'$'\n'*'CODEX_HOME='*' HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture scout'* ]] || fail 'scout reset command lost its agent, account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/reviewer")" == '# hcom-team-role-v2 codex auto 2'$'\n''HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture reviewer:codex '* ]] || fail 'reviewer reset command lost its agent, account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/implementer")" == '# hcom-team-role-v2 codex auto 1'$'\n''HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture implementer '* ]] || fail 'implementer reset command lost its agent, account or team scope'
+[[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/scout")" == '# hcom-team-role-v2 codex auto 2'$'\n''HCOM_TEAM_LABEL=fixture-task HCOM_TEAM_PROJECT_TAG=Fixture scout '* ]] || fail 'scout reset command lost its agent, account or team scope'
 for role in reviewer implementer scout; do
 	# The command saved for this role, which a reset types into its pane again.
 	role_command="$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/window:new/$role")"
