@@ -532,12 +532,12 @@ for task_id in tsk_needs_decision tsk_done; do
 done
 
 plain_prompt="$(_hcom_team_continuation_prompt team continue 0)"  # Prompt used by ordinary continue.
-[[ "$plain_prompt" == 'Use the `project-continue` skill to retrieve the current progress records and continue with the next ready work.' ]] || fail 'plain continue prompt changed'
+[[ "$plain_prompt" == 'Continue with the next ready work, using the project handoff and Git status in this prompt.' ]] || fail 'plain continue prompt changed'
 plain_ready_prompt="$(_hcom_team_continuation_prompt team continue 1)"  # Prompt used by a ready default task.
 [[ "$plain_ready_prompt" == *'Start the selected task. If it has no chunks, plan them with the `project-plan-task` skill.'* ]] || fail 'plain ready prompt changed'
 # Prompt for a ready task chosen by ID.
 named_prompt="$(_hcom_team_continuation_prompt team continue 1 '' tsk_A_B "$fixture_dir/project")" || fail 'named ready prompt builds'
-[[ "$named_prompt" == 'Continue task tsk_A_B with the `project-continue` skill, not the `progress next` result.
+[[ "$named_prompt" == 'Continue task tsk_A_B, not the `progress next` result.
 
 These tasks are in progress and should not be modified: tsk_a_B
 
@@ -797,7 +797,7 @@ export REX_SESSION=fixture-origin-session
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task repeat launch'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == 'get tsk_A_B' ]] || fail 'repeat launch did not reuse the checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_A_B with '* ]] || fail 'ready task did not use the continue prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_A_B, not the `progress next` result.'* ]] || fail 'ready task did not use the continue prompt'
 
 # A label creates its quick task and launches through the named-task checkout path.
 : > "$HCOM_FIXTURE_QUICK_CALLS"
@@ -828,14 +828,14 @@ export HCOM_FIXTURE_QUICK_STATE=unfinished
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'unfinished quick task reuse'
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$launched_task_id" == tsk_quick ]] || fail 'unfinished quick task was added again'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '* && "$launched_orchestrator_prompt" != *'progress task start'* ]] || fail 'existing quick task skipped the normal prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick, not the `progress next` result.'* && "$launched_orchestrator_prompt" != *'progress task start'* ]] || fail 'existing quick task skipped the normal prompt'
 
 # A ready quick task from an earlier launch gets the normal start prompt.
 export HCOM_FIXTURE_QUICK_STATE=ready
 : > "$HCOM_FIXTURE_QUICK_CALLS"
 _hcom_launch_team team:codex unused unused unused unused --team blue || fail 'ready quick task reuse'
 [[ "$(<"$HCOM_FIXTURE_QUICK_CALLS")" == 'task list --all' && "$launched_task_id" == tsk_quick ]] || fail 'ready quick task was added again'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick with '*$'Your command to start the task is:\nprogress task start tsk_quick --secondary'* ]] || fail 'ready quick task skipped the normal start prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_quick, not the `progress next` result.'*$'Your command to start the task is:\nprogress task start tsk_quick --secondary'* ]] || fail 'ready quick task skipped the normal start prompt'
 
 # A finished quick task is ignored, so the launcher asks Progress for a new one.
 export HCOM_FIXTURE_QUICK_STATE=finished
@@ -862,7 +862,7 @@ unset HCOM_FIXTURE_QUICK_STATE
 export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B
 prior_pane_calls="$pane_calls"
 _hcom_launch_team team:codex unused unused unused unused continue || fail 'picker choice did not launch a ready task'
-[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B with '* ]] || fail 'picker choice missed the named ready-task launch path'
+[[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_A-B && "$launched_orchestrator_prompt" == *'Continue task tsk_A-B, not the `progress next` result.'* ]] || fail 'picker choice missed the named ready-task launch path'
 unset REX_SESSION
 assert_command_error 'team:codex: open Rex to start a team.' _hcom_launch_team team:codex unused unused unused unused continue
 export REX_SESSION=fixture-origin-session
@@ -954,13 +954,13 @@ mv "$HCOM_FIXTURE_WORKTREE_STATE_DIR/tsk_A__B" "$HCOM_FIXTURE_WORKTREE_STATE_DIR
 export HCOM_FIXTURE_ONLY_TASK_ID=tsk_a_B
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'sole in-progress task without a handoff did not continue'
 [[ -z "$launched_pane_directory" ]] || fail 'sole in-progress task without a checkout left the original checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'sole in-progress task without a handoff did not use the continue prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B, not the `progress next` result.'* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'sole in-progress task without a handoff did not use the continue prompt'
 unset HCOM_FIXTURE_ONLY_TASK_ID
 
 : > "$HCOM_FIXTURE_WORKTREE_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_a_B --yes || fail 'started task without a checkout did not continue'
 [[ -z "$launched_pane_directory" ]] || fail 'started task left the original checkout'
-[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B with '* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'started task without a handoff did not use the continue prompt'
+[[ "$launched_orchestrator_prompt" == *'Continue task tsk_a_B, not the `progress next` result.'* && "$launched_orchestrator_prompt" != *'progress context get --task tsk_a_B --json'* ]] || fail 'started task without a handoff did not use the continue prompt'
 [[ "$(<"$HCOM_FIXTURE_WORKTREE_CALLS")" == $'get tsk_a_B\nget tsk_A_B' ]] || fail 'started task created or skipped a checkout lookup'
 
 handoff tsk_a_B || fail 'named handoff without a checkout did not launch'

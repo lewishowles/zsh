@@ -297,7 +297,7 @@ _hcom_team_continuation_prompt() {
 				fi
 
 				other_task_ids="$(jq -r --arg task_id "$selected_task_id" '[.data.items[].id | select(. != $task_id)] | join(", ")' <<<"$tasks_json")" || return 1
-				print -r -- "Continue task ${selected_task_id} with the \`project-continue\` skill, not the \`progress next\` result."
+				print -r -- "Continue task ${selected_task_id}, not the \`progress next\` result."
 				if [[ -n "$other_task_ids" ]]; then
 					print -r -- ''
 					print -r -- "These tasks are in progress and should not be modified: ${other_task_ids}"
@@ -310,7 +310,7 @@ _hcom_team_continuation_prompt() {
 					print -r -- "$start_command"
 				fi
 			else
-				print -r -- "Use the \`project-continue\` skill to retrieve the current progress records and continue with the next ready work."
+				print -r -- "Continue with the next ready work, using the project handoff and Git status in this prompt."
 				if (( task_needs_start )); then
 					print -r -- "Start the selected task. If it has no chunks, plan them with the \`project-plan-task\` skill. Review all its chunks, planned or existing, with the \`project-review-task\` skill and fix any that fail. Present the chunk plan to the human for approval before dispatching implementation."
 				fi
