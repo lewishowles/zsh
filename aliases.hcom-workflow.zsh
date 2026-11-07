@@ -117,11 +117,14 @@ _hcom_workflow_prompt() {
 	print -r -- "${prompt_template//${placeholder}/$quoted_placeholder_value}"
 }
 
-# Opens panes beside the calling Rex pane and starts a command in each one.
+# Opens new panes by splitting the calling Rex pane or one opened earlier in the
+# layout, and starts a command in each one.
 # Each pane is described by five arguments: the pane to split (0 for the caller,
 # 1 for the first new pane, and so on), the side to open on, the new pane's share
 # of the split as a percentage, its label, and the command to run in it.
-# Panes already opened stay open when a later one fails.
+# The whole layout is checked before any pane opens, and no command starts until
+# every pane is open. Panes already opened stay open, and idle, when a later
+# split fails.
 #
 # @param  {string}  command_name
 #     Public command named in a layout error.
@@ -133,9 +136,42 @@ _hcom_workflow_launch_rex_layout() {
 	local command_name="$1"  # Public command named in a layout error.
 	local working_directory="$2"  # Directory every new pane starts in.
 	shift 2
-	local parent_index  # Position in pane_blocks of the pane to split.
+	local parent_index  # Number of the pane this entry splits, where 0 is the caller.
 	local new_block  # ID of the pane just opened.
 	local -a pane_blocks=("$REX_BLOCK")  # The calling pane followed by each new pane.
+	local -a opened_panes=()  # The ID, label and command of each opened pane, in layout order.
+
+	_hcom_workflow_check_rex_layout "$command_name" "$@" || return 1
+
+	while (( $# > 0 )); do
+		parent_index="$1"
+
+		if ! new_block="$(_hcom_workflow_open_rex_pane "${pane_blocks[$((parent_index + 1))]}" "$2" "$3" "$4" "$working_directory")"; then
+			_hcom_command_error "$command_name" "could not set up the $4 pane in Rex."
+			return 1
+		fi
+
+		pane_blocks+=("$new_block")
+		opened_panes+=("$new_block" "$4" "$5")
+		shift 5
+	done
+
+	_hcom_workflow_start_rex_commands "$command_name" "${opened_panes[@]}"
+}
+
+# Refuses a Rex layout with a pane that has fewer than five arguments, a parent
+# that is not the caller or an earlier pane, an unknown side, or a percentage
+# outside 1 to 99.
+#
+# @param  {string}  command_name
+#     Public command named in a layout error.
+# @param  {string}  ...
+#     Five arguments per new pane: parent index, side, percentage, label and command.
+_hcom_workflow_check_rex_layout() {
+	local command_name="$1"  # Public command named in a layout error.
+	shift
+	local pane_number=1  # Number of the pane being checked; earlier panes have smaller numbers.
+	local parent_index  # Number of the pane this entry splits, where 0 is the caller.
 
 	if (( $# % 5 != 0 )); then
 		_hcom_command_error "$command_name" 'each Rex layout pane needs five arguments.'
@@ -144,18 +180,52 @@ _hcom_workflow_launch_rex_layout() {
 
 	while (( $# > 0 )); do
 		parent_index="$1"
-
-		if ! new_block="$(_hcom_workflow_open_rex_pane "${pane_blocks[$((parent_index + 1))]}" "$2" "$3" "$4" "$5" "$working_directory")"; then
-			_hcom_command_error "$command_name" "could not set up the $4 pane in Rex."
+		# Refuse a number with more digits than the pane count before comparing,
+		# so zsh never has to convert a huge number.
+		if [[ ! "$parent_index" =~ '^(0|[1-9][0-9]*)$' ]] || (( ${#parent_index} > ${#pane_number} )) || (( parent_index >= pane_number )); then
+			_hcom_command_error "$command_name" "invalid Rex layout parent for the $4 pane: $parent_index."
 			return 1
 		fi
 
-		pane_blocks+=("$new_block")
+		case "$2" in
+			right|left|above|below) ;;
+			*)
+				_hcom_command_error "$command_name" "invalid Rex layout side for the $4 pane: $2."
+				return 1
+				;;
+		esac
+
+		if [[ ! "$3" =~ '^[1-9][0-9]?$' ]]; then
+			_hcom_command_error "$command_name" "invalid Rex layout percentage for the $4 pane: $3."
+			return 1
+		fi
+
+		(( pane_number++ ))
 		shift 5
 	done
 }
 
-# Splits a Rex pane, starts a command in the new pane and prints the new pane's ID.
+# Starts the command in each opened Rex pane, in layout order.
+# Stops at the first pane that cannot be started, so later panes stay idle.
+#
+# @param  {string}  command_name
+#     Public command named in a launch error.
+# @param  {string}  ...
+#     Three arguments per pane: block ID, label and command.
+_hcom_workflow_start_rex_commands() {
+	local command_name="$1"  # Public command named in a launch error.
+	shift
+
+	while (( $# > 0 )); do
+		if ! _hcom_workflow_type_rex_command "$REX_SESSION" "$1" "$3"; then
+			_hcom_command_error "$command_name" "could not start the $2 pane in Rex."
+			return 1
+		fi
+		shift 3
+	done
+}
+
+# Splits a Rex pane and prints the new pane's ID.
 # The new pane does not take focus, so the caller's agent keeps the keyboard.
 #
 # @param  {string}  parent_block
@@ -166,8 +236,6 @@ _hcom_workflow_launch_rex_layout() {
 #     Percentage of the split given to the new pane.
 # @param  {string}  pane_label
 #     Label shown on the new pane.
-# @param  {string}  launch_command
-#     Shell command typed into the new pane and run.
 # @param  {string}  working_directory
 #     Directory the new pane starts in.
 _hcom_workflow_open_rex_pane() {
@@ -175,15 +243,12 @@ _hcom_workflow_open_rex_pane() {
 	local split_direction="$2"  # Side of the parent pane the new pane opens on.
 	local pane_percentage="$3"  # Percentage of the split given to the new pane.
 	local pane_label="$4"  # Label shown on the new pane.
-	local launch_command="$5"  # Shell command typed into the new pane and run.
-	local working_directory="$6"  # Directory the new pane starts in.
+	local working_directory="$5"  # Directory the new pane starts in.
 	local split_json  # Rex's reply to the split, which holds the new pane's ID.
 	local new_block  # ID of the new pane.
 
 	split_json="$(command rex split -s "$REX_SESSION" -b "$parent_block" --split="$split_direction" --ratio "$pane_percentage" --label "$pane_label" --focus=false -c "$working_directory" --json)" || return 1
 	new_block="$(jq -er '.block_ids[0]' <<<"$split_json")" || return 1
-
-	_hcom_workflow_type_rex_command "$REX_SESSION" "$new_block" "$launch_command" || return 1
 
 	print -r -- "$new_block"
 }

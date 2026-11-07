@@ -265,6 +265,7 @@ case "$1" in
 		;;
 	split)
 		[[ "${HCOM_FIXTURE_REX_SPLIT_FAIL:-0}" == 1 ]] && exit 1
+		[[ -n "${HCOM_FIXTURE_REX_SPLIT_FAIL_LABEL:-}" && "$*" == *"--label $HCOM_FIXTURE_REX_SPLIT_FAIL_LABEL"* ]] && exit 1
 		case "$*" in
 			*'--label implementer'*) print -r -- '{"block_ids":["block:implementer"]}' ;;
 			*'--label reviewer'*) print -r -- '{"block_ids":["block:reviewer"]}' ;;
@@ -1167,6 +1168,34 @@ fi
 assert_command_error 'learn:codex: each Rex layout pane needs five arguments.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right
 [[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'invalid Rex layout opened a pane'
 
+# The invalid second pane must be refused before the valid first pane opens.
+assert_command_error 'learn:codex: invalid Rex layout parent for the reviewer pane: 2.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 2 right 50 reviewer 'reviewer second'
+assert_command_error 'learn:codex: invalid Rex layout parent for the reviewer pane: abc.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' abc right 50 reviewer 'reviewer second'
+assert_command_error 'learn:codex: invalid Rex layout side for the reviewer pane: diagonal.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 0 diagonal 50 reviewer 'reviewer second'
+assert_command_error 'learn:codex: invalid Rex layout percentage for the reviewer pane: 0.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 0 right 0 reviewer 'reviewer second'
+assert_command_error 'learn:codex: invalid Rex layout percentage for the reviewer pane: 100.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 0 right 100 reviewer 'reviewer second'
+assert_command_error 'learn:codex: invalid Rex layout percentage for the reviewer pane: 50.5.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 0 right 50.5 reviewer 'reviewer second'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'invalid later Rex layout entry opened a pane'
+
+_hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 1 below 40 reviewer 'reviewer second' || fail 'chained Rex layout did not launch'
+layout_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"  # Rex calls recorded by the latest layout test.
+[[ "$layout_calls" == *'split -s fixture-origin-session -b block:learner --split=right --ratio 50 --label scout'*'split -s fixture-origin-session -b block:scout --split=below --ratio 40 --label reviewer'*'send -s fixture-origin-session -b block:scout scout first'*'send-key -s fixture-origin-session -b block:scout enter'*'send -s fixture-origin-session -b block:reviewer reviewer second'* ]] || fail 'chained Rex layout split or command order changed'
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+export HCOM_FIXTURE_REX_SPLIT_FAIL_LABEL=reviewer
+assert_command_error 'learn:codex: could not set up the reviewer pane in Rex.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 1 below 40 reviewer 'reviewer second'
+layout_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"
+[[ "$layout_calls" == *'split -s fixture-origin-session -b block:learner --split=right'*'split -s fixture-origin-session -b block:scout --split=below'* && "$layout_calls" != *'send -s '* ]] || fail 'a later Rex split failure started a pane command'
+unset HCOM_FIXTURE_REX_SPLIT_FAIL_LABEL
+
+: > "$HCOM_FIXTURE_REX_CALLS"
+export HCOM_FIXTURE_REX_SEND_ERROR_BLOCK=block:scout
+assert_command_error 'learn:codex: could not start the scout pane in Rex.' _hcom_workflow_launch_rex_layout learn:codex "$PWD" 0 right 50 scout 'scout first' 1 below 40 reviewer 'reviewer second'
+layout_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"
+[[ "$layout_calls" == *'split -s fixture-origin-session -b block:learner --split=right'*'split -s fixture-origin-session -b block:scout --split=below'*'send -s fixture-origin-session -b block:scout scout first'* && "$layout_calls" != *'send -s fixture-origin-session -b block:reviewer'* ]] || fail 'failed Rex command typing skipped a split or started a later command'
+unset HCOM_FIXTURE_REX_SEND_ERROR_BLOCK
+
+: > "$HCOM_FIXTURE_REX_CALLS"
 launched_learner_role=not-launched
 export HCOM_FIXTURE_REX_SPLIT_FAIL=1
 assert_command_error 'learn:codex: could not set up the scout pane in Rex.' learn:codex fixture-source
