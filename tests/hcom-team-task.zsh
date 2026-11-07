@@ -1280,8 +1280,17 @@ export REX_BLOCK=block:insights-caller  # Calling Rex pane for the insights layo
 insights_report_path="$fixture_dir/insights report.md"  # Readable report whose name checks shell quoting.
 print -r -- 'Insights report' > "$insights_report_path"
 quoted_insights_report_path="${(q)insights_report_path}"  # Report path expected in typed commands.
+insights_repository_tag="$(_hcom_scoped_tag insights "$PWD")"  # The repository prefix of the insights pane tags in this fixture.
 
 : > "$HCOM_FIXTURE_REX_CALLS"
+# A live peer on any one of the five pane tags stops the review before Rex is touched.
+for insights_role_tag in insights-claude-orchestrator insights-codex-orchestrator insights-claude-scout insights-codex-scout insights-reviewer; do
+	print -r -- "[{\"tag\":\"${insights_repository_tag}-${insights_role_tag}\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
+	assert_command_error "insights: peer already holds ${insights_repository_tag}-${insights_role_tag}. Switch to that agent, or stop it with \"hcom kill peer\" and run insights again. Stop the running insights review before starting another." insights "$insights_report_path"
+	[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'duplicate insights review touched Rex'
+done
+
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 CLAUDE_CONFIG_DIR="$HOME/.claude-2" insights "$insights_report_path" || fail 'insights review did not launch'
 insights_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"  # Rex calls recorded by the insights launch.
 [[ "$insights_calls" == *'split -s fixture-origin-session -b block:insights-caller --split=right --ratio 33 --label insights-consolidator'*'split -s fixture-origin-session -b block:insights-caller --split=right --ratio 50 --label insights-codex'*'split -s fixture-origin-session -b block:insights-caller --split=below --ratio 40 --label insights-scout-claude'*'split -s fixture-origin-session -b block:insights-codex --split=below --ratio 40 --label insights-scout-codex'* ]] || fail 'insights opened the wrong Rex layout or split order'

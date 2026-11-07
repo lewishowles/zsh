@@ -37,6 +37,11 @@ insights() {
 		return 1
 	fi
 
+	local repository_tag  # The repository prefix shared by the five insights pane tags.
+	repository_tag="$(_hcom_scoped_tag insights "$PWD")" || return 1
+	local insights_tags="${repository_tag}-insights-claude-orchestrator|${repository_tag}-insights-codex-orchestrator|${repository_tag}-insights-claude-scout|${repository_tag}-insights-codex-scout|${repository_tag}-insights-reviewer"  # The tags the five panes would take, checked before any pane opens.
+	_hcom_refuse_live_tags insights "$insights_tags" '' ' Stop the running insights review before starting another.' || return 1
+
 	local quoted_report_path="${(q)report_path}"  # Shell-quoted report path for the typed launch command.
 
 	# New panes open in the launch folder, so a relative report path still
