@@ -270,6 +270,9 @@ case "$1" in
 			*'--label implementer'*) print -r -- '{"block_ids":["block:implementer"]}' ;;
 			*'--label reviewer'*) print -r -- '{"block_ids":["block:reviewer"]}' ;;
 			*'--label scout'*) print -r -- '{"block_ids":["block:scout"]}' ;;
+			*'--label plan-codex'*) print -r -- '{"block_ids":["block:plan-codex"]}' ;;
+			*'--label plan-scout-claude'*) print -r -- '{"block_ids":["block:plan-scout-claude"]}' ;;
+			*'--label plan-scout-codex'*) print -r -- '{"block_ids":["block:plan-scout-codex"]}' ;;
 		esac
 		;;
 	api)
@@ -1214,26 +1217,6 @@ assert_command_error 'learn:codex: open Rex to start a learner.' learn:codex fix
 
 source "$repo_root/aliases.hcom-plan.zsh"
 
-# Records the commands plan types into each Ghostty pane, without opening any pane.
-#
-# @param  {string}  script_path
-#     The AppleScript that would build the layout, ignored here.
-# @param  {string}  codex_command
-#     The command for the Codex planning pane.
-# @param  {string}  scout_claude_command
-#     The command for the Claude Scout pane.
-# @param  {string}  scout_codex_command
-#     The command for the Codex Scout pane.
-# @param  {string}  origin_terminal_id
-#     The Ghostty pane that ran the planning command.
-function /usr/bin/osascript() {
-	plan_osascript_calls=$((plan_osascript_calls + 1))
-	recorded_codex_command="$2"
-	recorded_scout_claude_command="$3"
-	recorded_scout_codex_command="$4"
-	recorded_plan_origin_terminal_id="$5"
-}
-
 # Records each planning peer's team label without starting an agent.
 #
 # @param  {string}  ...
@@ -1242,22 +1225,24 @@ _hcom_launch_role() {
 	plan_peer_team_labels+=("$HCOM_TEAM_LABEL")
 }
 
-plan_osascript_calls=0  # Number of Ghostty layouts requested by plan launches.
-recorded_codex_command=""  # Most recent command typed into the Codex planning pane.
-recorded_scout_claude_command=""  # Most recent command typed into the Claude Scout pane.
-recorded_scout_codex_command=""  # Most recent command typed into the Codex Scout pane.
-recorded_plan_origin_terminal_id=""  # Origin pane ID passed to the planning layout.
+export REX_BLOCK=block:plan-caller  # Calling Rex pane for the planning layout.
 plan_peer_team_labels=()  # Team labels each planning peer launched with, oldest first.
 plan_repository_tag="$(_hcom_scoped_tag plan "$PWD")"  # Repository tag shared by fixture planners.
 
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+: > "$HCOM_FIXTURE_REX_CALLS"
 plan --team blue fixture-task || fail 'labelled plan did not launch'
-[[ "$recorded_plan_origin_terminal_id" == 'fixture-origin-pane' ]] || fail 'labelled plan did not pass the origin pane ID as argument 5'
-[[ "$recorded_codex_command" == *'plan:codex --team blue fixture-task' && "$recorded_scout_claude_command" == *'HCOM_TEAM_LABEL=plan-claude-blue scout' && "$recorded_scout_codex_command" == *'HCOM_TEAM_LABEL=plan-codex-blue scout' ]] || fail 'labelled plan commands lost the label'
+plan_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"  # Rex calls recorded by the most recent plan launch.
+[[ "$plan_calls" == *'split -s fixture-origin-session -b block:plan-caller --split=right --ratio 50 --label plan-codex'*'split -s fixture-origin-session -b block:plan-caller --split=below --ratio 40 --label plan-scout-claude'*'split -s fixture-origin-session -b block:plan-codex --split=below --ratio 40 --label plan-scout-codex'* ]] || fail 'labelled plan opened the wrong Rex layout'
+[[ "$plan_calls" == *'send -s fixture-origin-session -b block:plan-codex '*'HCOM_PLANNING_WORKFLOW=1 plan:codex --team blue fixture-task'*'send -s fixture-origin-session -b block:plan-scout-claude '*'HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=plan-claude-blue scout'*'send -s fixture-origin-session -b block:plan-scout-codex '*'HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=plan-codex-blue scout'* ]] || fail 'labelled plan commands lost their workflow flag or label'
+[[ "$(print -r -- "$plan_calls" | grep -F -c -- "-c $PWD --json")" == 3 ]] || fail 'plan panes did not open in the launch directory'
+[[ "$(print -r -- "$plan_calls" | grep -c '^split ')" == 3 && "$(print -r -- "$plan_calls" | grep -c '^send -s ')" == 3 && "$(print -r -- "$plan_calls" | grep -c '^send-key -s .* enter$')" == 3 ]] || fail 'labelled plan did not start three new panes'
 [[ "${plan_peer_team_labels[-1]}" == plan-claude-blue ]] || fail 'labelled plan:claude used the wrong team label'
 
+: > "$HCOM_FIXTURE_REX_CALLS"
 plan fixture-task || fail 'unlabelled plan did not launch'
-[[ "$recorded_codex_command" == *'plan:codex fixture-task' && "$recorded_scout_claude_command" == *'HCOM_TEAM_LABEL=plan-claude scout' && "$recorded_scout_codex_command" == *'HCOM_TEAM_LABEL=plan-codex scout' ]] || fail 'unlabelled plan commands changed'
+plan_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"
+[[ "$plan_calls" == *'plan:codex fixture-task'*'HCOM_TEAM_LABEL=plan-claude scout'*'HCOM_TEAM_LABEL=plan-codex scout'* ]] || fail 'unlabelled plan commands changed'
 [[ "${plan_peer_team_labels[-1]}" == plan-claude ]] || fail 'unlabelled plan:claude team label changed'
 
 plan:claude --team blue fixture-task || fail 'labelled plan:claude did not launch'
@@ -1265,17 +1250,17 @@ plan:claude --team blue fixture-task || fail 'labelled plan:claude did not launc
 plan:codex --team blue fixture-task || fail 'labelled plan:codex did not launch'
 [[ "${plan_peer_team_labels[-1]}" == plan-codex-blue ]] || fail 'plan:codex ignored the label'
 
-prior_plan_osascript_calls="$plan_osascript_calls"  # Layout count before duplicate and input errors.
+: > "$HCOM_FIXTURE_REX_CALLS"
 print -r -- "[{\"tag\":\"${plan_repository_tag}-plan-codex-scout\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 assert_command_error "plan: peer already holds ${plan_repository_tag}-plan-codex-scout. Switch to that agent, or stop it with \"hcom kill peer\" and run plan again. Rerun with --team <label> to start another planning review." plan fixture-task
 print -r -- "[{\"tag\":\"${plan_repository_tag}-plan-claude-blue-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 assert_command_error "plan: peer already holds ${plan_repository_tag}-plan-claude-blue-orchestrator. Switch to that agent, or stop it with \"hcom kill peer\" and run plan again. Choose a different --team label to start another planning review." plan --team blue fixture-task
-[[ "$plan_osascript_calls" == "$prior_plan_osascript_calls" ]] || fail 'duplicate plan opened panes'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'duplicate plan touched Rex'
 
 print -r -- "[{\"tag\":\"${plan_repository_tag}-plan-claude-orchestrator\",\"name\":\"peer\"}]" > "$HCOM_FIXTURE_AGENTS"
 plan --team blue fixture-task || fail 'labelled plan was refused beside a live unlabelled planning team'
-[[ "$plan_osascript_calls" == "$((prior_plan_osascript_calls + 1))" ]] || fail 'labelled plan beside a live unlabelled team did not open panes'
-prior_plan_osascript_calls="$plan_osascript_calls"
+[[ "$(grep -c '^split ' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'labelled plan beside a live unlabelled team did not open panes'
+: > "$HCOM_FIXTURE_REX_CALLS"
 
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 assert_command_error $'plan: invalid team label: Bad_Label\nplan: use lowercase letters, numbers, and internal hyphens.\nplan: usage: plan [--team <label>] <task-name>' plan --team Bad_Label fixture-task
@@ -1283,7 +1268,15 @@ if plan --team blue 2>"$error_file"; then
 	fail 'plan accepted a label without a task name'
 fi
 [[ "$(<"$error_file")" == 'plan: usage: plan [--team <label>] <task-name>' ]] || fail 'missing plan task omitted usage'
-[[ "$plan_osascript_calls" == "$prior_plan_osascript_calls" ]] || fail 'invalid plan arguments opened panes'
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'invalid plan arguments touched Rex'
+
+unset REX_SESSION
+assert_command_error 'plan: open Rex to start a planning review.' plan fixture-task
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'plan touched Rex outside a Rex session'
+export REX_SESSION=fixture-origin-session
+unset REX_BLOCK
+assert_command_error 'plan: open Rex to start a planning review.' plan fixture-task
+[[ ! -s "$HCOM_FIXTURE_REX_CALLS" ]] || fail 'plan touched Rex without a calling pane'
 
 # Invalid close-out arguments and a missing quick task leave the team untouched.
 _hcom_clear_team_scope

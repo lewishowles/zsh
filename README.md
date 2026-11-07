@@ -290,7 +290,7 @@ Run `team` or `cont` from inside Rex to put each team in a tab of an existing Re
 | `learn:codex` |  | Start a Codex source-learning learner and its dedicated Scout |
 | `orchestrator` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `orchestrator:codex` |  | Start the Codex Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |
-| `plan` | [--team <label>] <task-name> | Start the complete hcom plan review of a given task name or path in four Ghostty panes |
+| `plan` | [--team <label>] <task-name> | Start the complete hcom plan review of a given task name or path in four Rex panes |
 | `plan:claude` | [--team <label>] <task-name> | Start a Claude planning-peer review of a given task name or path |
 | `plan:codex` | [--team <label>] <task-name> | Start a Codex planning-peer review of a given task name or path |
 | `reviewer` |  | Start the Reviewer hcom role on the account with more quota headroom; --task <id> joins that task's team |

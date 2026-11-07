@@ -1,11 +1,11 @@
 # Provides hcom plan-review launchers and their prompt-loading helpers.
 
-# @desc  Start the complete hcom plan review of a given task name or path in four Ghostty panes
+# @desc  Start the complete hcom plan review of a given task name or path in four Rex panes
 # @cat   hcom
 # @needs agent-quota
 # Usage: plan [--team <label>] <task-name>
 #
-# Creates this layout in the current Ghostty tab:
+# Splits the calling Rex pane into this layout:
 #
 #   plan-claude  | plan-codex
 #   scout-claude | scout-codex
@@ -18,6 +18,7 @@
 # `-<label>` added when --team is given), so each planning peer's team-send
 # reaches only its own scout. A live planning team with the same tags is
 # refused before any pane opens; a different --team label starts another.
+# Outside Rex, plan refuses before any pane opens.
 #
 # @param  {string}  --team <label>
 #     Optional leading team label that keeps this planning review apart from others in the repository.
@@ -34,13 +35,16 @@ plan() {
 
 	local label="${launch_args[1]}"  # Optional user-supplied team label.
 	local task_name="${launch_args[2]}"  # Task name or path passed to both planning peers.
+
+	if [[ -z "${REX_SESSION:-}" || -z "${REX_BLOCK:-}" ]]; then
+		_hcom_command_error plan 'open Rex to start a planning review.'
+		return 1
+	fi
+
 	local claude_team_label="plan-claude${label:+-${label}}"  # Team label shared by the Claude planner and its Scout.
 	local codex_team_label="plan-codex${label:+-${label}}"  # Team label shared by the Codex planner and its Scout.
 	local repository_tag  # Repository portion of every planning tag.
 	repository_tag="$(_hcom_scoped_tag plan "$PWD")" || return 1
-
-	local origin_terminal_id  # Ghostty pane that ran this command, so the layout opens beside it after a tab change.
-	origin_terminal_id="$(_hcom_focused_ghostty_terminal_id plan)" || return 1
 
 	# Check all four tags before opening any pane, so a duplicate leaves nothing behind.
 	local collision_hint=" Rerun with --team <label> to start another planning review."  # Advice added to the refusal when a tag is already live.
@@ -56,28 +60,19 @@ plan() {
 	fi
 	local quoted_task_name="${(q)task_name}"  # Shell-quoted task name for the typed launch command.
 
-	# Ghostty panes start fresh shells without this shell's exported env, and
-	# can open in another project's folder if the human switches tabs while
-	# they open. Each typed command therefore changes into the launch folder
-	# and carries any active account override.
-	local account_env  # Optional account override to include in each fresh Ghostty shell.
+	# Each new pane starts its own shell, so the command carries any active
+	# account override.
+	local account_env  # Optional account override to include in each new shell.
 	account_env="$(_hcom_account_environment)"
 
-	local plan_codex_command="cd ${(q)PWD} && ${account_env}HCOM_PLANNING_WORKFLOW=1 plan:codex ${label:+--team ${label} }$quoted_task_name"  # Command for the Codex planning pane.
-	local scout_claude_command="cd ${(q)PWD} && ${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$claude_team_label scout"  # Command for the Claude scout pane.
-	local scout_codex_command="cd ${(q)PWD} && ${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$codex_team_label scout"  # Command for the Codex scout pane.
+	local plan_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 plan:codex ${label:+--team ${label} }$quoted_task_name"  # Command for the Codex planning pane.
+	local scout_claude_command="${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$claude_team_label scout"  # Command for the Claude scout pane.
+	local scout_codex_command="${account_env}HCOM_PLANNING_WORKFLOW=1 HCOM_TEAM_LABEL=$codex_team_label scout"  # Command for the Codex scout pane.
 
-	/usr/bin/osascript "$ZSH_CONFIG_ROOT/scripts/hcom-plan.applescript" \
-		"$plan_codex_command" \
-		"$scout_claude_command" \
-		"$scout_codex_command" \
-		"$origin_terminal_id"
-
-	local osascript_exit_code=$?  # Exit status from the Ghostty pane layout script.
-
-	if (( osascript_exit_code != 0 )); then
-		return "$osascript_exit_code"
-	fi
+	_hcom_workflow_launch_rex_layout plan "$PWD" \
+		0 right 50 plan-codex "$plan_codex_command" \
+		0 below 40 plan-scout-claude "$scout_claude_command" \
+		1 below 40 plan-scout-codex "$scout_codex_command" || return 1
 
 	HCOM_PLANNING_WORKFLOW=1 plan:claude "${team_args[@]}" "$task_name"
 }
