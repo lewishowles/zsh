@@ -30,11 +30,11 @@ _hcom_team_tags() {
 	print -r -- "$tag_prefix-orchestrator|$tag_prefix-reviewer|$tag_prefix-implementer|$tag_prefix-scout"
 }
 
-# Reads the task's team address and status into `reply`. The address starts
-# with the main checkout's folder name, so a team gets the same tags in the
-# checkout and in any of its worktrees. Fails when Progress cannot read the
-# task, the task slug is not safe for a tag, or Git cannot find the main
-# checkout.
+# Reads the task's team address, status and full task record into `reply`.
+# The address starts with the main checkout's folder name, so a team gets
+# the same tags in the checkout and in any of its worktrees. Fails when
+# Progress cannot read the task, the task slug is not safe for a tag, or
+# Git cannot find the main checkout.
 #
 # @param  {string}  command_name
 #     The public command shown in task errors.
@@ -70,7 +70,7 @@ _hcom_read_task_team() {
 	# Ignore a tag inherited from a running task team, so the tag comes from this checkout's folder.
 	checkout_tag="$(HCOM_TEAM_PROJECT_TAG="" _hcom_scoped_tag "$command_name" "$checkout_directory")" || return 1
 
-	reply=("$checkout_tag" "$task_slug" "$task_status")
+	reply=("$checkout_tag" "$task_slug" "$task_status" "$task_json")
 }
 
 # Finds an unfinished quick task for a label, returning its ID or an empty string in reply.
@@ -347,7 +347,8 @@ _hcom_team_continuation_prompt() {
 	esac
 }
 
-# Prints the current handoffs and checkout status for a continuing team.
+# Prints the selected task, current handoffs and checkout status for a
+# continuing team.
 # A read that fails prints a "Missing" line, so the team cannot mistake it for
 # an empty handoff or a clean checkout.
 #
@@ -355,12 +356,19 @@ _hcom_team_continuation_prompt() {
 #     Checkout where the team's roles will run.
 # @param  {string}  selected_task_id
 #     Task whose handoff to include, or empty when no task was selected.
+# @param  {string}  task_json
+#     Task record already read while selecting or previewing the task.
 _hcom_team_startup_facts() {
-	local working_directory="$1"  # Checkout used for all three reads.
+	local working_directory="$1"  # Checkout used for handoff and Git reads.
 	local selected_task_id="${2:-}"  # Task selected for this launch, if any.
+	local task_json="${3:-}"  # Task record read before this prompt is assembled.
 	local git_changes  # Short Git status for the selected checkout.
 
 	if [[ -n "$selected_task_id" ]]; then
+		print -r -- "Task record for ${selected_task_id}:"
+		_hcom_team_print_task_record "$task_json" "$selected_task_id"
+		print -r -- ''
+
 		print -r -- "Task handoff for ${selected_task_id}:"
 		_hcom_team_print_handoff "$working_directory" task "$selected_task_id"
 		print -r -- ''
@@ -382,7 +390,44 @@ _hcom_team_startup_facts() {
 	fi
 }
 
-# Prints one handoff as JSON, or a "Missing" line when it cannot be read.
+# Prints the task details and ordered chunks, or names an unreadable record.
+#
+# @param  {string}  task_json
+#     Progress task response already read during selection or preview.
+# @param  {string}  task_id
+#     Expected task ID, used to reject an unrelated response.
+_hcom_team_print_task_record() {
+	local task_json="$1"  # Progress response containing the task and its chunks.
+	local task_id="$2"  # Selected task that the response must describe.
+
+	if ! jq -e --arg task_id "$task_id" '.ok == true and .data.id == $task_id' >/dev/null 2>&1 <<<"$task_json"; then
+		print -r -- 'Missing: the task record could not be read.'
+		return
+	fi
+
+	jq -r '
+		.data as $task |
+		"Title: \($task.title // "")",
+		"Overview: \($task.overview // "" | gsub("\n"; "\n  "))",
+		"Done when:",
+		(if ($task.done_when // [] | length) == 0 then "  None listed."
+		 else $task.done_when[] | "  - \(. | gsub("\n"; "\n    "))" end),
+		"Files:",
+		(if ($task.files // [] | length) == 0 then "  None listed."
+		 else $task.files[] | "  - \(.)" end),
+		"Chunks:",
+		(if ($task.chunks // [] | length) == 0 then "  None planned."
+		 else $task.chunks | sort_by(.position)[] |
+			"  - \(.id) [\(.status)] \(.title)",
+			(if .status == "done" or .status == "skipped" then empty
+			 else (if (.description // "") != "" then "    Description: \(.description | gsub("\n"; "\n      "))" else empty end),
+				(if (.review_question // "") != "" then "    Review question: \(.review_question | gsub("\n"; "\n      "))" else empty end)
+			 end)
+		 end)' <<<"$task_json"
+}
+
+# Prints one handoff as labelled fields, or a "Missing" line when it cannot
+# be read.
 #
 # @param  {string}  working_directory
 #     Checkout whose handoff to read.
@@ -395,6 +440,7 @@ _hcom_team_print_handoff() {
 	local kind="$2"  # Handoff kind used for the command and missing-data line.
 	local task_id="${3:-}"  # Selected task for a task handoff.
 	local handoff  # Full handoff response.
+	local labelled_fields  # Nonempty handoff fields formatted for the prompt.
 	local -a task_args  # Task selector, empty for the project handoff.
 
 	if [[ "$kind" == task ]]; then
@@ -402,7 +448,21 @@ _hcom_team_print_handoff() {
 	fi
 	if handoff="$(cd "$working_directory" && progress context get "${task_args[@]}" --json 2>/dev/null)" \
 		&& jq -e '.ok == true' >/dev/null 2>&1 <<<"$handoff"; then
-		print -r -- "$handoff"
+		if ! labelled_fields="$(jq -r '.data // {} | [
+			["Current goal", .current_goal],
+			["Previous step", .previous_step],
+			["Next step", .next_step],
+			["Standing context", .standing_context],
+			["Verify with", .verify_with],
+			["Stop marker", .stop_marker]
+		] | .[] | select(.[1] != null and .[1] != "" and .[1] != []) |
+		"\(.[0]): \(.[1] | if type == "array" then join(", ") else tostring end | gsub("\n"; "\n  "))"' <<<"$handoff")"; then
+			print -r -- "Missing: the $kind handoff could not be read."
+		elif [[ -n "$labelled_fields" ]]; then
+			print -r -- "$labelled_fields"
+		else
+			print -r -- "No $kind handoff saved."
+		fi
 	else
 		print -r -- "Missing: the $kind handoff could not be read."
 	fi
@@ -517,6 +577,7 @@ _hcom_launch_team() {
 	local team_project_tag=""  # Main checkout folder tag for a task team, or original checkout folder tag for a root team.
 	local launch_team_tags=""  # Exact role tags checked before pane creation.
 	local requested_task_status=""  # Progress status of the explicitly selected task.
+	local selected_task_json=""  # Full task record already read for the selected task.
 	local continuation_task_needs_start=0  # Whether the selected continuation task has not started yet.
 	local continuation_task_id=""  # Task the team continues, chosen by its ID or the in-progress lookup.
 	local selected_task_id=""  # Task the prompt names: the named task, the only in-progress one, or the task a handover is for.
@@ -532,6 +593,7 @@ _hcom_launch_team() {
 	# An explicit task is checked first so an unknown ID keeps its useful error.
 	if [[ -n "$requested_task_id" ]]; then
 		_hcom_read_task_team "$command_name" "$team_scope_directory" "$requested_task_id" || return 1
+		selected_task_json="${reply[4]}"
 	fi
 	if [[ -z "${REX_SESSION:-}" ]]; then
 		_hcom_command_error "$command_name" 'open Rex to start a team.'
@@ -611,6 +673,7 @@ _hcom_launch_team() {
 					continuation_task_needs_start="${reply[1]:-0}"
 					continuation_task_id="${reply[2]:-}"
 					continuation_has_handoff="${reply[4]:-0}"
+					selected_task_json="${reply[5]:-}"
 					;;
 				2)
 					_hcom_select_in_progress_task "$command_name" "$team_scope_directory" '' 1
@@ -710,7 +773,7 @@ _hcom_launch_team() {
 		local continuation_prompt  # Generated instruction for the selected continuation mode.
 		local startup_facts  # Current handoffs and status for the checkout the team will use.
 		continuation_prompt="$(_hcom_team_continuation_prompt "$command_name" "$launch_mode" "$continuation_task_needs_start" "$resume_task_id" "$selected_task_id" "$team_scope_directory")" || return 1
-		startup_facts="$(_hcom_team_startup_facts "${working_directory:-$team_scope_directory}" "${selected_task_id:-$resume_task_id}")"
+		startup_facts="$(_hcom_team_startup_facts "${working_directory:-$team_scope_directory}" "${selected_task_id:-${resume_task_id:-$continuation_task_id}}" "$selected_task_json")"
 		continuation_prompt="${continuation_prompt}"$'\n\n'"${startup_facts}"
 
 		if [[ -n "$initial_prompt" ]]; then
@@ -914,7 +977,7 @@ _hcom_launch_team() {
 # Returns 0 when the continuation may start, 1 when progress or the handoff
 # cannot be read, a blocked task has no handoff to resume, or confirmation
 # cannot be requested, and 2 when the user declines to start. On success, sets
-# reply=(task_needs_start task_id task_status has_handoff). The launcher uses
+# reply=(task_needs_start task_id task_status has_handoff task_json). The launcher uses
 # them to ask the orchestrator to start a ready task and review its chunks
 # first, to resume from the handoff, and to pick the task's checkout.
 #
@@ -935,7 +998,7 @@ _hcom_preview_team_continuation() {
 	local project_directory="${working_directory%/}"  # Directory without a trailing slash for fallback naming.
 	local project_name="${project_directory##*/}"  # Fallback project name for an unavailable progress response.
 	local progress_json  # The previewed task, its project, and its active chunk, shaped like progress next output.
-	local task_json  # The named task's own record, read only when a task is named.
+	local task_json  # Task record returned to the launcher, read for a named task or taken from progress next.
 	local progress_project_name  # Project name from the progress response, when it has one.
 	local task_title  # Title of the current progress task.
 	local task_id  # Identifier of the current progress task.
@@ -1068,7 +1131,10 @@ _hcom_preview_team_continuation() {
 		esac
 	fi
 
-	reply=("$task_needs_start" "$task_id" "$task_status" "$has_handoff")
+	if [[ -z "${task_json:-}" ]]; then
+		task_json="$(jq -c '{ok, data: .data.task}' <<<"$progress_json")" || return 1
+	fi
+	reply=("$task_needs_start" "$task_id" "$task_status" "$has_handoff" "$task_json")
 }
 
 # Reads a task's saved handoff, and fails for a blocked task that has none.

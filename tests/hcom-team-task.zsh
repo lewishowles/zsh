@@ -122,6 +122,10 @@ if [[ "$1" == context && "$2" == get && "$3" == --task && "$5" == --json ]]; the
 fi
 if [[ "$1" == context && "$2" == get && "$3" == --json ]]; then
 	[[ "${HCOM_FIXTURE_PROJECT_CONTEXT_FAIL:-0}" == 1 ]] && exit 1
+	if [[ "${HCOM_FIXTURE_PROJECT_HANDOFF_EMPTY:-0}" == 1 ]]; then
+		print -r -- '{"ok":true,"data":null}'
+		exit 0
+	fi
 	print -r -- '{"ok":true,"data":{"standing_context":"Project handoff line one\nProject handoff line two"}}'
 	exit 0
 fi
@@ -165,9 +169,11 @@ task_status=ready
 task_title='Selected task'  # Title the preview shows for the named task.
 task_chunks='[]'  # Chunk records returned with the task, as JSON.
 task_overview='Choose the next fixture task.'  # Purpose shown above the chunk list.
+task_done_when='["The fixture work is complete."]'  # Completion criterion shown in the launch prompt.
+task_files='["aliases.hcom-team.zsh","tests/hcom-team-task.zsh"]'  # Files assigned to the fixture task.
 case "$3" in
 	tsk_A_B) task_slug=continue-parallel-task-teams ;;
-	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_overview='Finish the fixture work in order.'; task_chunks='[{"id":"chk_pending","title":"Pending chunk","status":"pending","position":3},{"id":"chk_skipped","title":"Skipped chunk","status":"skipped","position":4},{"id":"chk_active","title":"Active chunk","status":"active","position":2},{"id":"chk_done","title":"Finished chunk","status":"done","position":1}]' ;;
+	tsk_a_B) task_slug=another-task; task_status=in-progress; task_title='Other task'; task_overview='Finish the fixture work in order.'; task_chunks='[{"id":"chk_pending","title":"Pending chunk","status":"pending","position":3,"description":"Finish the prompt tests.","review_question":"Do the tests cover the prompt?"},{"id":"chk_skipped","title":"Skipped chunk","status":"skipped","position":4,"description":"Do not print skipped details.","review_question":"Do not print this either?"},{"id":"chk_active","title":"Active chunk","status":"active","position":2,"description":"Print the record.","review_question":"Can the team act from it?"},{"id":"chk_done","title":"Finished chunk","status":"done","position":1,"description":"Keep this off the prompt.","review_question":"Keep this off the prompt?"}]' ;;
 	tsk_A-B) task_slug=third-task ;;
 	tsk_ready_two) task_slug=second-ready-task ;;
 	tsk_team_b) task_slug=other-task ;;
@@ -180,7 +186,7 @@ case "$3" in
 	*) print -r -- '{"ok":false}'; exit 1 ;;
 esac
 [[ "$3" == "${HCOM_FIXTURE_FINISHED_TASK_ID:-}" ]] && task_status=done
-print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"overview\":\"$task_overview\",\"updated_at\":\"2026-10-19T10:00:00.123456+00:00\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
+print -r -- "{\"ok\":true,\"data\":{\"id\":\"$3\",\"title\":\"$task_title\",\"slug\":\"$task_slug\",\"status\":\"$task_status\",\"overview\":\"$task_overview\",\"done_when\":$task_done_when,\"files\":$task_files,\"updated_at\":\"2026-10-19T10:00:00.123456+00:00\",\"chunks\":$task_chunks,\"project\":{\"name\":\"Fixture\",\"slug\":\"${HCOM_FIXTURE_PROJECT_SLUG:-zsh-config}\"}}}"
 STUB
 
 # Resolves the main checkout, reports controlled changes, and logs Git status calls.
@@ -773,7 +779,7 @@ stopped_team_tags=''
 export HCOM_FIXTURE_HAS_HANDOFF=1
 : > "$HCOM_FIXTURE_CONTEXT_CALLS"
 _hcom_launch_team team:codex unused unused unused unused continue --task tsk_A_B --yes || fail 'named task checkout creation'
-[[ "$(<"$HCOM_FIXTURE_CONTEXT_CALLS")" == tsk_A_B && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'ready task launch did not include its saved handoff'
+[[ "$(<"$HCOM_FIXTURE_CONTEXT_CALLS")" == tsk_A_B && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\nCurrent goal: Continue the fixture task\nNext step: 1. Read the saved handoff\n  2. Resume the task'* ]] || fail 'ready task launch did not include its saved handoff'
 unset HCOM_FIXTURE_HAS_HANDOFF
 [[ -z "$stopped_team_tags" && -z "$replaced_session_id" && "$launched_task_id" == tsk_A_B && "$(<"$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B")" == $'session:new\nwindow:new' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'task launch replaced another team or lost its stored tab'
 [[ "$launched_pane_directory" == "$fixture_dir/tsk_A__B" ]] || fail 'named task roles launched in different checkouts'
@@ -920,8 +926,11 @@ prior_pane_calls="$pane_calls"
 cont tsk_a_B --yes || fail 'public cont task ID did not launch'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_a_B && "$launched_team_tags" == *'-another-task-orchestrator|'* ]] || fail 'public cont task ID selected the wrong task or team label'
 [[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_a_B from the task handoff in this prompt. Do not select a new task.'* ]] || fail 'public cont task ID lost the resume instruction'
-[[ "$launched_orchestrator_prompt" == *$'Task handoff for tsk_a_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'public cont task ID lost the full task handoff'
-[[ "$launched_orchestrator_prompt" == *$'Project handoff:\n{"ok":true,"data":{"standing_context":"Project handoff line one\\nProject handoff line two"}}'* ]] || fail 'public cont task ID lost the full project handoff'
+[[ "$launched_orchestrator_prompt" == *$'Task record for tsk_a_B:\nTitle: Other task\nOverview: Finish the fixture work in order.\nDone when:\n  - The fixture work is complete.\nFiles:\n  - aliases.hcom-team.zsh\n  - tests/hcom-team-task.zsh\nChunks:\n  - chk_done [done] Finished chunk\n  - chk_active [active] Active chunk\n    Description: Print the record.\n    Review question: Can the team act from it?\n  - chk_pending [pending] Pending chunk\n    Description: Finish the prompt tests.\n    Review question: Do the tests cover the prompt?\n  - chk_skipped [skipped] Skipped chunk'* ]] || fail 'public cont task ID lost the readable task record'
+[[ "$launched_orchestrator_prompt" != *'Keep this off the prompt.'* ]] || fail 'public cont task ID printed details for a finished chunk'
+[[ "$launched_orchestrator_prompt" != *'Do not print skipped details.'* && "$launched_orchestrator_prompt" != *'Do not print this either?'* ]] || fail 'public cont task ID printed details for a skipped chunk'
+[[ "$launched_orchestrator_prompt" == *$'Task handoff for tsk_a_B:\nCurrent goal: Continue the fixture task\nNext step: 1. Read the saved handoff\n  2. Resume the task'* ]] || fail 'public cont task ID lost the labelled task handoff'
+[[ "$launched_orchestrator_prompt" == *$'Project handoff:\nStanding context: Project handoff line one\n  Project handoff line two'* ]] || fail 'public cont task ID lost the labelled project handoff'
 [[ "$launched_orchestrator_prompt" == *"Git status for $fixture_dir/tsk_a_B:"$'\nClean checkout (no changes).'* ]] || fail 'public cont task ID missed its checkout status'
 cont tsk_a_B </dev/null &> "$fixture_dir/cont-task-output" || fail 'public cont task ID without --yes did not launch'
 [[ "$(<"$fixture_dir/cont-task-output")" != *'Start this task?'* ]] || fail 'public cont task ID without --yes showed a confirmation'
@@ -997,15 +1006,35 @@ unset HCOM_FIXTURE_SEVERAL_TASKS
 HCOM_FIXTURE_NEXT_STATUS=ready
 export HCOM_FIXTURE_NO_ACTIVE_TASKS=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue without an in-progress task'
-[[ "$launched_orchestrator_prompt" == "$plain_ready_prompt"* && "$launched_orchestrator_prompt" != *'Task handoff for'* && "$launched_orchestrator_prompt" == *'Project handoff:'* && "$launched_orchestrator_prompt" == *"Git status for $PWD:"* ]] || fail 'plain continue without a selected task missed its startup facts'
+[[ "$launched_orchestrator_prompt" == "$plain_ready_prompt"* && "$launched_orchestrator_prompt" == *$'Task record for tsk_A_B:\nTitle: Fixture task'* && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\nNo task handoff saved.'* && "$launched_orchestrator_prompt" == *'Project handoff:'* && "$launched_orchestrator_prompt" == *"Git status for $PWD:"* ]] || fail 'plain continue without a selected task missed its startup facts'
 
 # A blocked next task resumes from the handoff even when no task is in progress.
 HCOM_FIXTURE_NEXT_STATUS=blocked
 export HCOM_FIXTURE_HAS_HANDOFF=1
 _hcom_launch_team team:codex unused unused unused unused continue --yes || fail 'plain continue with a blocked next task and handoff'
-[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_A_B from the task handoff in this prompt. Do not select a new task.'* && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\n{"ok":true,"data":{"current_goal":"Continue the fixture task","next_step":"1. Read the saved handoff\\n2. Resume the task"}}'* ]] || fail 'plain continue with a blocked next task omitted its task handoff'
+[[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_A_B from the task handoff in this prompt. Do not select a new task.'* && "$launched_orchestrator_prompt" == *$'Task handoff for tsk_A_B:\nCurrent goal: Continue the fixture task\nNext step: 1. Read the saved handoff\n  2. Resume the task'* ]] || fail 'plain continue with a blocked next task omitted its task handoff'
 unset HCOM_FIXTURE_HAS_HANDOFF
 HCOM_FIXTURE_NEXT_STATUS=ready
+
+# Empty handoffs, labelled fields and unreadable task records are explicit in
+# startup facts. Multi-line task-record text keeps its indentation.
+empty_handoff_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B '{"ok":true,"data":{"id":"tsk_A_B","title":"Selected task"}}')"
+[[ "$empty_handoff_prompt" == *$'Task handoff for tsk_A_B:\nNo task handoff saved.'* ]] || fail 'startup facts hid the empty task handoff'
+export HCOM_FIXTURE_PROJECT_HANDOFF_EMPTY=1
+empty_project_handoff_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B '{"ok":true,"data":{"id":"tsk_A_B","title":"Selected task"}}')"
+[[ "$empty_project_handoff_prompt" == *$'Project handoff:\nNo project handoff saved.'* ]] || fail 'startup facts hid the empty project handoff'
+unset HCOM_FIXTURE_PROJECT_HANDOFF_EMPTY
+print -r -- '{"ok":true,"data":{"current_goal":"Continue work","previous_step":"Read the task","next_step":"Edit the launcher","standing_context":"Keep the scope narrow","verify_with":"Run the fixture","stop_marker":"Wait for review","unused_field":"Do not print this"}}' > "$fixture_dir/labelled-handoff.json"
+export HCOM_FIXTURE_HANDOFF_FILE="$fixture_dir/labelled-handoff.json"
+labelled_handoff_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B '{"ok":true,"data":{"id":"tsk_A_B","title":"Selected task"}}')"
+unset HCOM_FIXTURE_HANDOFF_FILE
+[[ "$labelled_handoff_prompt" == *$'Current goal: Continue work\nPrevious step: Read the task\nNext step: Edit the launcher\nStanding context: Keep the scope narrow\nVerify with: Run the fixture\nStop marker: Wait for review'* && "$labelled_handoff_prompt" != *'Do not print this'* ]] || fail 'startup facts omitted a handoff label or printed an unrelated field'
+multiline_record_prompt="$(_hcom_team_print_task_record '{"ok":true,"data":{"id":"tsk_A_B","title":"Selected task","overview":"First line\nSecond line","done_when":["One line\nSecond line"],"chunks":[{"id":"chk_active","status":"active","title":"Active chunk","description":"First line\nSecond line","review_question":"First line\nSecond line"}]}}' tsk_A_B)"
+[[ "$multiline_record_prompt" == *$'Overview: First line\n  Second line'* && "$multiline_record_prompt" == *$'  - One line\n    Second line'* && "$multiline_record_prompt" == *$'    Description: First line\n      Second line'* && "$multiline_record_prompt" == *$'    Review question: First line\n      Second line'* ]] || fail 'task record multiline fields lost their indentation'
+unreadable_record_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B '{"ok":false}')"
+[[ "$unreadable_record_prompt" == *$'Task record for tsk_A_B:\nMissing: the task record could not be read.'* ]] || fail 'startup facts hid the unreadable task record'
+mismatched_record_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B '{"ok":true,"data":{"id":"tsk_other"}}')"
+[[ "$mismatched_record_prompt" == *$'Task record for tsk_A_B:\nMissing: the task record could not be read.'* ]] || fail 'startup facts accepted a task record for another task'
 
 # A handoff or status that cannot be read is named in the prompt instead of left out.
 export HCOM_FIXTURE_PROJECT_CONTEXT_FAIL=1
@@ -1453,9 +1482,9 @@ harsh_handoff="$(jq -n --arg next_step "$harsh_text" '{ok:true,data:{next_step:$
 print -rn -- "$harsh_handoff" > "$fixture_dir/harsh-handoff.json"
 export HCOM_FIXTURE_HANDOFF_FILE="$fixture_dir/harsh-handoff.json"
 # Startup facts holding that handoff, used as the launch prompt.
-harsh_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B)"
+harsh_prompt="$(_hcom_team_startup_facts "$fixture_dir/project" tsk_A_B '{"ok":true,"data":{"id":"tsk_A_B","title":"Selected task"}}')"
 unset HCOM_FIXTURE_HANDOFF_FILE
-[[ "$harsh_prompt" == *"$harsh_handoff"* ]] || fail 'startup facts changed the harsh handoff'
+[[ "$harsh_prompt" == *"$harsh_text"* ]] || fail 'startup facts changed the harsh handoff'
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex "$harsh_prompt" 1 codex tsk_A_B || fail 'long handoff pane creation'
 orchestrator_send="$(grep '^send -s fixture-origin-session -b block:new ' "$HCOM_FIXTURE_REX_CALLS")"
