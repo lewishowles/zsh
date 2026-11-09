@@ -129,10 +129,8 @@ _hcom_refuse_live_tags() {
 
 # Launches one role in the current terminal, using the selected project directory.
 #
-# `--hcom-system-prompt` doesn't reach the agent's actual system prompt (verified: the
-# role text never appears in the transcript, only hcom's own onboarding block does).
-# Deliver the role prompt through each tool's native mechanism instead: claude's
-# `--append-system-prompt`, codex's `HCOM_CODEX_SYSTEM_PROMPT` env var.
+# Pass the role text explicitly: Claude uses `--append-system-prompt`, while HCOM
+# passes Codex's `--hcom-system-prompt` through to its developer instructions.
 #
 # Pass `--command` with the public command the user ran, such as scout or
 # plan:claude, so every error the launch reports starts with that name.
@@ -259,7 +257,9 @@ _hcom_role_invoke() {
 		--dir "$working_directory"
 	)
 
-	if [[ "$tool" != "codex" ]]; then
+	if [[ "$tool" = "codex" ]]; then
+		hcom_arguments+=(--hcom-system-prompt "$role_prompt")
+	else
 		hcom_arguments+=(--append-system-prompt "$role_prompt")
 	fi
 
@@ -275,9 +275,9 @@ _hcom_role_invoke() {
 
 	if [[ "$tool" = "codex" ]]; then
 		if [[ -n "$account_directory" ]]; then
-			CODEX_HOME="$account_directory" HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
+			CODEX_HOME="$account_directory" HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
 		else
-			HCOM_TERMINAL=default HCOM_CODEX_SYSTEM_PROMPT="$role_prompt" command hcom "${hcom_arguments[@]}"
+			HCOM_TERMINAL=default command hcom "${hcom_arguments[@]}"
 		fi
 	else
 		if [[ -n "$account_directory" ]]; then
