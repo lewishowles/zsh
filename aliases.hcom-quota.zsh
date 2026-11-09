@@ -108,8 +108,12 @@ print("\n".join(lines))
 # provider as not exhausted, because a probe that did not answer says nothing about how
 # much quota is left, and guessing at empty would strand a whole team on one provider.
 #
+# Every call, including one with a failed probe, adds a line to the decision log saying
+# which accounts were chosen and which rule chose them.
+#
 # @param  {string}  command_name
-#     The public command shown for an unknown provider.
+#     The public command that asked for the allocation, written to the decision log and
+#     shown in the error for an unknown provider.
 # @param  {string}  provider
 #     claude assigns orchestrator/reviewer; codex assigns implementer/scout.
 _hcom_quota_allocate() {
@@ -120,6 +124,7 @@ _hcom_quota_allocate() {
 	local -i heavier_index=1 lighter_index=2  # Positions in the per-account arrays, default first.
 	local -i displaced_index  # Position the heavier role is moved off when that account is too close to empty.
 	local -i provider_exhausted  # 1 when both accounts have under 5% usable quota, leaving the provider unusable.
+	local rule=more-usable  # Name of the last rule that placed the roles, written to the decision log. Gains +consolidate when the weekly-pace check also moves the lighter role onto the heavier account.
 
 	local -a account_ids=(default 2)  # Account IDs in the order every per-account array uses.
 	local -a quota_values  # One account's six probe values, split for indexing.
@@ -144,6 +149,7 @@ _hcom_quota_allocate() {
 
 	if ! available="$(_hcom_quota_probe "$provider" 2>&1)"; then
 		printf '\n[hcom quota probe failed]\n  Provider: %s\n  Diagnostic: %s\n  Consequence: every role in this launch lands on the default account, the placement this balancing exists to avoid.\n\n' "$provider" "${available//$'\n'/; }" >&2
+		_hcom_quota_record_decision "$(_hcom_quota_now)" "$command_name" "$provider" unavailable unavailable unavailable unavailable unavailable unavailable default default 0 probe-failed
 		print -r -- 'default default 0'
 		return 2
 	fi
@@ -171,6 +177,8 @@ _hcom_quota_allocate() {
 	if (( usable_remaining[2] > usable_remaining[1] )); then
 		heavier_index=2
 		lighter_index=1
+	elif (( usable_remaining[2] == usable_remaining[1] )); then
+		rule=tie-default
 	fi
 
 	usable_gap=$(( usable_remaining[1] > usable_remaining[2] ? usable_remaining[1] - usable_remaining[2] : usable_remaining[2] - usable_remaining[1] ))
@@ -178,6 +186,7 @@ _hcom_quota_allocate() {
 	# An account that would lose quota at its weekly reset takes the heavier role
 	# whatever the usable gap, so its quota is spent before it expires.
 	if (( first_ahead != second_ahead )); then
+		rule=ahead-of-reset
 		if (( second_ahead )); then
 			heavier_index=2
 			lighter_index=1
@@ -187,9 +196,11 @@ _hcom_quota_allocate() {
 		fi
 	elif (( usable_gap <= 20 )); then
 		if (( pace[2] > pace[1] )); then
+			rule=weekly-pace
 			heavier_index=2
 			lighter_index=1
 		elif (( pace[1] > pace[2] )); then
+			rule=weekly-pace
 			heavier_index=1
 			lighter_index=2
 		fi
@@ -198,6 +209,7 @@ _hcom_quota_allocate() {
 	# Under 15% usable quota is likely to run out part-way through a task, so hand
 	# the heavier role to the other account whenever that account can still carry it.
 	if (( usable_remaining[heavier_index] < 15 && usable_remaining[lighter_index] >= 15 )); then
+		rule=protect-nearly-empty
 		displaced_index=$heavier_index
 		heavier_index=$lighter_index
 		lighter_index=$displaced_index
@@ -208,15 +220,18 @@ _hcom_quota_allocate() {
 	# quota its remaining time calls for, so it cannot carry both roles even when the other
 	# account is nearly spent.
 	if (( usable_remaining[lighter_index] < 15 && usable_remaining[heavier_index] >= 15 && pace[heavier_index] >= 0.25 )); then
+		rule="$rule+consolidate"
 		lighter_index="$heavier_index"
 	fi
 
 	# A role on an account with nothing left fails as soon as it starts, so when only one
 	# account has any quota at all, both roles go to it however little that is.
 	if (( usable_remaining[1] <= 0 && usable_remaining[2] > 0 )); then
+		rule=only-account-left
 		heavier_index=2
 		lighter_index=2
 	elif (( usable_remaining[2] <= 0 && usable_remaining[1] > 0 )); then
+		rule=only-account-left
 		heavier_index=1
 		lighter_index=1
 	fi
@@ -225,7 +240,67 @@ _hcom_quota_allocate() {
 	# provider counts as spent.
 	provider_exhausted=$(( usable_remaining[1] < 5 && usable_remaining[2] < 5 ))
 
+	_hcom_quota_record_decision "$current_time" "$command_name" "$provider" "${usable_remaining[1]}" "${weekly_remaining[1]}" "${weekly_reset[1]}" "${usable_remaining[2]}" "${weekly_remaining[2]}" "${weekly_reset[2]}" "${account_ids[heavier_index]}" "${account_ids[lighter_index]}" "$provider_exhausted" "$rule"
 	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
+}
+
+# Appends one allocation decision and keeps only the newest 1000 lines. A log failure
+# does not change the account choice or stop a launch.
+#
+# @param  {number}  timestamp
+#     Unix time used for the allocation.
+# @param  {string}  command_name
+#     Public command that requested the allocation.
+# @param  {string}  provider
+#     Quota provider whose accounts were compared.
+# @param  {number|string}  default_usable
+#     Usable quota on the default account, or unavailable when the probe fails.
+# @param  {number|string}  default_weekly
+#     Weekly quota left on the default account, or unavailable when the probe fails.
+# @param  {number|string}  default_reset
+#     Weekly reset time for the default account, or unavailable when the probe fails.
+# @param  {number|string}  second_usable
+#     Usable quota on account 2, or unavailable when the probe fails.
+# @param  {number|string}  second_weekly
+#     Weekly quota left on account 2, or unavailable when the probe fails.
+# @param  {number|string}  second_reset
+#     Weekly reset time for account 2, or unavailable when the probe fails.
+# @param  {string}  heavier
+#     Account chosen for the heavier role.
+# @param  {string}  lighter
+#     Account chosen for the lighter role.
+# @param  {number}  exhausted
+#     1 when the provider's two accounts are exhausted, otherwise 0.
+# @param  {string}  rule
+#     Rule that placed the roles, including consolidation when it moved the lighter role.
+_hcom_quota_record_decision() {
+	local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-quota"  # Directory for allocation history.
+	local log_file="$state_dir/decisions.log"  # One line per allocation, newest last.
+	local temp_file  # Temporary copy of the newest log lines.
+	local line_count  # Number of recorded decisions before trimming.
+
+	if ! command mkdir -p -- "$state_dir" 2>/dev/null; then
+		return 0
+	fi
+
+	if ! printf 'timestamp=%s command=%s provider=%s default_usable=%s default_weekly=%s default_reset=%s second_usable=%s second_weekly=%s second_reset=%s heavier=%s lighter=%s exhausted=%s rule=%s\n' "$@" >> "$log_file" 2>/dev/null; then
+		return 0
+	fi
+
+	line_count="$(command wc -l < "$log_file" 2>/dev/null)" || return 0
+	if (( line_count <= 1000 )); then
+		return 0
+	fi
+
+	temp_file="$(command mktemp "$state_dir/.decisions.XXXXXX" 2>/dev/null)" || return 0
+	if command tail -n 1000 "$log_file" > "$temp_file" 2>/dev/null; then
+		if ! command mv -f -- "$temp_file" "$log_file" 2>/dev/null; then
+			command rm -f -- "$temp_file" 2>/dev/null
+		fi
+	else
+		command rm -f -- "$temp_file" 2>/dev/null
+	fi
+	return 0
 }
 
 # Prints the percentage of usage one account can give a role. That is 0 when
