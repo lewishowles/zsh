@@ -87,11 +87,13 @@ print("\n".join(lines))
 # counts as having none, even when the week resets soon, because it would stop part-way
 # through the session.
 #
-# An account running ahead of its weekly reset would lose quota when the week refills,
-# so it takes the heavier role whatever the usable gap. When both accounts or neither
-# are ahead, two accounts within 20 points of each other on usable quota are
-# interchangeable for the sprint, and the one with more quota to burn before its weekly
-# reset takes the heavier role.
+# An account whose week resets sooner takes the heavier role whatever the usable gap,
+# provided it has at least 15% usable quota, so the quota that expires first is spent
+# first. Otherwise, an account running ahead of its weekly reset would lose quota when
+# the week refills, so it takes the heavier role whatever the usable gap.
+# When both accounts or neither are ahead, two accounts within 20 points of each other
+# on usable quota are interchangeable for the sprint, and the one with more quota to
+# burn before its weekly reset takes the heavier role.
 #
 # An account with under 15% usable quota is likely to run dry part-way through a task, so
 # it does not take the heavier role while the other account can hold it. Both roles land
@@ -183,9 +185,20 @@ _hcom_quota_allocate() {
 
 	usable_gap=$(( usable_remaining[1] > usable_remaining[2] ? usable_remaining[1] - usable_remaining[2] : usable_remaining[2] - usable_remaining[1] ))
 
-	# An account that would lose quota at its weekly reset takes the heavier role
-	# whatever the usable gap, so its quota is spent before it expires.
-	if (( first_ahead != second_ahead )); then
+	# The account whose week resets sooner takes the heavier role while it has at least
+	# 15% usable, so its quota is spent before the week refills it.
+	if (( weekly_reset[1] < weekly_reset[2] && usable_remaining[1] >= 15 )); then
+		rule=resets-sooner
+		heavier_index=1
+		lighter_index=2
+	elif (( weekly_reset[2] < weekly_reset[1] && usable_remaining[2] >= 15 )); then
+		rule=resets-sooner
+		heavier_index=2
+		lighter_index=1
+	# When neither account resets sooner with enough quota, an account that would lose
+	# quota at its weekly reset takes the heavier role whatever the usable gap, so its
+	# quota is spent before it expires.
+	elif (( first_ahead != second_ahead )); then
 		rule=ahead-of-reset
 		if (( second_ahead )); then
 			heavier_index=2
