@@ -2507,6 +2507,18 @@ _hcom_team_reset_role() {
 	local saved_command
 	# The agent named in the saved file, the agent chosen for this reset, and the command for the agent not chosen.
 	local saved_provider reset_provider other_command
+	# JSON array of the names of agents that were live before the replacement started.
+	local existing_names
+	# The team's folder, which a saved command in the current format names as its last word.
+	local working_directory
+	# The launch command split into shell words.
+	local -a launch_words
+	# Name assigned to the restarted teammate by HCOM.
+	local ready_name
+	# Whether the reset selected a different account or agent from the saved choice.
+	local account_changed=0
+	# Whether the new account details could not be saved for the next reset.
+	local save_failed=0
 
 	block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 	if [[ -z "$block_id" ]]; then
@@ -2528,29 +2540,146 @@ _hcom_team_reset_role() {
 	saved_account="${reply[5]:-}"
 	reset_provider="${reply[6]:-}"
 	other_command="${reply[7]:-}"
+
+	if ! existing_names="$(command hcom list --json 2>/dev/null)" || ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$existing_names"; then
+		_hcom_command_error team-reset 'cannot check which agents are live.'
+		return 1
+	fi
+	existing_names="$(jq -c '[.[] | .name | select(type == "string")]' <<<"$existing_names")"
+
+	launch_words=("${(z)launch_command}")
+	working_directory="${(Q)launch_words[-1]}"
+	if [[ "$working_directory" != /* ]]; then
+		working_directory=""
+	fi
+
+	if [[ -n "$reset_account" && ( "$reset_account" != "$saved_account" || "$reset_provider" != "$saved_provider" ) ]]; then
+		account_changed=1
+	fi
+
 	if ! _hcom_team_stop_peers "$session_id" "$block_id"; then
 		_hcom_command_error team-reset "$role was not restarted."
 		return 1
 	fi
 
 	_hcom_workflow_type_rex_command "$session_id" "$block_id" "$launch_command" || return 1
-	if [[ -n "$reset_account" && ( "$reset_account" != "$saved_account" || "$reset_provider" != "$saved_provider" ) ]]; then
-		if [[ "$reset_provider" != "$saved_provider" ]]; then
-			print -r -- "team-reset: restarted $role on ${(C)reset_provider}, $(_hcom_team_account_label "$reset_account")."
-		else
-			print -r -- "team-reset: restarted $role on $(_hcom_team_account_label "$reset_account")."
-		fi
+	if (( account_changed )); then
 		if ! _hcom_team_save_role "$session_id" "$saved_window_id" "$role" "$saved_command" "$reset_provider" auto "$reset_account" "$other_command"; then
-			if [[ "$reset_provider" != "$saved_provider" ]]; then
-				_hcom_command_error team-reset "could not save ${(C)reset_provider} $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks ${(C)saved_provider} $(_hcom_team_account_label "$saved_account") first."
-			else
-				_hcom_command_error team-reset "could not save $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks $(_hcom_team_account_label "$saved_account") first."
-			fi
-			return 1
+			save_failed=1
+		fi
+	fi
+
+	if ! ready_name="$(_hcom_team_wait_ready "$role" "$working_directory" "$existing_names")"; then
+		_hcom_command_error team-reset "$role restarted but did not join HCOM within 90s."
+		return 1
+	fi
+
+	_hcom_team_reset_report "$role" "$ready_name" "$account_changed" "$reset_provider" "$saved_provider" "$reset_account" "$saved_account" "$save_failed"
+}
+
+# Prints the line saying the restarted teammate is ready. Fails after printing
+# the save error when the reset could not save its new account choice.
+#
+# @param  {string}  role
+#     Teammate role that restarted.
+# @param  {string}  ready_name
+#     Name assigned to the restarted teammate.
+# @param  {integer}  account_changed
+#     Whether the reset chose a different account or agent.
+# @param  {string}  reset_provider
+#     Agent chosen for this reset.
+# @param  {string}  saved_provider
+#     Agent named in the saved command.
+# @param  {string}  reset_account
+#     Account chosen for this reset.
+# @param  {string}  saved_account
+#     Account named in the saved command.
+# @param  {integer}  save_failed
+#     Whether the new account choice could not be saved.
+_hcom_team_reset_report() {
+	# Teammate role that restarted.
+	local role="$1"
+	# Name assigned to the restarted teammate.
+	local ready_name="$2"
+	# Whether the reset chose a different account or agent.
+	local account_changed="$3"
+	# Agent chosen for this reset.
+	local reset_provider="$4"
+	# Agent named in the saved command.
+	local saved_provider="$5"
+	# Account chosen for this reset.
+	local reset_account="$6"
+	# Account named in the saved command.
+	local saved_account="$7"
+	# Whether the new account choice could not be saved.
+	local save_failed="$8"
+
+	if (( account_changed )); then
+		if [[ "$reset_provider" != "$saved_provider" ]]; then
+			print -r -- "team-reset: restarted $role on ${(C)reset_provider}, $(_hcom_team_account_label "$reset_account"); ready as $ready_name."
+		else
+			print -r -- "team-reset: restarted $role on $(_hcom_team_account_label "$reset_account"); ready as $ready_name."
 		fi
 	else
-		print -r -- "team-reset: restarted $role."
+		print -r -- "team-reset: restarted $role; ready as $ready_name."
 	fi
+
+	if (( save_failed )); then
+		if [[ "$reset_provider" != "$saved_provider" ]]; then
+			_hcom_command_error team-reset "could not save ${(C)reset_provider} $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks ${(C)saved_provider} $(_hcom_team_account_label "$saved_account") first."
+		else
+			_hcom_command_error team-reset "could not save $(_hcom_team_account_label "$reset_account") for $role, so the next reset checks $(_hcom_team_account_label "$saved_account") first."
+		fi
+		return 1
+	fi
+}
+
+# Prints the name of the agent that joined HCOM for a restarted role, checking once
+# a second for up to 90 seconds. Fails when no new agent appears in that time.
+#
+# @param  {string}  role
+#     Teammate role to find.
+# @param  {string}  working_directory
+#     Directory named in the saved command, or empty for a legacy command.
+# @param  {string}  existing_names
+#     JSON array of agent names present before the replacement launched.
+_hcom_team_wait_ready() {
+	# Teammate role to find.
+	local role="$1"
+	# Directory named in the saved command, if any.
+	local working_directory="$2"
+	# Names present before the replacement launched.
+	local existing_names="$3"
+	# Live agent records returned by HCOM on this check.
+	local agents_json
+	# Name of the first matching replacement.
+	local ready_name
+	# Number of checks completed.
+	local attempt
+
+	for (( attempt = 0; attempt < 90; attempt++ )); do
+		if agents_json="$(command hcom list --json 2>/dev/null)" && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
+			ready_name="$(jq -r --arg role "$role" --arg directory "$working_directory" --argjson existing "$existing_names" '
+				first(.[] | select(
+					(.name | type == "string") and
+					(.name as $name | $existing | index($name) | not) and
+					(.tag | type == "string" and endswith("-" + $role)) and
+					(.status == "active" or .status == "listening" or .status == "blocked") and
+					($directory == "" or .directory == $directory)
+				) | .name) // empty
+			' <<<"$agents_json")"
+			if [[ -n "$ready_name" ]]; then
+				print -r -- "$ready_name"
+				return 0
+			fi
+		fi
+
+		if (( attempt < 89 )); then
+			sleep 1
+		fi
+	done
+
+	return 1
 }
 
 # Prints the name of an account for a reset message.

@@ -217,6 +217,30 @@ STUB
 cat > "$fixture_dir/bin/hcom" <<'STUB'
 #!/usr/bin/env zsh
 [[ "$1" == list && "$2" == --json ]] || exit 1
+[[ "${HCOM_FIXTURE_AGENTS_FAIL:-0}" != 1 ]] || exit 1
+if [[ -n "${HCOM_FIXTURE_AGENTS_SEQUENCE:-}" ]]; then
+	call_count="$(<"$HCOM_FIXTURE_AGENTS_CALLS")"
+	(( call_count++ ))
+	print -r -- "$call_count" > "$HCOM_FIXTURE_AGENTS_CALLS"
+	line="$(sed -n "${call_count}p" "$HCOM_FIXTURE_AGENTS_SEQUENCE")"
+	[[ -n "$line" ]] || line="$(tail -n 1 "$HCOM_FIXTURE_AGENTS_SEQUENCE")"
+	print -r -- "$line"
+	exit 0
+fi
+if [[ "${HCOM_FIXTURE_RESET_READY:-0}" == 1 ]]; then
+	agents=()
+	if grep -Eq '^send-key .*block:(a-|b-)?scout enter$' "$HCOM_FIXTURE_REX_CALLS"; then
+		agents+=('{"name":"ready-scout","tag":"saved-scout","status":"listening","directory":"/saved/checkout"}')
+	fi
+	if grep -Eq '^send-key .*block:(a-|b-)?reviewer enter$' "$HCOM_FIXTURE_REX_CALLS"; then
+		agents+=('{"name":"ready-reviewer","tag":"saved-reviewer","status":"active","directory":"/saved/checkout"}')
+	fi
+	if grep -Eq '^send-key .*block:(a-|b-)?implementer enter$' "$HCOM_FIXTURE_REX_CALLS"; then
+		agents+=('{"name":"ready-implementer","tag":"saved-implementer","status":"blocked","directory":"/saved/checkout"}')
+	fi
+	print -r -- "[${(j:,:)agents}]"
+	exit 0
+fi
 cat "$HCOM_FIXTURE_AGENTS"
 STUB
 
@@ -1879,6 +1903,7 @@ cleanup_output="$(cleanup tsk_busy 2>&1)" || fail 'worktree cleanup with running
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 
 # Two teams in one session keep their panes and saved commands separate.
+export HCOM_FIXTURE_RESET_READY=1
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"session:shared"}]}'
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:a-orchestrator","window_id":"window:a","label":"orchestrator"},{"block_id":"block:a-implementer","window_id":"window:a","label":"implementer"},{"block_id":"block:a-reviewer","window_id":"window:a","label":"reviewer"},{"block_id":"block:a-scout","window_id":"window:a","label":"scout"},{"block_id":"block:b-orchestrator","window_id":"window:b","label":"orchestrator"},{"block_id":"block:b-implementer","window_id":"window:b","label":"implementer"},{"block_id":"block:b-reviewer","window_id":"window:b","label":"reviewer"},{"block_id":"block:b-scout","window_id":"window:b","label":"scout"}]}'
 mkdir -p "$XDG_STATE_HOME/hcom-team/session:shared/window:a" "$XDG_STATE_HOME/hcom-team/session:shared/window:b"
@@ -2147,7 +2172,49 @@ _hcom_quota_probe() {
 	print -r -- "${HCOM_FIXTURE_RESET_SECOND:-90 9999999999 18000 90 9999999999 604800}"
 }
 _hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' codex auto 2 || fail 'auto-allocated reset command save'
+# A new name with the right role and directory is required, even when another live scout already exists.
+export HCOM_FIXTURE_AGENTS_SEQUENCE="$fixture_dir/agents-sequence"
+export HCOM_FIXTURE_AGENTS_CALLS="$fixture_dir/agents-calls"
+print -r -- 0 > "$HCOM_FIXTURE_AGENTS_CALLS"
+cat > "$HCOM_FIXTURE_AGENTS_SEQUENCE" <<'SEQUENCE'
+[{"name":"old-scout","tag":"saved-scout","status":"listening","directory":"/saved/checkout"}]
+[{"name":"old-scout","tag":"saved-scout","status":"listening","directory":"/saved/checkout"},{"name":"wrong-directory","tag":"saved-scout","status":"active","directory":"/other/checkout"},{"name":"wrong-status","tag":"saved-scout","status":"stopped","directory":"/saved/checkout"},{"name":"still-launching","tag":"saved-scout","status":"launching","directory":"/saved/checkout"},{"name":"wrong-role","tag":"saved-reviewer","status":"active","directory":"/saved/checkout"}]
+[{"name":"old-scout","tag":"saved-scout","status":"listening","directory":"/saved/checkout"},{"name":"new-scout","tag":"saved-scout","status":"blocked","directory":"/saved/checkout"}]
+SEQUENCE
 : > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout > "$fixture_dir/reset-output" || fail 'reset did not wait for a new live scout'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout; ready as new-scout.' && "$(<"$HCOM_FIXTURE_AGENTS_CALLS")" == 3 ]] || fail 'reset accepted an existing or mismatched agent'
+# A saved command without a directory can match a new teammate in any directory.
+_hcom_team_save_role fixture-origin-session '' scout 'scout' codex forced default || fail 'directory-free reset command save'
+print -r -- 0 > "$HCOM_FIXTURE_AGENTS_CALLS"
+cat > "$HCOM_FIXTURE_AGENTS_SEQUENCE" <<'SEQUENCE'
+[]
+[{"name":"directory-free-scout","tag":"saved-scout","status":"active","directory":"/other/checkout"}]
+SEQUENCE
+: > "$HCOM_FIXTURE_REX_CALLS"
+team-reset scout > "$fixture_dir/reset-output" || fail 'reset without a saved directory failed'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout; ready as directory-free-scout.' ]] || fail 'reset without a saved directory did not accept the live teammate'
+_hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' codex auto 2 || fail 'restore saved reset command'
+print -r -- 0 > "$HCOM_FIXTURE_AGENTS_CALLS"
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS_SEQUENCE"
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'reset reported success without a new live scout'
+fi
+[[ ! -s "$fixture_dir/reset-output" ]] || fail "reset timeout printed success: $(<"$fixture_dir/reset-output")"
+[[ "$(<"$fixture_dir/reset-error")" == $'\n''team-reset: scout restarted but did not join HCOM within 90s.' ]] || fail "reset timeout reported a different error: $(<"$fixture_dir/reset-error")"
+[[ "$(<"$HCOM_FIXTURE_AGENTS_CALLS")" == 91 ]] || fail "reset timeout checked HCOM $(<"$HCOM_FIXTURE_AGENTS_CALLS") times instead of 91"
+unset HCOM_FIXTURE_AGENTS_SEQUENCE HCOM_FIXTURE_AGENTS_CALLS
+# An unavailable HCOM list must leave the current teammate running in its pane.
+export HCOM_FIXTURE_AGENTS_FAIL=1
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'reset continued without a live-agent snapshot'
+fi
+[[ "$(<"$fixture_dir/reset-error")" == *'team-reset: cannot check which agents are live.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key -s fixture-origin-session -b block:scout ctrl+c'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:scout '* ]] || fail 'failed live-agent snapshot touched the teammate pane'
+unset HCOM_FIXTURE_AGENTS_FAIL
+: > "$HCOM_FIXTURE_REX_CALLS"
+: > "$fixture_dir/reset-quota-calls"
 CODEX_HOME="$fixture_dir/caller-account" HCOM_TEAM_LABEL=caller HCOM_TEAM_PROJECT_TAG=Caller team-reset scout >/dev/null || fail 'auto-allocated scout reset failed'
 [[ "$(<"$fixture_dir/reset-quota-calls")" == codex && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout CODEX_HOME='*'/.codex-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'caller-account'* ]] || fail 'reset changed a usable saved account or used the caller scope'
 
@@ -2160,14 +2227,14 @@ _hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved HCOM
 HCOM_FIXTURE_RESET_SECOND='4 9999999999 18000 90 9999999999 604800'
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout > "$fixture_dir/reset-output" || fail 'low saved account reset failed'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout'* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on the default account.' ]] || fail 'reset did not report the switch from a low saved account'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout'* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on the default account; ready as ready-scout.' ]] || fail 'reset did not report the switch from a low saved account'
 [[ "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto default'$'\n'* ]] || fail 'switched account was not saved'
 unset HCOM_FIXTURE_RESET_SECOND
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout >/dev/null || fail 'second reset after account switch failed'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout'* ]] || fail 'second reset moved back to the recovered old account'
 
-# A failed save still reports the restarted teammate and leaves its old account in the saved header.
+# A failed save reports the ready teammate, then leaves the old account in the saved header.
 functions -c _hcom_team_save_role _hcom_team_save_role_before_failed_reset
 # Refuses to save one role during a reset, while other roles use the real saver.
 #
@@ -2192,15 +2259,26 @@ HCOM_FIXTURE_RESET_DEFAULT='4 9999999999 18000 90 9999999999 604800'
 if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'reset reported success after the switched account could not be saved'
 fi
-[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on account 2.' && "$(<"$fixture_dir/reset-error")" == *'could not save account 2 for scout, so the next reset checks the default account first.'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto default'$'\n'* ]] || fail 'failed save did not report the restart and keep the default account'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on account 2; ready as ready-scout.' && "$(<"$fixture_dir/reset-error")" == *'could not save account 2 for scout, so the next reset checks the default account first.'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto default'$'\n'* ]] || fail 'failed save did not report readiness or keep the saved account'
+
+# A teammate that never joins reports the timeout even when saving its account failed.
+functions -c _hcom_team_wait_ready _hcom_team_wait_ready_before_save_timeout
+# Simulates a teammate that never joins HCOM after a failed save.
+_hcom_team_wait_ready() { return 1; }
+if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'reset reported success when saving failed and the teammate did not join'
+fi
+[[ ! -s "$fixture_dir/reset-output" && "$(<"$fixture_dir/reset-error")" == $'\n''team-reset: scout restarted but did not join HCOM within 90s.' ]] || fail 'save failure obscured the missing-teammate timeout'
+functions[_hcom_team_wait_ready]="${functions[_hcom_team_wait_ready_before_save_timeout]}"
 
 _hcom_team_save_role_before_failed_reset fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scout /saved/checkout' codex auto 2 || fail 'failed default-account save fixture'
 unset HCOM_FIXTURE_RESET_DEFAULT
 HCOM_FIXTURE_RESET_SECOND='4 9999999999 18000 90 9999999999 604800'
+: > "$HCOM_FIXTURE_REX_CALLS"
 if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'reset reported success after the default account could not be saved'
 fi
-[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on the default account.' && "$(<"$fixture_dir/reset-error")" == *'could not save the default account for scout, so the next reset checks account 2 first.'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto 2'$'\n'* ]] || fail 'failed save did not name the default account or changed the saved header'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on the default account; ready as ready-scout.' && "$(<"$fixture_dir/reset-error")" == *'could not save the default account for scout, so the next reset checks account 2 first.'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto 2'$'\n'* ]] || fail 'failed save did not report readiness or keep the saved header'
 
 _hcom_team_save_role_before_failed_reset fixture-origin-session '' reviewer 'HCOM_TEAM_LABEL=saved reviewer /saved/checkout' claude auto default || fail 'all-peer failed-save fixture'
 _hcom_team_save_role_before_failed_reset fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scout /saved/checkout' codex auto default || fail 'all-peer scout fixture'
@@ -2211,7 +2289,7 @@ HCOM_FIXTURE_RESET_DEFAULT='4 9999999999 18000 90 9999999999 604800'
 if team-reset all > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'all-peer reset reported success after a switched account could not be saved'
 fi
-[[ "$(<"$fixture_dir/reset-error")" == *'could not save account 2 for reviewer, so the next reset checks the default account first.'* && "$(<"$fixture_dir/reset-output")" == *'team-reset: restarted scout on account 2.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout '* ]] || fail 'all-peer reset stopped after a failed save'
+[[ "$(<"$fixture_dir/reset-error")" == *'could not save account 2 for reviewer, so the next reset checks the default account first.'* && "$(<"$fixture_dir/reset-output")" == *'team-reset: restarted reviewer on account 2; ready as ready-reviewer.'*'team-reset: restarted scout on account 2; ready as ready-scout.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout '* ]] || fail 'all-peer reset stopped after a failed save or omitted the ready reviewer'
 unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SAVE_FAIL_ROLE
 functions[_hcom_team_save_role]="${functions[_hcom_team_save_role_before_failed_reset]}"
 
@@ -2220,7 +2298,7 @@ _hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scou
 HCOM_FIXTURE_RESET_DEFAULT='4 9999999999 18000 90 9999999999 604800'
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout > "$fixture_dir/reset-output" || fail 'default-to-second reset failed'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout CODEX_HOME='*'/.codex-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved scout /saved/checkout'* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on account 2.' && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto 2'$'\n'* ]] || fail 'default-to-second reset did not report and save account 2'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s fixture-origin-session -b block:scout CODEX_HOME='*'/.codex-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved scout /saved/checkout'* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on account 2; ready as ready-scout.' && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 codex auto 2'$'\n'* ]] || fail 'default-to-second reset did not report and save account 2'
 unset HCOM_FIXTURE_RESET_DEFAULT
 
 # Claude teammates use the same reset account rule.
@@ -2252,7 +2330,7 @@ HCOM_FIXTURE_RESET_CLAUDE_DEFAULT='40 9999999999 18000 40 9999999999 604800'
 HCOM_FIXTURE_RESET_CLAUDE_SECOND='70 9999999999 18000 70 9999999999 604800'
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout > "$fixture_dir/reset-output" || fail 'cross-agent scout reset'
-[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on Claude, account 2.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'CLAUDE_CONFIG_DIR='*'/.claude-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 claude auto 2'$'\n''HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout'$'\n''HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' ]] || fail 'cross-agent reset did not use Claude and save both commands'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on Claude, account 2; ready as ready-scout.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'CLAUDE_CONFIG_DIR='*'/.claude-2 HCOM_ACCOUNT=2 HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout'* && "$(<"$XDG_STATE_HOME/hcom-team/fixture-origin-session/scout")" == '# hcom-team-role-v2 claude auto 2'$'\n''HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout:claude /saved/checkout'$'\n''HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' ]] || fail 'cross-agent reset did not use Claude and save both commands'
 
 # The saved agent is checked first on the next reset, even if the old agent recovers.
 unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SECOND
@@ -2277,7 +2355,7 @@ _hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scou
 HCOM_FIXTURE_RESET_FAIL_PROVIDER=claude
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'unreadable-other-agent reset'
-[[ "$(<"$fixture_dir/reset-error")" == *"could not check Claude usage; moving scout to that agent's default account."* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on Claude, the default account.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved scout:claude /saved/checkout'* ]] || fail 'unreadable-other-agent fallback did not move and warn'
+[[ "$(<"$fixture_dir/reset-error")" == *"could not check Claude usage; moving scout to that agent's default account."* && "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout on Claude, the default account; ready as ready-scout.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved scout:claude /saved/checkout'* ]] || fail 'unreadable-other-agent fallback did not move and warn'
 unset HCOM_FIXTURE_RESET_FAIL_PROVIDER HCOM_FIXTURE_RESET_CLAUDE_DEFAULT HCOM_FIXTURE_RESET_CLAUDE_SECOND
 
 # A Claude-only teammate can move to Codex when Claude's accounts are spent.
@@ -2287,7 +2365,7 @@ HCOM_FIXTURE_RESET_CLAUDE_SECOND="$HCOM_FIXTURE_RESET_SECOND"
 unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SECOND
 : > "$HCOM_FIXTURE_REX_CALLS"
 team-reset reviewer > "$fixture_dir/reset-output" || fail 'Claude-only reviewer reset'
-[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted reviewer on Codex, the default account.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved reviewer:codex /saved/checkout'* ]] || fail 'Claude-only reviewer did not move to Codex'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted reviewer on Codex, the default account; ready as ready-reviewer.' && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'HCOM_ACCOUNT=default HCOM_TEAM_LABEL=saved reviewer:codex /saved/checkout'* ]] || fail 'Claude-only reviewer did not move to Codex'
 unset HCOM_FIXTURE_RESET_CLAUDE_DEFAULT HCOM_FIXTURE_RESET_CLAUDE_SECOND
 
 unset HCOM_FIXTURE_RESET_DEFAULT HCOM_FIXTURE_RESET_SECOND
@@ -2322,7 +2400,7 @@ source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"
 STUB
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_FIXTURE_REPO_ROOT="$repo_root" ZDOTDIR="$fixture_dir/zdotdir" zsh -c 'source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"; unfunction _hcom_team_reset_role; team-reset scout' > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'reset did not reload missing helpers'
-[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout.' && ! -s "$fixture_dir/reset-error" && "$(grep -c '^block ls -s fixture-origin-session --json$' "$HCOM_FIXTURE_REX_CALLS")" == 1 ]] || fail 'missing-helper reset did not restart scout exactly once'
+[[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout; ready as ready-scout.' && ! -s "$fixture_dir/reset-error" && "$(grep -c '^block ls -s fixture-origin-session --json$' "$HCOM_FIXTURE_REX_CALLS")" == 1 ]] || fail 'missing-helper reset did not restart scout exactly once'
 
 # A retried reset still refuses a busy pane and passes on its failure.
 export HCOM_FIXTURE_REX_BUSY_BLOCK=block:scout
@@ -2363,7 +2441,7 @@ export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
 if team-reset all > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'all-peer reset succeeded despite a busy reviewer'
 fi
-[[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:reviewer did not return to a shell prompt.'* && "$(<"$fixture_dir/reset-output")" == *'restarted implementer.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:reviewer '* ]] || fail 'all-peer reset typed into a busy pane or stopped early'
+[[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:reviewer did not return to a shell prompt.'* && "$(<"$fixture_dir/reset-output")" == *'restarted implementer; ready as ready-implementer.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:reviewer '* ]] || fail 'all-peer reset typed into a busy pane or stopped early'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 
 print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, insights layout and refusals, Rex pane creation, and team reset'
