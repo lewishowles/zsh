@@ -114,11 +114,14 @@ _hcom_quota_allocate() {
 	local -a quota_values  # One account's six probe values, split for indexing.
 	local -a quota_lines  # Both accounts' six-value lines from one agent-quota run.
 	local -a session_remaining  # Percentage of each five-hour quota left.
-	local -a usable_remaining  # Each account's five-hour quota capped by its week, still written to the decision log.
 	local -a weekly_remaining  # Percentage of each account's weekly window left.
-	local -a weekly_reset  # Unix timestamp each account's weekly window refills at.
 	local -a account_scores  # Each account's score: the lower of its five-hour and weekly room.
-	local -a score_details  # One account's score and the window that set it.
+	local -a score_details  # One account's score, limiting window, and both rooms.
+	local -a limiting_windows  # Window that set each account's score.
+	local -a session_rooms  # Five-hour room for each account.
+	local -a weekly_rooms  # Weekly room for each account.
+	local -a skipped  # Floor that prevented each account from taking a role.
+	local floors_ignored=none  # Floor set aside because both accounts were below it, or all when neither account cleared both floors.
 	local -i session_floor_applies  # 1 unless both accounts have under 10% of their five-hour quota left.
 	local -i weekly_floor_applies  # 1 unless both accounts have under 5% of their weekly quota left.
 	local -a eligible  # Whether each account may take a role under the floors that apply.
@@ -133,7 +136,10 @@ _hcom_quota_allocate() {
 
 	if ! available="$(_hcom_quota_probe "$provider" 2>&1)"; then
 		printf '\n[hcom quota probe failed]\n  Provider: %s\n  Diagnostic: %s\n  Consequence: every role in this launch lands on the default account, the placement this balancing exists to avoid.\n\n' "$provider" "${available//$'\n'/; }" >&2
-		_hcom_quota_record_decision "$(_hcom_quota_now)" "$command_name" "$provider" unavailable unavailable unavailable unavailable unavailable unavailable default default 0 probe-failed
+		_hcom_quota_record_decision "$(_hcom_quota_now)" "$command_name" "$provider" \
+			unavailable unavailable unavailable unavailable unavailable unavailable unavailable \
+			unavailable unavailable unavailable unavailable unavailable unavailable unavailable \
+			default default unavailable unavailable probe-failed
 		print -r -- 'default default 0'
 		return 2
 	fi
@@ -145,10 +151,11 @@ _hcom_quota_allocate() {
 		read -rA quota_values <<< "${quota_lines[account_index]}"
 		read -rA score_details <<< "$(_hcom_quota_score "${quota_lines[account_index]}" "$current_time")"
 		session_remaining+=("${quota_values[1]}")
-		usable_remaining+=("$(_hcom_quota_usable "${quota_lines[account_index]}" "$current_time")")
 		weekly_remaining+=("${quota_values[4]}")
-		weekly_reset+=("${quota_values[5]}")
 		account_scores+=("${score_details[1]}")
+		limiting_windows+=("${score_details[2]}")
+		session_rooms+=("${score_details[3]}")
+		weekly_rooms+=("${score_details[4]}")
 	done
 
 	session_floor_applies=$(( session_remaining[1] >= 10 || session_remaining[2] >= 10 ))
@@ -156,12 +163,27 @@ _hcom_quota_allocate() {
 
 	for account_index in {1..2}; do
 		eligible[account_index]=$(( (! session_floor_applies || session_remaining[account_index] >= 10) && (! weekly_floor_applies || weekly_remaining[account_index] >= 5) ))
+		if (( session_floor_applies && session_remaining[account_index] < 10 )); then
+			skipped[account_index]=5h-floor
+		elif (( weekly_floor_applies && weekly_remaining[account_index] < 5 )); then
+			skipped[account_index]=weekly-floor
+		else
+			skipped[account_index]=none
+		fi
 	done
 
 	# Each account failing a different floor would leave nothing to launch on, so the
 	# score decides alone.
 	if (( ! eligible[1] && ! eligible[2] )); then
 		eligible=(1 1)
+		skipped=(none none)
+		floors_ignored=all
+	elif (( ! session_floor_applies && ! weekly_floor_applies )); then
+		floors_ignored=all
+	elif (( ! session_floor_applies )); then
+		floors_ignored=5h
+	elif (( ! weekly_floor_applies )); then
+		floors_ignored=weekly
 	fi
 
 	if (( eligible[2] && (! eligible[1] || account_scores[2] > account_scores[1]) )); then
@@ -175,12 +197,15 @@ _hcom_quota_allocate() {
 
 	provider_exhausted=$(( weekly_remaining[1] < 5 && weekly_remaining[2] < 5 ))
 
-	_hcom_quota_record_decision "$current_time" "$command_name" "$provider" "${usable_remaining[1]}" "${weekly_remaining[1]}" "${weekly_reset[1]}" "${usable_remaining[2]}" "${weekly_remaining[2]}" "${weekly_reset[2]}" "${account_ids[heavier_index]}" "${account_ids[lighter_index]}" "$provider_exhausted" score
+	_hcom_quota_record_decision "$current_time" "$command_name" "$provider" \
+		"${session_remaining[1]}" "${weekly_remaining[1]}" "$(printf '%.2f' "${session_rooms[1]}")" "$(printf '%.2f' "${weekly_rooms[1]}")" "$(printf '%.2f' "${account_scores[1]}")" "${limiting_windows[1]}" "${skipped[1]}" \
+		"${session_remaining[2]}" "${weekly_remaining[2]}" "$(printf '%.2f' "${session_rooms[2]}")" "$(printf '%.2f' "${weekly_rooms[2]}")" "$(printf '%.2f' "${account_scores[2]}")" "${limiting_windows[2]}" "${skipped[2]}" \
+		"${account_ids[heavier_index]}" "${account_ids[lighter_index]}" "$floors_ignored" "$provider_exhausted"
 	print -r -- "${account_ids[heavier_index]} ${account_ids[lighter_index]} $provider_exhausted"
 }
 
-# Prints an account's score, the lower of its five-hour and weekly room, followed by
-# session or week to name the window that set it.
+# Prints an account's score, the window that set it (5h or weekly), then its five-hour
+# and weekly room, separated by spaces.
 #
 # @param  {string}  quota_line
 #     The account's six probe values, session window before week.
@@ -196,9 +221,9 @@ _hcom_quota_score() {
 	weekly_room="$(_hcom_quota_room "${quota_values[4]}" "${quota_values[5]}" "${quota_values[6]}" "$2")"
 
 	if (( session_room <= weekly_room )); then
-		printf '%.12g session\n' "$session_room"
+		printf '%.12g 5h %.12g %.12g\n' "$session_room" "$session_room" "$weekly_room"
 	else
-		printf '%.12g week\n' "$weekly_room"
+		printf '%.12g weekly %.12g %.12g\n' "$weekly_room" "$session_room" "$weekly_room"
 	fi
 }
 
@@ -240,37 +265,60 @@ _hcom_quota_room() {
 #     Public command that requested the allocation.
 # @param  {string}  provider
 #     Quota provider whose accounts were compared.
-# @param  {number|string}  default_usable
-#     Usable quota on the default account, or unavailable when the probe fails.
-# @param  {number|string}  default_weekly
-#     Weekly quota left on the default account, or unavailable when the probe fails.
-# @param  {number|string}  default_reset
-#     Weekly reset time for the default account, or unavailable when the probe fails.
-# @param  {number|string}  second_usable
-#     Usable quota on account 2, or unavailable when the probe fails.
-# @param  {number|string}  second_weekly
-#     Weekly quota left on account 2, or unavailable when the probe fails.
-# @param  {number|string}  second_reset
-#     Weekly reset time for account 2, or unavailable when the probe fails.
+# @param  {number|string}  default_5h_left
+#     Five-hour quota left on the default account, or unavailable after a failed probe.
+# @param  {number|string}  default_week_left
+#     Weekly quota left on the default account, or unavailable after a failed probe.
+# @param  {number|string}  default_5h_room
+#     Five-hour room on the default account, or unavailable after a failed probe.
+# @param  {number|string}  default_week_room
+#     Weekly room on the default account, or unavailable after a failed probe.
+# @param  {number|string}  default_score
+#     Lower room on the default account, or unavailable after a failed probe.
+# @param  {string}  default_limit
+#     Window that set the default account's score, or unavailable after a failed probe.
+# @param  {string}  default_skipped
+#     Floor that skipped the default account, or unavailable after a failed probe.
+# @param  {number|string}  second_5h_left
+#     Five-hour quota left on account 2, or unavailable after a failed probe.
+# @param  {number|string}  second_week_left
+#     Weekly quota left on account 2, or unavailable after a failed probe.
+# @param  {number|string}  second_5h_room
+#     Five-hour room on account 2, or unavailable after a failed probe.
+# @param  {number|string}  second_week_room
+#     Weekly room on account 2, or unavailable after a failed probe.
+# @param  {number|string}  second_score
+#     Lower room on account 2, or unavailable after a failed probe.
+# @param  {string}  second_limit
+#     Window that set account 2's score, or unavailable after a failed probe.
+# @param  {string}  second_skipped
+#     Floor that skipped account 2, or unavailable after a failed probe.
 # @param  {string}  heavier
 #     Account chosen for the heavier role.
 # @param  {string}  lighter
 #     Account chosen for the lighter role.
-# @param  {number}  exhausted
-#     1 when the provider's two accounts are exhausted, otherwise 0.
-# @param  {string}  rule
-#     Rule that placed the roles, including consolidation when it moved the lighter role.
+# @param  {string}  floors_ignored
+#     Floor set aside because both accounts were below it (5h or weekly), all when
+#     neither account cleared both floors, none, or unavailable after a failed probe.
+# @param  {number|string}  exhausted
+#     1 when both accounts are below the weekly floor, or unavailable after a failed probe.
+# @param  {string}  result
+#     probe-failed when quota could not be read; omitted on a successful probe.
 _hcom_quota_record_decision() {
 	local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/hcom-quota"  # Directory for allocation history.
 	local log_file="$state_dir/decisions.log"  # One line per allocation, newest last.
 	local temp_file  # Temporary copy of the newest log lines.
 	local line_count  # Number of recorded decisions before trimming.
+	local result_field=''  # Probe failure marker, omitted after a successful probe.
 
 	if ! command mkdir -p -- "$state_dir" 2>/dev/null; then
 		return 0
 	fi
 
-	if ! printf 'timestamp=%s command=%s provider=%s default_usable=%s default_weekly=%s default_reset=%s second_usable=%s second_weekly=%s second_reset=%s heavier=%s lighter=%s exhausted=%s rule=%s\n' "$@" >> "$log_file" 2>/dev/null; then
+	if [[ "${22:-}" == probe-failed ]]; then
+		result_field=' result=probe-failed'
+	fi
+	if ! printf 'timestamp=%s command=%s provider=%s default_5h_left=%s default_week_left=%s default_5h_room=%s default_week_room=%s default_score=%s default_limit=%s default_skipped=%s second_5h_left=%s second_week_left=%s second_5h_room=%s second_week_room=%s second_score=%s second_limit=%s second_skipped=%s heavier=%s lighter=%s floors_ignored=%s exhausted=%s%s\n' "${@:1:21}" "$result_field" >> "$log_file" 2>/dev/null; then
 		return 0
 	fi
 
