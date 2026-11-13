@@ -2004,17 +2004,18 @@ _hcom_team_create_session() {
 	if (( reused_launcher_tab )); then
 		_hcom_team_forget_other_tasks_in_session "$session_id" "$window_id" "$task_id" || return 1
 	fi
-	if (( reused_launcher_tab )) && ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
+	if ! _hcom_team_resize_current_session "$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block"; then
 		print -u2 -- "$command_name: Rex panes could not be resized; the team is starting anyway."
 	fi
 
 	reply=("$session_id" "$orchestrator_block" "$implementer_block" "$reviewer_block" "$scout_block" "$window_id")
 }
 
-# Gives a team built in the launcher's tab the same pane sizes as a new tab:
-# two thirds of the width for the orchestrator and three equal panes on the
-# right. Rex ignores the split ratio in a tab that is already on screen, so the
-# borders are moved once all four panes exist.
+# Gives every team tab the same pane sizes: two thirds of the width for the
+# orchestrator and three equal panes on the right. Rex ignores the split ratio
+# in a tab that is already on screen, and a tab saved from an earlier launch
+# keeps whatever sizes it had, so the borders are moved once all four panes
+# exist, whichever way the tab was chosen.
 #
 # @param  {string}  session_id
 #     The Rex session containing the team.
