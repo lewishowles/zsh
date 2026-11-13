@@ -1,3 +1,12 @@
+# Hand the terminal over to lig's wrapper, which restarts this shell inside
+# it. This must stay first: anything above it would run twice per terminal.
+# The markers let lig's own update and uninstall commands find this block.
+# >>> lig pre >>>
+if [[ -x /opt/homebrew/opt/lig/bin/lig ]]; then
+	eval "$(/opt/homebrew/opt/lig/bin/lig init zsh pre)"
+fi
+# <<< lig pre <<<
+
 ZSH_CONFIG_ROOT="${ZSH_CONFIG_ROOT:-$HOME/Dev/Repositories/Configuration/zsh}"
 
 [[ -r "$ZSH_CONFIG_ROOT/environment.zsh" ]] && source "$ZSH_CONFIG_ROOT/environment.zsh"
@@ -47,3 +56,11 @@ fi
 
 # Added by Antigravity CLI installer
 export PATH="/Users/lewis/.local/bin:$PATH"
+
+# Connect lig to the shell once it is running inside lig's wrapper. This stays
+# last so it sees the finished prompt and hooks.
+# >>> lig post >>>
+if [[ -x /opt/homebrew/opt/lig/bin/lig ]]; then
+	eval "$(/opt/homebrew/opt/lig/bin/lig init zsh post)"
+fi
+# <<< lig post <<<
