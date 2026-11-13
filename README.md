@@ -303,6 +303,12 @@ Run `team` or `cont` from inside Rex to put each team in a tab of an existing Re
 | `team:codex` | [continue\|handover\|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes] | Start a Codex hcom team or quick task, continue or hand over a task, with an optional clipboard note |
 | `team:done` | --team <label> | Stop a labelled quick team and complete its task |
 
+### node
+
+| Command | Parameters | Description |
+| --- | --- | --- |
+| `nvm` |  | Manage Node versions through Vite+ using nvm-style commands |
+
 ### package
 
 | Command | Parameters | Description |
@@ -349,6 +355,7 @@ Run `team` or `cont` from inside Rex to put each team in a tab of an existing Re
 
 | Command | Parameters | Description |
 | --- | --- | --- |
+| `caches:clean` |  | Clear the developer and app caches that Mole doesn't cover |
 | `processes:runaway` |  | Report processes with high average CPU use over a minimum age |
 | `processes:watch-install` |  | Install a 15-minute notification watch for runaway processes |
 | `processes:watch-uninstall` |  | Remove the runaway-process notification watch |

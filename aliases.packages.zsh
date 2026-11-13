@@ -236,3 +236,10 @@ function package:status() {
 		printf "%-${width}s  missing\n" "$dependency"
 	done
 }
+
+# Vite+ manages Node versions, so `nvm use 22`, `nvm install 22` and `nvm ls`
+# keep working from muscle memory. Set the default with `nvm default <version>`.
+# @desc  Manage Node versions through Vite+ using nvm-style commands
+# @cat   node
+# @needs vp
+alias nvm="vp env";

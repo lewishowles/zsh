@@ -155,3 +155,74 @@ processes:watch-uninstall() {
 	command launchctl bootout "gui/$UID" "$plist" || return 1
 	command trash "$plist"
 }
+
+# @desc  Clear the developer and app caches that Mole doesn't cover
+# @cat   system
+# @needs trash
+# Run it after `mo clean`, while no agents are running, because it removes unused Node versions and Codex runtimes.
+# Folders go to the Trash; apps that are still open are skipped and named.
+caches:clean() {
+	local playwright_directory="$HOME/Library/Caches/ms-playwright"  # Downloaded Playwright browsers.
+	local -A newest_build  # The highest build number for each Playwright browser.
+	local build name family  # One Playwright browser folder and its parts.
+
+	# Moves each existing path to the Trash and names it.
+	_caches_trash() {
+		local target
+
+		for target in "$@"; do
+			[[ -e $target ]] || continue
+			command trash "$target" && print -- "  Moved to Trash: $target"
+		done
+	}
+
+	print -- 'Package manager caches'
+	(( $+commands[bun] )) && command bun pm cache rm
+	(( $+commands[uv] )) && command uv cache prune
+	(( $+commands[npm] )) && command npm cache clean --force
+	(( $+commands[vp] )) && command vp env clean
+
+	print -- 'Docker'
+	if (( $+commands[docker] )) && command docker info &>/dev/null; then
+		command docker system prune --all --force
+	else
+		print -- "  Skipped: Docker isn't running"
+	fi
+
+	print -- 'Old Playwright browser builds'
+	for build in "$playwright_directory"/*-<->(N/); do
+		name=${build:t}
+		family=${name%-*}
+		(( ${name##*-} > ${newest_build[$family]:-0} )) && newest_build[$family]=${name##*-}
+	done
+
+	for build in "$playwright_directory"/*-<->(N/); do
+		name=${build:t}
+		family=${name%-*}
+		[[ ${name##*-} == ${newest_build[$family]} ]] || _caches_trash "$build"
+	done
+
+	print -- 'App caches'
+	if pgrep -xq codex; then
+		print -- '  Skipped Codex runtimes: Codex is running'
+	else
+		_caches_trash "$HOME/.cache/codex-runtimes"
+	fi
+
+	if pgrep -xq firefox; then
+		print -- '  Skipped Firefox: it is open'
+	else
+		_caches_trash "$HOME/Library/Caches/Firefox" "$HOME/Library/Caches/Mozilla"
+	fi
+
+	if pgrep -xq 'Google Chrome'; then
+		print -- '  Skipped Chrome: it is open'
+	else
+		_caches_trash "$HOME/Library/Caches/Google"
+	fi
+
+	_caches_trash "$HOME/Library/Caches/com.github.GitHubClient.ShipIt"
+
+	unfunction _caches_trash
+	print -- 'Done. Empty the Trash to get the space back.'
+}
