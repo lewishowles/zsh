@@ -2070,7 +2070,9 @@ _hcom_team_create_session() {
 			block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 			[[ -z "$block_id" ]] && continue
 			process_json="$(command rex block call process -s "$session_id" -b "$block_id")" || return 1
-			if ! _hcom_team_pane_is_idle "$process_json" && (( ! force_relaunch )); then
+			# The pane running this command always looks busy because cont itself is its foreground
+			# program, but nothing else can be running there, so only check the other panes.
+			if [[ "$block_id" != "${REX_BLOCK:-}" ]] && ! _hcom_team_pane_is_idle "$process_json" && (( ! force_relaunch )); then
 				_hcom_command_error "$command_name" "$(_hcom_team_pane_name "$session_id" "$role" "$block_id" "$window_id") is still running something. Stop its agent first. If the pane is already at a shell prompt, run the same cont command again with --force."
 				return 1
 			fi
