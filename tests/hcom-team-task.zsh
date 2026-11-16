@@ -476,6 +476,11 @@ assert_command_error 'team: invalid team label: Bad_Label'$'\n''team: use lowerc
 assert_command_error 'team: --task requires a task ID.' _hcom_parse_team_args team continue --task
 assert_command_error 'team: unknown option: --bad' _hcom_parse_team_args team --bad
 assert_command_error 'team: unknown option: --keep-agents' _hcom_parse_team_args team --keep-agents
+_hcom_parse_team_args cont continue --force || fail 'cont --force parses'
+[[ "${reply[7]}" == 1 ]] || fail 'cont --force did not reach the launcher'
+for launcher in team team:codex team:claude handoff; do
+	assert_command_error "$launcher: unknown option: --force" _hcom_parse_team_args "$launcher" continue --force
+done
 assert_command_error 'team: usage: team [continue|handover|handoff] [--task <id>] [--dir <path>] [--message <text>] [--clipboard] [--team <label>] [--yes]' _hcom_parse_team_args team extra
 assert_command_error 'team: --task and --team cannot be used together.' _hcom_parse_team_args team continue --task tsk_A_B --team other
 assert_command_error 'team: --task only works with continue, handover, or handoff.' _hcom_parse_team_args team --task tsk_A_B
@@ -735,6 +740,7 @@ _hcom_team_create_panes() {
 	launched_pane_directory="$4"
 	launched_orchestrator_prompt="${14}"
 	launched_task_id="${17:-}"
+	launched_force_relaunch="${19:-0}"
 	pane_calls=$((pane_calls + 1))
 	# Tags derived using the launch's project scope.
 	local resolved_tags
@@ -966,6 +972,8 @@ export HCOM_FIXTURE_PICKER_TASK_ID=tsk_A-B HCOM_FIXTURE_PICKER_AFTER_DECLINE=1
 prior_pane_calls="$pane_calls"
 _hcom_launch_team team:codex unused unused unused unused continue || fail 'declined preview did not launch the chosen task'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$(<"$fixture_dir/preview-calls")" == decline ]] || fail 'declined preview reopened confirmation or launched more than once'
+_hcom_launch_team cont unused unused unused unused continue --force || fail 'cont --force lost a chosen task'
+[[ "$launched_force_relaunch" == 1 ]] || fail 'cont --force lost its option after task selection'
 unset HCOM_FIXTURE_PICKER_TASK_ID HCOM_FIXTURE_PICKER_AFTER_DECLINE
 export HCOM_FIXTURE_PICKER_CANCEL=1 HCOM_FIXTURE_PICKER_AFTER_DECLINE=1
 : > "$fixture_dir/preview-calls"
@@ -987,6 +995,8 @@ print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 prior_pane_calls="$pane_calls"
 cont tsk_a_B --yes || fail 'public cont task ID did not launch'
 [[ "$pane_calls" == $((prior_pane_calls + 1)) && "$launched_task_id" == tsk_a_B && "$launched_team_tags" == *'-another-task-orchestrator|'* ]] || fail 'public cont task ID selected the wrong task or team label'
+cont tsk_a_B --yes --force || fail 'public cont --force did not launch'
+[[ "$launched_force_relaunch" == 1 ]] || fail 'public cont --force did not reach pane creation'
 [[ "$launched_orchestrator_prompt" == *'Resume the interrupted work on task tsk_a_B from the task handoff in this prompt. Do not select a new task.'* ]] || fail 'public cont task ID lost the resume instruction'
 [[ "$launched_orchestrator_prompt" == *$'Task record for tsk_a_B:\nTitle: Other task\nOverview: Finish the fixture work in order.\nDone when:\n  - The fixture work is complete.\nFiles:\n  - aliases.hcom-team.zsh\n  - tests/hcom-team-task.zsh\nChunks:\n  - chk_done [done] Finished chunk\n  - chk_active [active] Active chunk\n    Description: Print the record.\n    Review question: Can the team act from it?\n  - chk_pending [pending] Pending chunk\n    Description: Finish the prompt tests.\n    Review question: Do the tests cover the prompt?\n  - chk_skipped [skipped] Skipped chunk'* ]] || fail 'public cont task ID lost the readable task record'
 [[ "$launched_orchestrator_prompt" != *'Keep this off the prompt.'* ]] || fail 'public cont task ID printed details for a finished chunk'
@@ -1709,9 +1719,10 @@ placement_calls="$(<"$HCOM_FIXTURE_REX_CALLS")"
 print -r -- $'fixture-origin-session\nwindow:origin' > "$XDG_STATE_HOME/hcom-team/tasks/tsk_stopped"
 export HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK=block:old-implementer
 : > "$HCOM_FIXTURE_REX_CALLS"
-HCOM_TEAM_PROJECT_TAG=Fixture assert_command_error 'team:codex: stopped team pane block:old-implementer could not be closed; no new panes launched.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B
+export HCOM_FIXTURE_REX_WINDOWS='{"windows":[{"window_id":"window:origin","label":"Fixture tab"}]}'
+HCOM_TEAM_PROJECT_TAG=Fixture assert_command_error "team:codex: the implementer pane in the 'Fixture tab' tab could not be closed, so no new panes were opened. Close it in Rex, then try again." _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex tsk_A_B
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'split '* ]] || fail 'a failed pane close still created new role panes'
-unset HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK
+unset HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK HCOM_FIXTURE_REX_WINDOWS
 
 # An idle unlabelled shell in the saved tab sends the team to a new tab.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"orchestrator"},{"block_id":"block:other-shell","window_id":"window:origin","label":"shell"}]}'
@@ -1749,7 +1760,7 @@ print -r -- '[{"tag":"fixture-reviewer","status":"active"}]' > "$HCOM_FIXTURE_AG
 if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-orchestrator|fixture-reviewer|fixture-implementer|fixture-scout' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
 	fail 'orchestrator exit accepted a busy reviewer pane'
 fi
-[[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" && "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'busy peer exit missed its pane message or scope cleanup'
+[[ "$(<"$error_file")" == "team: the reviewer pane in the 'Team' tab did not return to a shell prompt. Stop the agent there, or close the pane in Rex." && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" && "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'busy peer exit missed its pane message or scope cleanup'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:fixture -b block:reviewer clear'* ]] || fail 'busy reviewer pane was cleared'
 for role in implementer scout; do
 	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared when the reviewer stayed busy"
@@ -1781,7 +1792,7 @@ export HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK=block:reviewer
 if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-orchestrator|fixture-reviewer|fixture-implementer|fixture-scout' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
 	fail 'orchestrator exit accepted a failed reviewer process check'
 fi
-[[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed process lookup missed its pane message or scope cleanup'
+[[ "$(<"$error_file")" == "team: the reviewer pane in the 'Team' tab did not return to a shell prompt. Stop the agent there, or close the pane in Rex." && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed process lookup missed its pane message or scope cleanup'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:fixture -b block:reviewer clear'* ]] || fail 'failed process lookup cleared the reviewer pane'
 for role in implementer scout; do
 	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after the reviewer process check failed"
@@ -1794,7 +1805,7 @@ export HCOM_FIXTURE_REX_SEND_ERROR_BLOCK=block:reviewer
 if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
 	fail 'orchestrator exit accepted a failed reviewer clear'
 fi
-[[ "$(<"$error_file")" == 'team: peer pane block:reviewer could not be cleared.' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed clear missed its pane message or scope cleanup'
+[[ "$(<"$error_file")" == "team: the reviewer pane in the 'Team' tab could not be cleared. Clear it in Rex." && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed clear missed its pane message or scope cleanup'
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send-key -s session:fixture -b block:reviewer enter'* ]] || fail 'failed clear submitted a command to the reviewer pane'
 for role in implementer scout; do
 	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after the reviewer clear failed"
@@ -1814,8 +1825,11 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 # A busy role pane stops relaunch before any command is typed.
 export HCOM_FIXTURE_REX_PROCESS=claude
 : > "$HCOM_FIXTURE_REX_CALLS"
-assert_command_error 'team:codex: orchestrator pane block:orchestrator is still running an agent; stop it before relaunching.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex
+assert_command_error "team:codex: the orchestrator pane in the 'Team' tab is still running something. Stop its agent first. If the pane is already at a shell prompt, run the same cont command again with --force." _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send '* ]] || fail 'busy pane received a launch command'
+: > "$HCOM_FIXTURE_REX_CALLS"
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real cont reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:fixture 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex '' auto 1 || fail 'forced relaunch over a busy pane'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send -s session:fixture -b block:orchestrator source '* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send-key -s session:fixture -b block:orchestrator enter'* ]] || fail 'cont --force did not type the relaunch command into the busy pane'
 unset HCOM_FIXTURE_REX_PROCESS
 
 # A missing scout pane is created beneath the reviewer in the reused session.
@@ -1924,7 +1938,7 @@ mkdir -p "$XDG_STATE_HOME/hcom-team/session:orphan"
 print -r -- session:orphan > "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B"
 export HCOM_FIXTURE_REX_BUSY_BLOCK=block:scout
 : > "$HCOM_FIXTURE_REX_CALLS"
-assert_command_error 'team:codex: scout pane block:scout is still running an agent; stop it before relaunching.' _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:orphan 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B
+assert_command_error "team:codex: the scout pane in the 'Team' tab is still running something. Stop its agent first. If the pane is already at a shell prompt, run the same cont command again with --force." _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task session:orphan 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B
 [[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* && -f "$XDG_STATE_HOME/hcom-team/tasks/tsk_A_B" ]] || fail 'busy orphan session was replaced'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 : > "$HCOM_FIXTURE_REX_CALLS"
@@ -1958,8 +1972,17 @@ print -r -- session:busy > "$XDG_STATE_HOME/hcom-team/tasks/tsk_busy"
 export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
 : > "$HCOM_FIXTURE_REX_CALLS"
 cleanup_output="$(cleanup tsk_busy 2>&1)" || fail 'worktree cleanup with running teammate'
-[[ "$cleanup_output" == *'reviewer pane block:reviewer was left open because an agent is still running there.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:implementer -s session:busy'*'block close block:scout -s session:busy'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:reviewer'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_busy" && ! -e "$XDG_STATE_HOME/hcom-team/session:busy" ]] || fail 'running teammate pane was closed or not explained'
+[[ "$cleanup_output" == *"the reviewer pane in the 'Team' tab was left open because an agent is still running there. Stop that agent, then close the pane in Rex."* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:implementer -s session:busy'*'block close block:scout -s session:busy'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:reviewer'* && ! -e "$XDG_STATE_HOME/hcom-team/tasks/tsk_busy" && ! -e "$XDG_STATE_HOME/hcom-team/session:busy" ]] || fail 'running teammate pane was closed or not explained'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
+
+# A pane whose process cannot be checked stays open with a next step.
+mkdir -p "$XDG_STATE_HOME/hcom-team/session:busy"
+print -r -- session:busy > "$XDG_STATE_HOME/hcom-team/tasks/tsk_unchecked"
+export HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK=block:reviewer
+: > "$HCOM_FIXTURE_REX_CALLS"
+cleanup_output="$(cleanup tsk_unchecked 2>&1)" || fail 'worktree cleanup with an unchecked pane'
+[[ "$cleanup_output" == *"the reviewer pane in the 'Team' tab was left open because its process could not be checked. Check it in Rex before closing it."* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block close block:reviewer'* ]] || fail 'unchecked teammate pane was closed or not explained'
+unset HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK
 
 # Two teams in one session keep their panes and saved commands separate.
 export HCOM_FIXTURE_RESET_READY=1
@@ -2157,7 +2180,7 @@ print -r -- session:close-error > "$XDG_STATE_HOME/hcom-team/tasks/tsk_close_err
 export HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK=block:reviewer
 : > "$HCOM_FIXTURE_REX_CALLS"
 cleanup_output="$(cleanup tsk_close_error 2>&1)" || fail 'worktree cleanup with a pane close failure'
-[[ "$cleanup_output" == *'reviewer pane block:reviewer could not be closed.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:reviewer -s session:close-error'*'block close block:scout -s session:close-error'* ]] || fail 'pane close failure stopped cleanup or hid the error'
+[[ "$cleanup_output" == *"the reviewer pane in the 'Team' tab could not be closed. Close it in Rex."* && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'block close block:reviewer -s session:close-error'*'block close block:scout -s session:close-error'* ]] || fail 'pane close failure stopped cleanup or hid the error'
 unset HCOM_FIXTURE_REX_CLOSE_ERROR_BLOCK
 
 # Help output never changes Rex panes or saved state.
@@ -2467,7 +2490,7 @@ export HCOM_FIXTURE_REX_BUSY_BLOCK=block:scout
 if HCOM_FIXTURE_REPO_ROOT="$repo_root" ZDOTDIR="$fixture_dir/zdotdir" zsh -c 'source "$HCOM_FIXTURE_REPO_ROOT/aliases.hcom-team.zsh"; unfunction _hcom_team_reset_role; team-reset scout' > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'missing-helper reset lost the inner failure status'
 fi
-[[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:scout did not return to a shell prompt.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:scout '* ]] || fail 'missing-helper reset typed into a busy pane'
+[[ "$(<"$fixture_dir/reset-error")" == *"the scout pane in the 'Team' tab did not return to a shell prompt. Stop the agent there, or close the pane in Rex."* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:scout '* ]] || fail 'missing-helper reset typed into a busy pane'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 
 # A shell that is already the retry fails instead of retrying again.
@@ -2500,7 +2523,7 @@ export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
 if team-reset all > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'all-peer reset succeeded despite a busy reviewer'
 fi
-[[ "$(<"$fixture_dir/reset-error")" == *'peer pane block:reviewer did not return to a shell prompt.'* && "$(<"$fixture_dir/reset-output")" == *'restarted implementer; ready as ready-implementer.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:reviewer '* ]] || fail 'all-peer reset typed into a busy pane or stopped early'
+[[ "$(<"$fixture_dir/reset-error")" == *"the reviewer pane in the 'Team' tab did not return to a shell prompt. Stop the agent there, or close the pane in Rex."* && "$(<"$fixture_dir/reset-output")" == *'restarted implementer; ready as ready-implementer.'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s fixture-origin-session -b block:reviewer '* ]] || fail 'all-peer reset typed into a busy pane or stopped early'
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
 
 print -r -- 'PASS: task address, checkout selection, quick tasks, quick-team completion, refusal before panes, relaunch isolation, stop targeting, solo quota selection, learner team labels, planning duplicates and team labels, insights layout and refusals, Rex pane creation, and team reset'

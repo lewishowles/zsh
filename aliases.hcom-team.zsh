@@ -575,6 +575,7 @@ _hcom_launch_team() {
 	local initial_prompt="${reply[4]}"  # Optional prompt passed to the orchestrator.
 	local skip_confirmation="${reply[5]}"  # Whether to start a continuation without prompting.
 	local requested_task_id="${reply[6]}"  # Task named with --task, or empty to find the in-progress task.
+	local force_relaunch="${reply[7]}"  # Whether cont may type into a busy saved pane.
 
 	local team_scope_directory="${working_directory:-$PWD}"  # Directory used for tags and stored team scope.
 	local team_project_tag=""  # Main checkout folder tag for a task team, or original checkout folder tag for a root team.
@@ -694,6 +695,9 @@ _hcom_launch_team() {
 		# for its checkout and live team without asking a second time.
 		if (( picker_chosen )); then
 		chosen_task_args=(continue --task "$selected_task_id" --dir "$team_scope_directory" --yes)
+			if (( force_relaunch )); then
+				chosen_task_args+=(--force)
+			fi
 			if [[ -n "$initial_prompt" ]]; then
 				chosen_task_args+=(--forwarded-message "$initial_prompt")
 			fi
@@ -952,7 +956,7 @@ _hcom_launch_team() {
 	# A non-zero return reports a tag or Rex launch failure.
 	# Accounts and providers were paired to roles above; the orchestrator's own
 	# pair is passed separately below.
-	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_session_id" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$orchestrator_launcher" "$initial_prompt" "$orchestrator_account" "$orchestrator_provider" "$requested_task_id" "$allocation_mode" || return $?
+	HCOM_TEAM_PROJECT_TAG="$team_project_tag" _hcom_team_create_panes "$command_name" "$reviewer_launcher" "$implementer_launcher" "$scout_launcher" "$working_directory" "$team_label" "$replace_session_id" "$reviewer_account" "$implementer_account" "$scout_account" "$reviewer_provider" "$implementer_provider" "$scout_provider" "$orchestrator_launcher" "$initial_prompt" "$orchestrator_account" "$orchestrator_provider" "$requested_task_id" "$allocation_mode" "$force_relaunch" || return $?
 	# Rex session ID returned for the new team.
 	local team_session_id="${reply[2]}"
 	# Tab holding the new team, or empty when Rex gave no tab ID.
@@ -1431,6 +1435,8 @@ _hcom_select_in_progress_task() {
 #     stored so a later launch for the same task can find this session.
 # @param  {string}  allocation_mode
 #     Whether the launcher selected accounts by usage or kept the shell's account.
+# @param  {number}  force_relaunch
+#     1 when cont may type into a busy saved pane.
 _hcom_team_create_panes() {
 	# Public command responsible for the pane launch.
 	local command_name="$1"
@@ -1471,6 +1477,8 @@ _hcom_team_create_panes() {
 	local task_id="${17:-}"
 	# Whether the launcher chose the accounts by usage (auto) or kept the shell's (forced).
 	local allocation_mode="${18:-auto}"
+	# Whether cont may type into a busy saved pane.
+	local force_relaunch="${19:-0}"
 
 	# The team's directory, quoted for each typed role command.
 	local working_directory_suffix=" ${(qq)${working_directory:-$PWD}}"
@@ -1508,7 +1516,7 @@ _hcom_team_create_panes() {
 	# Short name used for this team's tab.
 	local tab_name="$(_hcom_team_launch_tab_name "$team_label")"
 
-	_hcom_team_create_session "$command_name" "$repository_name" "$tab_name" "$team_scope_directory" "$previous_session_id" "$task_id" || return 1
+	_hcom_team_create_session "$command_name" "$repository_name" "$tab_name" "$team_scope_directory" "$previous_session_id" "$task_id" "$force_relaunch" || return 1
 	# New Rex session that contains the team's panes.
 	local session_id="${reply[1]}"
 	# Pane where the orchestrator starts.
@@ -1723,6 +1731,10 @@ _hcom_team_stop_peers() {
 	local -a blocks=() tags=()
 	# Current pane receiving stop keys or a timeout warning.
 	local block_id
+	# Position of the current teammate in blocks and tags.
+	local index
+	# Role named by the current teammate's tag, or empty when the tag has none.
+	local role
 	# HCOM agent list shared by the current poll.
 	local agents_json
 	# Number of polls under the shared five-second deadline.
@@ -1756,9 +1768,15 @@ _hcom_team_stop_peers() {
 		(( pending )) || break
 		(( attempt == 25 )) || sleep 0.2
 	done
-	for block_id in "${blocks[@]}"; do
+	for (( index = 1; index <= ${#blocks}; index++ )); do
+		block_id="${blocks[index]}"
 		if [[ -z "${resolved[$block_id]:-}" ]]; then
-			print -ru2 -- "team: peer pane $block_id did not return to a shell prompt."
+			role="${tags[index]##*-}"
+			case "$role" in
+				orchestrator|implementer|reviewer|scout) ;;
+				*) role="" ;;
+			esac
+			print -ru2 -- "team: $(_hcom_team_pane_name "$session_id" "$role" "$block_id") did not return to a shell prompt. Stop the agent there, or close the pane in Rex."
 			stop_status=1
 		fi
 	done
@@ -1912,9 +1930,17 @@ _hcom_team_run_orchestrator() {
 	_hcom_team_stop_peers "$session_id" "${role_tags[3]:-}" "$implementer_block" "${role_tags[2]:-}" "$reviewer_block" "${role_tags[4]:-}" "$scout_block" || stop_status=$?
 	# Teammate pane that returned to its shell prompt.
 	local block_id
+	# Role matching the pane being cleared.
+	local role
 	for block_id in "${reply[@]}"; do
 		if ! _hcom_team_clear_peer "$session_id" "$block_id"; then
-			print -ru2 -- "team: peer pane $block_id could not be cleared."
+			role=""
+			case "$block_id" in
+				"$implementer_block") role=implementer ;;
+				"$reviewer_block") role=reviewer ;;
+				"$scout_block") role=scout ;;
+			esac
+			print -ru2 -- "team: $(_hcom_team_pane_name "$session_id" "$role" "$block_id") could not be cleared. Clear it in Rex."
 			stop_status=1
 		fi
 	done
@@ -1972,6 +1998,8 @@ _hcom_team_clear_peer() {
 #     The task whose saved session ID is removed when that session has closed
 #     or has lost its orchestrator pane. Its own saved record is kept when
 #     other tasks' records for the reused session are removed.
+# @param  {number}  force_relaunch
+#     1 when cont may type into a busy saved pane.
 _hcom_team_create_session() {
 	# Public command shown in diagnostics.
 	local command_name="$1"
@@ -1985,6 +2013,8 @@ _hcom_team_create_session() {
 	local previous_session_id="$5"
 	# Task that owns the saved session ID.
 	local task_id="${6:-}"
+	# Whether cont may type into a busy saved pane.
+	local force_relaunch="${7:-0}"
 	# Open Rex sessions.
 	local sessions_json
 	# Labelled panes in a reused session.
@@ -2040,8 +2070,8 @@ _hcom_team_create_session() {
 			block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 			[[ -z "$block_id" ]] && continue
 			process_json="$(command rex block call process -s "$session_id" -b "$block_id")" || return 1
-			if ! _hcom_team_pane_is_idle "$process_json"; then
-				_hcom_command_error "$command_name" "$role pane $block_id is still running an agent; stop it before relaunching."
+			if ! _hcom_team_pane_is_idle "$process_json" && (( ! force_relaunch )); then
+				_hcom_command_error "$command_name" "$(_hcom_team_pane_name "$session_id" "$role" "$block_id" "$window_id") is still running something. Stop its agent first. If the pane is already at a shell prompt, run the same cont command again with --force."
 				return 1
 			fi
 			case "$role" in
@@ -2387,15 +2417,15 @@ _hcom_team_cleanup_task() {
 		block_id="$(_hcom_team_role_block "$blocks_json" "$role")" || return 1
 		[[ -n "$block_id" && "$block_id" != "${REX_BLOCK:-}" ]] || continue
 		if ! process_json="$(command rex block call process -s "$session_id" -b "$block_id")"; then
-			print -u2 -- "cleanup: $role pane $block_id was left open because its process could not be checked."
+			print -u2 -- "cleanup: $(_hcom_team_pane_name "$session_id" "$role" "$block_id" "$window_id") was left open because its process could not be checked. Check it in Rex before closing it."
 			continue
 		fi
 		if _hcom_team_pane_is_idle "$process_json"; then
 			if ! command rex block close "$block_id" -s "$session_id"; then
-				print -u2 -- "cleanup: $role pane $block_id could not be closed."
+				print -u2 -- "cleanup: $(_hcom_team_pane_name "$session_id" "$role" "$block_id" "$window_id") could not be closed. Close it in Rex."
 			fi
 		else
-			print -u2 -- "cleanup: $role pane $block_id was left open because an agent is still running there."
+			print -u2 -- "cleanup: $(_hcom_team_pane_name "$session_id" "$role" "$block_id" "$window_id") was left open because an agent is still running there. Stop that agent, then close the pane in Rex."
 		fi
 	done
 
@@ -2556,6 +2586,59 @@ _hcom_team_block_window() {
 	local blocks_json="$2"
 
 	jq -r --arg id "$block_id" '.blocks[] | select(.block_id == $id) | .window_id // empty' <<<"$blocks_json"
+}
+
+# Prints a plain name for a team pane, such as "the scout pane in the 'x' tab",
+# for messages the user acts on. With no role given, the role comes from the
+# pane's Rex label. A tab whose name cannot be found is called Team, as in the
+# team selector.
+#
+# @param  {string}  session_id
+#     Rex session containing the pane.
+# @param  {string}  role
+#     Pane role, or empty when no role is known.
+# @param  {string}  block_id
+#     Pane whose tab is needed.
+# @param  {string}  window_id
+#     Known tab ID, when the caller has one.
+_hcom_team_pane_name() {
+	# Rex session containing the pane.
+	local session_id="$1"
+	# Pane role, when known.
+	local role="$2"
+	# Pane whose tab is needed.
+	local block_id="$3"
+	# Known tab ID, when supplied.
+	local window_id="${4:-}"
+	# Rex pane listing used to locate the tab and its fallback name.
+	local blocks_json
+	# Rex tab listing used to read its label.
+	local windows_json
+	# Resolved tab name.
+	local tab_name=Team
+
+	blocks_json="$(command rex block ls -s "$session_id" --json 2>/dev/null)" || blocks_json='{"blocks":[]}'
+	if [[ -z "$role" ]]; then
+		role="$(jq -r --arg id "$block_id" '.blocks[] | select(.block_id == $id) | .label // empty' <<<"$blocks_json")" || role=""
+		case "$role" in
+			orchestrator|implementer|reviewer|scout) ;;
+			*) role="" ;;
+		esac
+	fi
+	if [[ -z "$window_id" ]]; then
+		window_id="$(_hcom_team_block_window "$block_id" "$blocks_json")" || window_id=""
+	fi
+
+	if [[ -n "$window_id" ]]; then
+		windows_json="$(command rex window ls -s "$session_id" --json 2>/dev/null)" || windows_json='{"windows":[]}'
+		tab_name="$(_hcom_team_tab_name "$session_id" "$window_id" "$blocks_json" "$windows_json")" || tab_name=Team
+	fi
+
+	if [[ -n "$role" ]]; then
+		print -r -- "the $role pane in the '$tab_name' tab"
+	else
+		print -r -- "a leftover team pane in the '$tab_name' tab"
+	fi
 }
 
 # Stops one teammate and starts it again in the same Rex pane. An auto-allocated
@@ -3320,6 +3403,7 @@ _hcom_parse_team_args() {
 	local message_set=0
 	local clipboard_note=""  # Clipboard text from --clipboard, added after any --message text.
 	local task_id=""  # The --task identifier of the task this team continues.
+	local force_relaunch=0  # Whether cont may type into a busy saved pane.
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
 			--dir)
@@ -3393,6 +3477,14 @@ _hcom_parse_team_args() {
 				skip_confirmation=1
 				shift
 				;;
+			--force)
+				if [[ "$command_name" != cont ]]; then
+					_hcom_command_error "$command_name" 'unknown option: ' "$1"
+					return 1
+				fi
+				force_relaunch=1
+				shift
+				;;
 			--)
 				shift
 				break
@@ -3439,7 +3531,7 @@ _hcom_parse_team_args() {
 		return 1
 	fi
 
-	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id")
+	reply=("$launch_mode" "$team_label" "$working_directory" "$initial_prompt" "$skip_confirmation" "$task_id" "$force_relaunch")
 }
 
 # @desc  Start an hcom team or quick task, continue or hand over a task, with an optional clipboard note

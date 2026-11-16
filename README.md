@@ -274,7 +274,7 @@ Run `team` or `cont` from inside Rex to put each team in a tab of an existing Re
 | Command | Parameters | Description |
 | --- | --- | --- |
 | `agent:resume` |  | Resume a stopped hcom agent by name (hcom r already replays its stored model/tag/role prompt) |
-| `cont` |  | Continue an hcom team for a task or the next task, with an optional clipboard note |
+| `cont` |  | Continue an hcom team for a task or the next task, with an optional clipboard note; --force relaunches over a busy pane |
 | `handoff` |  | Hand over an hcom team from copied messages, optionally for a named task |
 | `hi` |  | Start the Implementer hcom role on the account with more quota headroom; --task <id> joins that task's team |
 | `ho` |  | Start the Orchestrator hcom role on the account with more quota headroom; --task <id> joins that task's team |

@@ -178,7 +178,7 @@ _hcom_team_open_chosen_tab() {
 	if [[ -n "$window_id" ]]; then
 		for block_id in "${leftover_blocks[@]}"; do
 			if ! command rex block close "$block_id" -s "$session_id"; then
-				_hcom_command_error "$command_name" "stopped team pane $block_id could not be closed; no new panes launched."
+				_hcom_command_error "$command_name" "$(_hcom_team_pane_name "$session_id" "" "$block_id" "$window_id") could not be closed, so no new panes were opened. Close it in Rex, then try again."
 				return 1
 			fi
 		done

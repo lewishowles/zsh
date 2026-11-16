@@ -13,12 +13,14 @@ fi
 # Continues the task named by the first argument, otherwise the only in-progress
 # task, or the next ready task when none is in progress. A started or blocked
 # task with a saved handoff resumes from it.
-# @desc  Continue an hcom team for a task or the next task, with an optional clipboard note
+# @desc  Continue an hcom team for a task or the next task, with an optional clipboard note; --force relaunches over a busy pane
 # @cat   hcom
 # @needs agent-quota
 #
 # @param  {string}  ...
-#     An optional task ID followed by the team continue options.
+#     An optional task ID followed by the team continue options. --force
+#     relaunches in a saved pane that looks busy; check the pane is at a shell
+#     prompt first, or the command is typed into the running agent.
 cont() {
 	if [[ $# -gt 0 && "$1" != -* ]]; then
 		_hcom_launch_team cont orchestrator reviewer implementer scout continue --task "$1" "${@:2}"
