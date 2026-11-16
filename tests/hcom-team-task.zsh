@@ -2264,8 +2264,10 @@ cat > "$HCOM_FIXTURE_AGENTS_SEQUENCE" <<'SEQUENCE'
 [{"name":"old-scout","tag":"saved-scout","status":"listening","directory":"/saved/checkout"},{"name":"new-scout","tag":"saved-scout","status":"blocked","directory":"/saved/checkout"}]
 SEQUENCE
 : > "$HCOM_FIXTURE_REX_CALLS"
-team-reset scout > "$fixture_dir/reset-output" || fail 'reset did not wait for a new live scout'
+team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error" || fail 'reset did not wait for a new live scout'
 [[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout; ready as new-scout.' && "$(<"$HCOM_FIXTURE_AGENTS_CALLS")" == 3 ]] || fail 'reset accepted an existing or mismatched agent'
+# A successful wait does not print the agents it rejected on an earlier check.
+[[ ! -s "$fixture_dir/reset-error" ]] || fail 'successful reset printed near-miss agents'
 # A saved command without a directory can match a new teammate in any directory.
 _hcom_team_save_role fixture-origin-session '' scout 'scout' codex forced default || fail 'directory-free reset command save'
 print -r -- 0 > "$HCOM_FIXTURE_AGENTS_CALLS"
@@ -2278,13 +2280,27 @@ team-reset scout > "$fixture_dir/reset-output" || fail 'reset without a saved di
 [[ "$(<"$fixture_dir/reset-output")" == 'team-reset: restarted scout; ready as directory-free-scout.' ]] || fail 'reset without a saved directory did not accept the live teammate'
 _hcom_team_save_role fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved HCOM_TEAM_PROJECT_TAG=Saved scout /saved/checkout' codex auto 2 || fail 'restore saved reset command'
 print -r -- 0 > "$HCOM_FIXTURE_AGENTS_CALLS"
+cat > "$HCOM_FIXTURE_AGENTS_SEQUENCE" <<'SEQUENCE'
+[{"name":"old-scout","tag":"saved-scout","status":"active","directory":"/saved/checkout"}]
+[{"name":"old-scout","tag":"saved-scout","status":"active","directory":"/saved/checkout"},{"name":"wrong-role","tag":"saved-reviewer","status":"stopped","directory":"/other/checkout"},{"name":"not-ready","tag":"saved-scout","status":"stopped","directory":"/other/checkout"},{"name":"wrong-directory","tag":"saved-scout","status":"active","directory":"/other/checkout"}]
+[{"name":"old-scout","tag":"saved-scout","status":"active","directory":"/saved/checkout"},{"name":"wrong-role","tag":"saved-reviewer","status":"stopped","directory":"/other/checkout"},{"name":"not-ready","tag":"saved-scout","status":"active","directory":"/other/checkout"},{"name":"wrong-directory","tag":"saved-scout","status":"active","directory":"/other/checkout"}]
+SEQUENCE
+: > "$HCOM_FIXTURE_REX_CALLS"
+if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
+	fail 'reset reported success for near-miss agents'
+fi
+[[ ! -s "$fixture_dir/reset-output" ]] || fail 'near-miss timeout printed success'
+[[ "$(<"$fixture_dir/reset-error")" == *'wrong-role joined HCOM, but its tag does not end in -scout (status: stopped).'*'not-ready joined HCOM, but it is active in /other/checkout, not /saved/checkout.'*'wrong-directory joined HCOM, but it is active in /other/checkout, not /saved/checkout.'*'scout restarted but did not become ready in HCOM within 90s.'* ]] || fail "reset timeout did not explain every near-miss: $(<"$fixture_dir/reset-error")"
+[[ "$(grep -c '^team-reset: not-ready joined HCOM' "$fixture_dir/reset-error")" == 1 && "$(<"$fixture_dir/reset-error")" != *'not-ready joined HCOM, but its status is stopped'* ]] || fail 'reset timeout did not keep the latest reason once for each agent'
+[[ "$(<"$HCOM_FIXTURE_AGENTS_CALLS")" == 91 ]] || fail 'near-miss timeout checked HCOM the wrong number of times'
+print -r -- 0 > "$HCOM_FIXTURE_AGENTS_CALLS"
 print -r -- '[]' > "$HCOM_FIXTURE_AGENTS_SEQUENCE"
 : > "$HCOM_FIXTURE_REX_CALLS"
 if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'reset reported success without a new live scout'
 fi
 [[ ! -s "$fixture_dir/reset-output" ]] || fail "reset timeout printed success: $(<"$fixture_dir/reset-output")"
-[[ "$(<"$fixture_dir/reset-error")" == $'\n''team-reset: scout restarted but did not join HCOM within 90s.' ]] || fail "reset timeout reported a different error: $(<"$fixture_dir/reset-error")"
+[[ "$(<"$fixture_dir/reset-error")" == 'team-reset: the replacement never joined HCOM.'$'\n''team-reset: scout restarted but did not become ready in HCOM within 90s.' ]] || fail "reset timeout reported a different error: $(<"$fixture_dir/reset-error")"
 [[ "$(<"$HCOM_FIXTURE_AGENTS_CALLS")" == 91 ]] || fail "reset timeout checked HCOM $(<"$HCOM_FIXTURE_AGENTS_CALLS") times instead of 91"
 unset HCOM_FIXTURE_AGENTS_SEQUENCE HCOM_FIXTURE_AGENTS_CALLS
 # An unavailable HCOM list must leave the current teammate running in its pane.
@@ -2350,7 +2366,7 @@ _hcom_team_wait_ready() { return 1; }
 if team-reset scout > "$fixture_dir/reset-output" 2> "$fixture_dir/reset-error"; then
 	fail 'reset reported success when saving failed and the teammate did not join'
 fi
-[[ ! -s "$fixture_dir/reset-output" && "$(<"$fixture_dir/reset-error")" == $'\n''team-reset: scout restarted but did not join HCOM within 90s.' ]] || fail 'save failure obscured the missing-teammate timeout'
+[[ ! -s "$fixture_dir/reset-output" && "$(<"$fixture_dir/reset-error")" == 'team-reset: scout restarted but did not become ready in HCOM within 90s.' ]] || fail 'save failure obscured the missing-teammate timeout'
 functions[_hcom_team_wait_ready]="${functions[_hcom_team_wait_ready_before_save_timeout]}"
 
 _hcom_team_save_role_before_failed_reset fixture-origin-session '' scout 'HCOM_TEAM_LABEL=saved scout /saved/checkout' codex auto 2 || fail 'failed default-account save fixture'

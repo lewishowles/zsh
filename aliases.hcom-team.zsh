@@ -2751,7 +2751,7 @@ _hcom_team_reset_role() {
 	fi
 
 	if ! ready_name="$(_hcom_team_wait_ready "$role" "$working_directory" "$existing_names")"; then
-		_hcom_command_error team-reset "$role restarted but did not join HCOM within 90s."
+		print -u2 -- "team-reset: $role restarted but did not become ready in HCOM within 90s."
 		return 1
 	fi
 
@@ -2816,7 +2816,8 @@ _hcom_team_reset_report() {
 }
 
 # Prints the name of the agent that joined HCOM for a restarted role, checking once
-# a second for up to 90 seconds. Fails when no new agent appears in that time.
+# a second for up to 90 seconds. On timeout, it says why each new agent did not count
+# as the replacement, or that no new agent joined.
 #
 # @param  {string}  role
 #     Teammate role to find.
@@ -2837,6 +2838,14 @@ _hcom_team_wait_ready() {
 	local ready_name
 	# Number of checks completed.
 	local attempt
+	# New agents that did not count as the replacement, in the order they first appeared.
+	local -a missed_names
+	# The latest reason each of those agents did not count, by agent name.
+	local -A missed_conditions
+	# One line per non-matching new agent: name, failed check, status and directory.
+	local missed_rows
+	# The fields read from one of those lines.
+	local agent_name missed_condition agent_status agent_directory
 
 	for (( attempt = 0; attempt < 90; attempt++ )); do
 		if agents_json="$(command hcom list --json 2>/dev/null)" && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
@@ -2853,6 +2862,28 @@ _hcom_team_wait_ready() {
 				print -r -- "$ready_name"
 				return 0
 			fi
+
+			# Lists each new agent that does not match yet with the first check it fails.
+			# These checks must stay in step with the ready filter above.
+			missed_rows="$(jq -r --arg role "$role" --arg directory "$working_directory" --argjson existing "$existing_names" --argjson live_statuses "$_HCOM_TEAM_LIVE_STATUSES" '
+				.[] | select((.name | type == "string") and (.name != "")) |
+				select(.name as $name | $existing | index($name) | not) |
+				[.name, (if (.tag | type != "string" or (endswith("-" + $role) | not)) then "tag"
+					elif (.status as $status | $live_statuses | index($status) == null) then "status"
+					elif ($directory != "" and .directory != $directory) then "directory"
+					else empty end), (.status // "unknown"), (.directory // "unknown")] | @tsv
+			' <<<"$agents_json")"
+			while IFS=$'\t' read -r agent_name missed_condition agent_status agent_directory; do
+				[[ -n "$agent_name" ]] || continue
+
+				# Lists each agent once, but replaces its reason on every check so the
+				# timeout shows the agent's latest state.
+				if [[ -z "${missed_conditions[$agent_name]-}" ]]; then
+					missed_names+=("$agent_name")
+				fi
+
+				missed_conditions[$agent_name]="$(_hcom_team_wait_missed_condition "$missed_condition" "$role" "$agent_status" "$agent_directory" "$working_directory")"
+			done <<<"$missed_rows"
 		fi
 
 		if (( attempt < 89 )); then
@@ -2860,7 +2891,46 @@ _hcom_team_wait_ready() {
 		fi
 	done
 
+	if (( ${#missed_names} )); then
+		for agent_name in "${missed_names[@]}"; do
+			print -u2 -- "team-reset: $agent_name joined HCOM, but ${missed_conditions[$agent_name]}."
+		done
+	else
+		print -u2 -- 'team-reset: the replacement never joined HCOM.'
+	fi
+
 	return 1
+}
+
+# Prints, in plain words, why a new agent did not count as the replacement.
+#
+# @param  {string}  condition
+#     The failed check: tag, status or directory.
+# @param  {string}  role
+#     The role expected for the replacement.
+# @param  {string}  agent_status
+#     The agent's status as HCOM reported it.
+# @param  {string}  agent_directory
+#     The directory HCOM reported for the agent.
+# @param  {string}  working_directory
+#     The directory expected for the replacement.
+_hcom_team_wait_missed_condition() {
+	# The failed check.
+	local condition="$1"
+	# The expected role.
+	local role="$2"
+	# The status reported by HCOM.
+	local agent_status="$3"
+	# The directory reported by HCOM.
+	local agent_directory="$4"
+	# The expected directory.
+	local working_directory="$5"
+
+	case "$condition" in
+		tag) print -r -- "its tag does not end in -$role (status: $agent_status)" ;;
+		status) print -r -- "its status is $agent_status, so it is not ready" ;;
+		directory) print -r -- "it is $agent_status in $agent_directory, not $working_directory" ;;
+	esac
 }
 
 # Prints the name of an account for a reset message.
