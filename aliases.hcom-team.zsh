@@ -5,6 +5,9 @@
 # account it last started on. A file without it holds only a command to replay.
 typeset -g _HCOM_TEAM_ROLE_HEADER='# hcom-team-role-v2'
 
+# HCOM statuses that mean a teammate can still be running.
+typeset -g _HCOM_TEAM_LIVE_STATUSES='["active","listening","blocked"]'
+
 # Returns the exact role tags for a team scope.
 #
 # @param  {string}  command_name
@@ -1702,58 +1705,150 @@ _hcom_team_role_environment() {
 
 # Stops the agents in teammate panes, leaving the panes open.
 #
-# Waits up to about five seconds for each pane to return to its shell prompt
-# and sets reply to the panes that did. Returns non-zero when any pane has not.
+# Sends Ctrl-C to every pane first, then waits up to about five seconds for all
+# of them together. Sets reply to the panes whose shell is back in charge of the
+# terminal, which are safe to type into. A role that HCOM no longer lists as live
+# counts as stopped but stays out of reply, because its pane may still be running
+# something. Returns non-zero when any teammate is still running after the wait.
 #
 # @param  {string}  session_id
 #     Rex session that contains the team.
 # @param  {string}  ...
-#     Teammate pane IDs to stop.
+#     Alternating exact HCOM tags and teammate pane IDs. An empty tag uses only
+#     the pane check.
 _hcom_team_stop_peers() {
 	# Team session containing the peer panes.
 	local session_id="$1"
-	# Peer pane to stop.
+	# Teammate pane IDs and their matching role tags.
+	local -a blocks=() tags=()
+	# Current pane receiving stop keys or a timeout warning.
 	local block_id
-	# Foreground process returned after the stop keys.
-	local process_json
-	# Shell-prompt checks for each peer, 0.2 seconds apart.
+	# HCOM agent list shared by the current poll.
+	local agents_json
+	# Number of polls under the shared five-second deadline.
 	local attempt
-	# Whether the current peer has returned to zsh.
-	local returned_to_shell
-	# Whether every teammate returned to its shell.
+	# Each pane's result: idle when its shell owns the terminal, stopped when HCOM no longer lists its role.
+	local -A resolved=()
+	# Whether any peer still needs a poll.
+	local pending
+	# Whether exact tags were supplied for an HCOM status check.
+	local has_role_tags=0
+	# Whether any teammate was still running when the wait ended.
 	local stop_status=0
 	reply=()
 	shift
-	for block_id in "$@"; do
-		returned_to_shell=0
-		if command rex send-key -s "$session_id" -b "$block_id" ctrl+c ctrl+c; then
-			for attempt in {1..25}; do
-				if ! process_json="$(command rex block call process -s "$session_id" -b "$block_id")"; then
-					break
-				fi
-				if _hcom_team_pane_is_idle "$process_json"; then
-					returned_to_shell=1
-					break
-				fi
-				sleep 0.2
-			done
+	while (( $# >= 2 )); do
+		tags+=("$1")
+		[[ -z "$1" ]] || has_role_tags=1
+		blocks+=("$2")
+		shift 2
+	done
+	for block_id in "${blocks[@]}"; do
+		command rex send-key -s "$session_id" -b "$block_id" ctrl+c ctrl+c || :
+	done
+	for attempt in {1..25}; do
+		agents_json=""
+		if (( has_role_tags )); then
+			agents_json="$(command hcom list --json 2>/dev/null)" || agents_json=""
+			jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json" || agents_json=""
 		fi
-		if (( ! returned_to_shell )); then
+		_hcom_team_poll_stopping_peers "$session_id" "$agents_json"
+		(( pending )) || break
+		(( attempt == 25 )) || sleep 0.2
+	done
+	for block_id in "${blocks[@]}"; do
+		if [[ -z "${resolved[$block_id]:-}" ]]; then
 			print -ru2 -- "team: peer pane $block_id did not return to a shell prompt."
 			stop_status=1
-		else
-			reply+=("$block_id")
 		fi
 	done
 	return "$stop_status"
 }
 
-# Succeeds when a pane is back at its zsh prompt, so no agent is running there.
+# Checks, once, each pane that has not stopped yet. Reads blocks, tags and resolved
+# from _hcom_team_stop_peers, and updates resolved, reply and pending there.
+#
+# @param  {string}  session_id
+#     Rex session that contains the team.
+# @param  {string}  agents_json
+#     Current HCOM agent list, or empty when unavailable.
+_hcom_team_poll_stopping_peers() {
+	# Team session containing the peer panes.
+	local session_id="$1"
+	# HCOM agent list shared by this poll.
+	local agents_json="$2"
+	# Index of the peer inspected during this poll.
+	local index
+	# Current pane and its exact role tag.
+	local block_id tag
+	# Rex process details for the current pane.
+	local process_json
+
+	pending=0
+	for (( index = 1; index <= ${#blocks}; index++ )); do
+		block_id="${blocks[index]}"
+		tag="${tags[index]}"
+		[[ -z "${resolved[$block_id]:-}" ]] || continue
+		if process_json="$(command rex block call process -s "$session_id" -b "$block_id")" && _hcom_team_pane_is_idle "$process_json"; then
+			resolved[$block_id]=idle
+			reply+=("$block_id")
+		elif [[ -n "$tag" && -n "$agents_json" ]] && ! _hcom_team_role_is_live "$tag" "$agents_json"; then
+			resolved[$block_id]=stopped
+		else
+			pending=1
+		fi
+	done
+}
+
+# Succeeds when HCOM still lists the exact role as live.
+#
+# @param  {string}  tag
+#     Exact HCOM role tag.
+# @param  {string}  agents_json
+#     Agent list returned by HCOM.
+_hcom_team_role_is_live() {
+	jq -e --arg tag "$1" --argjson live_statuses "$_HCOM_TEAM_LIVE_STATUSES" 'type == "array" and any(.[]; .tag == $tag and (.status as $status | $live_statuses | index($status) != null))' >/dev/null 2>&1 <<<"$2"
+}
+
+# Succeeds when the pane's shell is in charge of its terminal, so typed text
+# reaches the shell rather than a running agent.
+#
+# Follows the pane's processes down through single-child wrappers such as login
+# and lig to the first shell. Fails when the tree looks unexpected or ps cannot
+# read it, so an unknown pane is treated as busy.
 #
 # @param  {string}  process_json
 #     Process details returned by Rex for the pane.
 _hcom_team_pane_is_idle() {
-	jq -e '.foreground.name == "zsh"' >/dev/null <<<"$1"
+	# The process being inspected, starting from the pane's top process in Rex.
+	local process_id="$(jq -r '.child.pid // empty' <<<"$1")"
+	# Process state and command reported by ps.
+	local process_line
+	# Parsed process state and command.
+	local -a process_fields
+	# Child process IDs reported by pgrep.
+	local -a children
+	# Process command without its path or login-shell prefix.
+	local command_name
+	# Steps taken through wrapper processes, capped in case the tree is unexpected.
+	local depth
+	[[ "$process_id" == <-> ]] || return 1
+	for depth in {1..5}; do
+		process_line="$(command ps -p "$process_id" -o stat= -o comm= 2>/dev/null)" || return 1
+		process_fields=("${=process_line}")
+		(( ${#process_fields} == 2 )) || return 1
+		command_name="${process_fields[2]:t}"
+		command_name="${command_name#-}"
+		if [[ "$command_name" == (zsh|bash|sh|fish) ]]; then
+			# A + in the process state means the shell owns the terminal.
+			[[ "${process_fields[1]}" == *+* ]]
+			return $?
+		fi
+		children=("${(@f)$(command pgrep -P "$process_id" 2>/dev/null)}")
+		(( ${#children} == 1 )) || return 1
+		process_id="${children[1]}"
+	done
+	return 1
 }
 
 # Runs the orchestrator role in its pane and cleans up the team when it exits.
@@ -1812,7 +1907,9 @@ _hcom_team_run_orchestrator() {
 	"$launcher" "$working_directory" "$initial_prompt" || :
 	# Whether every teammate returned to its shell.
 	local stop_status=0
-	_hcom_team_stop_peers "$session_id" "$implementer_block" "$reviewer_block" "$scout_block" || stop_status=$?
+	# The team's exact HCOM tags, in orchestrator, reviewer, implementer, scout order.
+	local -a role_tags=("${(@s:|:)team_tags}")
+	_hcom_team_stop_peers "$session_id" "${role_tags[3]:-}" "$implementer_block" "${role_tags[2]:-}" "$reviewer_block" "${role_tags[4]:-}" "$scout_block" || stop_status=$?
 	# Teammate pane that returned to its shell prompt.
 	local block_id
 	for block_id in "${reply[@]}"; do
@@ -2558,7 +2655,7 @@ _hcom_team_reset_role() {
 		account_changed=1
 	fi
 
-	if ! _hcom_team_stop_peers "$session_id" "$block_id"; then
+	if ! _hcom_team_stop_peers "$session_id" "" "$block_id"; then
 		_hcom_command_error team-reset "$role was not restarted."
 		return 1
 	fi
@@ -2660,12 +2757,12 @@ _hcom_team_wait_ready() {
 
 	for (( attempt = 0; attempt < 90; attempt++ )); do
 		if agents_json="$(command hcom list --json 2>/dev/null)" && jq -e 'type == "array"' >/dev/null 2>&1 <<<"$agents_json"; then
-			ready_name="$(jq -r --arg role "$role" --arg directory "$working_directory" --argjson existing "$existing_names" '
+			ready_name="$(jq -r --arg role "$role" --arg directory "$working_directory" --argjson existing "$existing_names" --argjson live_statuses "$_HCOM_TEAM_LIVE_STATUSES" '
 				first(.[] | select(
 					(.name | type == "string") and
 					(.name as $name | $existing | index($name) | not) and
 					(.tag | type == "string" and endswith("-" + $role)) and
-					(.status == "active" or .status == "listening" or .status == "blocked") and
+					(.status as $status | $live_statuses | index($status) != null) and
 					($directory == "" or .directory == $directory)
 				) | .name) // empty
 			' <<<"$agents_json")"

@@ -31,11 +31,15 @@ assert_no_role_title() {
 	[[ "$1" != *'terminal_title_set'* && "$1" != *'CLAUDE_CODE_DISABLE_TERMINAL_TITLE'* && "$1" != *'HCOM_CODEX_ARGS'* && "$1" != *'tui.terminal_title'* ]] || fail "$2"
 }
 
-# Skips every real wait in the suite, such as the retries while a busy pane is checked.
+# Skips real waits and records requested delays when HCOM_FIXTURE_SLEEP_CALLS is set.
 #
 # @param  {number}  seconds
-#     The delay the code under test asked for; ignored.
-sleep() { :; }
+#     The requested delay, recorded when the fixture has a sleep log.
+sleep() {
+	if [[ -n "${HCOM_FIXTURE_SLEEP_CALLS:-}" ]]; then
+		print -r -- "$1" >> "$HCOM_FIXTURE_SLEEP_CALLS"
+	fi
+}
 
 # Supplies task records and active-task IDs without consulting the real project.
 cat > "$fixture_dir/bin/progress" <<'STUB'
@@ -280,10 +284,10 @@ case "$1" in
 				if [[ -n "${HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK"* ]]; then
 					exit 1
 				fi
-				if [[ -n "${HCOM_FIXTURE_REX_BUSY_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_BUSY_BLOCK"* ]]; then
-					print -r -- '{"foreground":{"name":"claude"}}'
+				if [[ -n "${HCOM_FIXTURE_REX_BUSY_BLOCK:-}" && "$*" == *"$HCOM_FIXTURE_REX_BUSY_BLOCK"* || "${HCOM_FIXTURE_REX_PROCESS:-}" == claude ]]; then
+					print -r -- '{"child":{"pid":200},"foreground":{"name":"login"}}'
 				else
-					print -r -- "{\"foreground\":{\"name\":\"${HCOM_FIXTURE_REX_PROCESS:-zsh}\"}}"
+					print -r -- '{"child":{"pid":100},"foreground":{"name":"login"}}'
 				fi
 				;;
 			close)
@@ -321,7 +325,31 @@ case "$1" in
 		;;
 esac
 STUB
-chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/git" "$fixture_dir/bin/rex"
+# Reports process states for an idle pane tree (100 -> 101 -> 102) and an agent pane tree (200 -> 201 -> 202).
+cat > "$fixture_dir/bin/ps" <<'STUB'
+#!/usr/bin/env zsh
+[[ "$1" == -p && "$3" == -o && "$4" == 'stat=' && "$5" == -o && "$6" == 'comm=' ]] || exit 1
+case "$2" in
+	100|200) print -r -- 'Ss /usr/bin/login' ;;
+	101|201) print -r -- 'Ss lig' ;;
+	102) print -r -- 'Ss+ /bin/zsh' ;;
+	202) print -r -- 'Ss /bin/zsh' ;;
+	*) exit 1 ;;
+esac
+STUB
+# Links each fixture process to its single child, so the walk passes login and lig.
+cat > "$fixture_dir/bin/pgrep" <<'STUB'
+#!/usr/bin/env zsh
+[[ "$1" == -P ]] || exit 1
+case "$2" in
+	100) print -r -- 101 ;;
+	101) print -r -- 102 ;;
+	200) print -r -- 201 ;;
+	201) print -r -- 202 ;;
+	*) exit 1 ;;
+esac
+STUB
+chmod +x "$fixture_dir/bin/progress" "$fixture_dir/bin/hcom" "$fixture_dir/bin/git" "$fixture_dir/bin/rex" "$fixture_dir/bin/ps" "$fixture_dir/bin/pgrep"
 export PATH="$fixture_dir/bin:$PATH"
 export HCOM_FIXTURE_AGENTS="$fixture_dir/agents.json"
 export HCOM_FIXTURE_WORKTREE_CALLS="$fixture_dir/worktree-calls"
@@ -345,10 +373,20 @@ source "$repo_root/aliases.hcom-workflow.zsh"
 source "$repo_root/aliases.hcom-team-placement.zsh"
 source "$repo_root/aliases.hcom-team.zsh"
 source "$repo_root/aliases.progress.zsh"
+
 functions -c _hcom_team_create_panes _hcom_team_create_panes_real
 source "$repo_root/aliases.hcom-roles.zsh"
 source "$repo_root/aliases.hcom-learn.zsh"
 source "$repo_root/aliases.hcom-session.zsh"
+
+# A login and lig wrapper lead to a shell whose terminal state decides idleness.
+_hcom_team_pane_is_idle '{"child":{"pid":100},"foreground":{"name":"login"}}' || fail 'idle shell behind login and lig was missed'
+if _hcom_team_pane_is_idle '{"child":{"pid":200},"foreground":{"name":"login"}}'; then
+	fail 'agent pane shell was accepted as idle'
+fi
+if _hcom_team_pane_is_idle '{"child":{"pid":999},"foreground":{"name":"login"}}'; then
+	fail 'missing process tree was accepted as idle'
+fi
 
 # Shows preview text without relying on the installed colour helper.
 #
@@ -1476,7 +1514,8 @@ grep -Fxq 'focus -s fixture-origin-session block:new' "$HCOM_FIXTURE_REX_CALLS" 
 if grep -q '^new ' "$HCOM_FIXTURE_REX_CALLS"; then
 	fail 'Rex opened a new session'
 fi
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'new Rex tab was resized'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'api call -s fixture-origin-session session.resize_pane {"direction":"horizontal","before_block_id":"block:new","after_block_id":"block:implementer","ratio":0.67}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:implementer","after_block_id":"block:reviewer","ratio":0.33}'*'api call -s fixture-origin-session session.resize_pane {"direction":"vertical","before_block_id":"block:reviewer","after_block_id":"block:scout","ratio":0.5}'* ]] || fail 'new Rex tab did not get the expected pane proportions'
+[[ "$(grep -c 'session.resize_pane' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'new Rex tab resized an unexpected number of borders'
 for role in implementer reviewer scout; do
 	# The command typed into this role's pane.
 	role_send="$(grep "^send -s fixture-origin-session -b block:$role " "$HCOM_FIXTURE_REX_CALLS")"
@@ -1588,7 +1627,7 @@ HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:c
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
 : > "$HCOM_FIXTURE_REX_CALLS"
 HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" '' '' 2 1 2 codex codex codex orchestrator:codex '' 1 codex || fail 'bare team busy tab fallback'
-[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s fixture-origin-session Team -c '*'--focus=false --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session.resize_pane'* ]] || fail 'bare team reused or resized a busy tab'
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'window new -s fixture-origin-session Team -c '*'--focus=false --json'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'session rename fixture-origin-session'* && "$(grep -c 'session.resize_pane' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'bare team did not open and resize a new tab'
 
 # A launcher pane without a tab ID opens a new tab even when older teams are ambiguous.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","label":"shell"},{"block_id":"block:older-a","label":"orchestrator"},{"block_id":"block:older-b","label":"orchestrator"}]}'
@@ -1609,12 +1648,10 @@ unset HCOM_FIXTURE_REX_RESIZE_FAIL
 export REX_SESSION=fixture-origin-session
 export HCOM_FIXTURE_REX_SESSIONS='{"sessions":[{"session_id":"fixture-origin-session","label":"Plain session"}]}'
 
-# Rex reports its own process in the launcher pane while the plain tab is being inspected.
-export HCOM_FIXTURE_REX_PROCESS=rex
+# A plain tab can be reused without inspecting its launcher pane process.
 : > "$HCOM_FIXTURE_REX_CALLS"
-HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'plain tab reuse while Rex reports its own process'
-[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s fixture-origin-session -b block:origin'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'Rex process report blocked plain tab reuse'
-unset HCOM_FIXTURE_REX_PROCESS
+HCOM_TEAM_PROJECT_TAG=Fixture _hcom_team_create_panes_real team:codex reviewer:codex implementer scout "$fixture_dir/project" fixture-task '' 2 1 2 codex codex codex orchestrator:codex 'Continue fixture task.' 1 codex tsk_A_B || fail 'plain tab reuse without launcher pane lookup'
+[[ "${reply[2]}" == fixture-origin-session && "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'session rename fixture-origin-session Fixture'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'block call process -s fixture-origin-session -b block:origin'* && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'new '* ]] || fail 'plain tab reuse inspected the launcher pane or opened a new tab'
 
 # More than one pane opens a new tab in the current session.
 export HCOM_FIXTURE_REX_BLOCKS='{"blocks":[{"block_id":"block:origin","window_id":"window:origin","label":"shell"},{"block_id":"block:other","window_id":"window:origin","label":"other"}]}'
@@ -1700,15 +1737,16 @@ unset REX_BLOCK HCOM_FIXTURE_REX_SESSIONS HCOM_FIXTURE_REX_BLOCKS
 # The orchestrator wrapper stops peers and clears scope after its role exits.
 fixture_orchestrator() { return 0; }
 : > "$HCOM_FIXTURE_REX_CALLS"
-_hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" || fail 'orchestrator exit cleanup'
+_hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-orchestrator|fixture-reviewer|fixture-implementer|fixture-scout' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" || fail 'orchestrator exit cleanup'
 [[ "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'orchestrator exit lost a pane or scope cleanup'
 for role in implementer reviewer scout; do
 	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after stopping"
 done
 # A peer that stays busy reports its pane while the wrapper still clears scope.
 export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
+print -r -- '[{"tag":"fixture-reviewer","status":"active"}]' > "$HCOM_FIXTURE_AGENTS"
 : > "$HCOM_FIXTURE_REX_CALLS"
-if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
+if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-orchestrator|fixture-reviewer|fixture-implementer|fixture-scout' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
 	fail 'orchestrator exit accepted a busy reviewer pane'
 fi
 [[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_TEAM_SESSION_ID:-}" && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" && "$(grep -c '^send-key .* ctrl+c ctrl+c$' "$HCOM_FIXTURE_REX_CALLS")" == 3 ]] || fail 'busy peer exit missed its pane message or scope cleanup'
@@ -1717,10 +1755,30 @@ for role in implementer scout; do
 	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared when the reviewer stayed busy"
 done
 unset HCOM_FIXTURE_REX_BUSY_BLOCK
+# A stopped HCOM role ends the wait without allowing its busy pane to be cleared.
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:reviewer
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
+: > "$HCOM_FIXTURE_REX_CALLS"
+_hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-orchestrator|fixture-reviewer|fixture-implementer|fixture-scout' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file" || fail 'stopped HCOM role kept the shutdown waiting'
+[[ ! -s "$error_file" && "$(<"$HCOM_FIXTURE_REX_CALLS")" != *'send -s session:fixture -b block:reviewer clear'* ]] || fail 'stopped role caused a warning or cleared a busy pane'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK
+# Every peer receives stop keys before the shared wait begins.
+print -r -- '[{"tag":"fixture-implementer","status":"active"},{"tag":"fixture-reviewer","status":"listening"},{"tag":"fixture-scout","status":"blocked"}]' > "$HCOM_FIXTURE_AGENTS"
+# Matching every pane ID keeps all peers busy for the entire shared wait.
+export HCOM_FIXTURE_REX_BUSY_BLOCK=block:
+export HCOM_FIXTURE_SLEEP_CALLS="$fixture_dir/stop-sleeps"
+: > "$HCOM_FIXTURE_REX_CALLS"
+: > "$HCOM_FIXTURE_SLEEP_CALLS"
+if _hcom_team_stop_peers session:fixture fixture-implementer block:implementer fixture-reviewer block:reviewer fixture-scout block:scout 2>"$error_file"; then
+	fail 'busy peers were accepted after the shared wait'
+fi
+[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *'send-key -s session:fixture -b block:implementer ctrl+c ctrl+c'*'send-key -s session:fixture -b block:reviewer ctrl+c ctrl+c'*'send-key -s session:fixture -b block:scout ctrl+c ctrl+c'*'block call process'* && "$(wc -l < "$HCOM_FIXTURE_SLEEP_CALLS" | tr -d ' ')" == 24 ]] || fail 'peer stops did not share one deadline'
+unset HCOM_FIXTURE_REX_BUSY_BLOCK HCOM_FIXTURE_SLEEP_CALLS
+print -r -- '[{"tag":"fixture-reviewer","status":"active"}]' > "$HCOM_FIXTURE_AGENTS"
 # A failed process lookup uses the same pane message and clears scope.
 export HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK=block:reviewer
 : > "$HCOM_FIXTURE_REX_CALLS"
-if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-tags' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
+if _hcom_team_run_orchestrator session:fixture block:implementer block:reviewer block:scout 'fixture-orchestrator|fixture-reviewer|fixture-implementer|fixture-scout' fixture-task tsk_fixture fixture_orchestrator "$checkout_path" "$prompt_text" 2>"$error_file"; then
 	fail 'orchestrator exit accepted a failed reviewer process check'
 fi
 [[ "$(<"$error_file")" == 'team: peer pane block:reviewer did not return to a shell prompt.' && -z "${HCOM_ACTIVE_TEAM_TAGS:-}" ]] || fail 'failed process lookup missed its pane message or scope cleanup'
@@ -1729,6 +1787,7 @@ for role in implementer scout; do
 	[[ "$(<"$HCOM_FIXTURE_REX_CALLS")" == *"send -s session:fixture -b block:$role clear"*"send-key -s session:fixture -b block:$role enter"* ]] || fail "$role pane was not cleared after the reviewer process check failed"
 done
 unset HCOM_FIXTURE_REX_PROCESS_ERROR_BLOCK
+print -r -- '[]' > "$HCOM_FIXTURE_AGENTS"
 # A failed clear reports the pane and still clears the other teammates.
 export HCOM_FIXTURE_REX_SEND_ERROR_BLOCK=block:reviewer
 : > "$HCOM_FIXTURE_REX_CALLS"
