@@ -17,42 +17,39 @@ Built around:
 
 ## Setup on a fresh machine
 
-### 1. Install the terminal and font
+### 1. Install Homebrew
 
-Install [Homebrew](https://brew.sh/) first, then:
+Install [Homebrew](https://brew.sh/) first.
 
-```sh
-brew install --cask ghostty font-jetbrains-mono-nerd-font
-```
+### 2. Install the terminal and shell tools
 
-The Nerd Font provides the symbols used by the Starship prompt.
-
-### 2. Install the shell tools
+Check out this repository at `~/Dev/Repositories/Configuration/zsh`, then install everything in its Brewfile:
 
 ```sh
-brew install \
-	atuin \
-	bat \
-	eza \
-	fzf \
-	starship \
-	zoxide
+cd ~/Dev/Repositories/Configuration/zsh
+brew bundle
 ```
+
+The Brewfile installs Ghostty, the JetBrains Mono Nerd Font and the shell tools in the table below. The Nerd Font provides the symbols used by the Starship prompt.
 
 These provide:
 
-| Tool       | Purpose                                               |
-| ---------- | ----------------------------------------------------- |
-| `starship` | Configurable shell prompt                             |
-| `zoxide`   | Frecency-based directory navigation with `z` and `zi` |
-| `eza`      | Clearer file listings and directory trees             |
-| `fzf`      | Fuzzy file, directory and command selection           |
-| `atuin`    | Searchable, contextual shell history                  |
-| `bat`      | Syntax-highlighted file viewing                       |
+| Tool                  | Purpose                                               |
+| --------------------- | ----------------------------------------------------- |
+| `starship`            | Configurable shell prompt                             |
+| `zoxide`              | Frecency-based directory navigation with `z` and `zi` |
+| `eza`                 | Clearer file listings and directory trees             |
+| `fzf`                 | Fuzzy file, directory and command selection           |
+| `atuin`               | Searchable, contextual shell history                  |
+| `bat`                 | Syntax-highlighted file viewing                       |
+| `zsh-autosuggestions` | Suggestions from earlier commands as you type         |
+| `tlrc`                | Short command examples with `tldr`                    |
+| `fd`                  | Fast file search                                      |
+| `ripgrep`             | Fast text search with `rg`                            |
+| `gh`                  | The GitHub command line                               |
+| `coreutils`           | GNU tools such as `gtimeout`                          |
 
 ### 3. Link the configuration
-
-Assuming this repository is checked out at `~/Dev/Repositories/Configuration/zsh`:
 
 ```sh
 mkdir -p ~/.config
@@ -132,7 +129,7 @@ The eza aliases provide progressively more detail:
 
 Atuin records commands with contextual information such as their directory, duration and exit status.
 
-The normal up-arrow behaviour is preserved, while `Ctrl-R` opens Atuin’s searchable history.
+The up arrow searches Atuin history for the current directory when `filter_mode_shell_up_key_binding` is set to `directory` in `~/.config/atuin/config.toml`. `Ctrl-R` searches all history.
 
 ### File viewing
 
@@ -178,6 +175,7 @@ Reports:
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `zprofile`                 | Login-shell loader. Sources the shared environment and is symlinked from `~/.zprofile`.                                       |
 | `zshrc`                    | Interactive-shell loader. Sources the environment, aliases, hooks and interactive tool integrations.                          |
+| `Brewfile`                 | The terminal, font and command-line tools to install with `brew bundle`.                                                      |
 | `environment.zsh`          | Shared `PATH` and command environment for interactive and non-interactive login shells, including the cli-style Bash adapter. |
 | `starship.toml`            | Starship prompt layout, Git status, package version, command duration and background-job configuration.                       |
 | `aliases.agents.zsh`       | Agent setup aliases and the basic Codex, Claude, progress and agents commands.                                                |

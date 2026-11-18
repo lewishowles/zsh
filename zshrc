@@ -1,12 +1,3 @@
-# Hand the terminal over to lig's wrapper, which restarts this shell inside
-# it. This must stay first: anything above it would run twice per terminal.
-# The markers let lig's own update and uninstall commands find this block.
-# >>> lig pre >>>
-if [[ -x /opt/homebrew/opt/lig/bin/lig ]]; then
-	eval "$(/opt/homebrew/opt/lig/bin/lig init zsh pre)"
-fi
-# <<< lig pre <<<
-
 ZSH_CONFIG_ROOT="${ZSH_CONFIG_ROOT:-$HOME/Dev/Repositories/Configuration/zsh}"
 
 [[ -r "$ZSH_CONFIG_ROOT/environment.zsh" ]] && source "$ZSH_CONFIG_ROOT/environment.zsh"
@@ -35,9 +26,23 @@ if (( $+commands[fzf] )) && [[ -t 0 ]]; then
 	eval "$(fzf --zsh)"
 fi
 
-# Searchable, contextual shell history.
+# The number of commands the current shell keeps in memory.
+HISTSIZE=50000
+# The number of commands kept in the history file for later shells.
+SAVEHIST=50000
+# Leave out repeats of the previous command, commands that start with a space
+# and extra spaces, and save each command to the file as soon as it runs.
+setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE HIST_REDUCE_BLANKS INC_APPEND_HISTORY
+
+# Searchable, contextual shell history, on Ctrl-R and the up arrow.
 if (( $+commands[atuin] )); then
-	eval "$(atuin init zsh --disable-up-arrow --disable-ai)"
+	eval "$(atuin init zsh --disable-ai)"
+fi
+
+# Grey suggestions from earlier commands as you type, when Homebrew has
+# installed zsh-autosuggestions.
+if [[ -r /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]]; then
+	source /opt/homebrew/share/zsh-autosuggestions/zsh-autosuggestions.zsh
 fi
 
 # Shell hooks.
@@ -56,11 +61,3 @@ fi
 
 # Added by Antigravity CLI installer
 export PATH="/Users/lewis/.local/bin:$PATH"
-
-# Connect lig to the shell once it is running inside lig's wrapper. This stays
-# last so it sees the finished prompt and hooks.
-# >>> lig post >>>
-if [[ -x /opt/homebrew/opt/lig/bin/lig ]]; then
-	eval "$(/opt/homebrew/opt/lig/bin/lig init zsh post)"
-fi
-# <<< lig post <<<
