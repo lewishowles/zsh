@@ -3,7 +3,7 @@
 
 # The shell prompt.
 brew "starship"
-# Searchable shell history on Ctrl-R and the up arrow.
+# Searchable shell history on Ctrl-R.
 brew "atuin"
 # Jumping to recent directories with `z` and `zi`.
 brew "zoxide"

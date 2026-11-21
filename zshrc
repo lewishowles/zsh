@@ -34,10 +34,21 @@ SAVEHIST=50000
 # and extra spaces, and save each command to the file as soon as it runs.
 setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE HIST_REDUCE_BLANKS INC_APPEND_HISTORY
 
-# Searchable, contextual shell history, on Ctrl-R and the up arrow.
+# Searchable, contextual shell history on Ctrl-R. The up arrow stays with zsh.
 if (( $+commands[atuin] )); then
-	eval "$(atuin init zsh --disable-ai)"
+	eval "$(atuin init zsh --disable-ai --disable-up-arrow)"
 fi
+
+# The up and down arrows step through history. With nothing typed they act as
+# normal; once something is typed they only show commands that start with it.
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+# Terminals send either sequence for each arrow, so bind both.
+bindkey '^[[A' up-line-or-beginning-search
+bindkey '^[OA' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search
+bindkey '^[OB' down-line-or-beginning-search
 
 # Grey suggestions from earlier commands as you type, when Homebrew has
 # installed zsh-autosuggestions.
